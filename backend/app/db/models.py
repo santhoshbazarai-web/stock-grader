@@ -183,10 +183,13 @@ class FinAnnual(_FinancialsCommon, Base):
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     instrument_id: Mapped[int] = _instrument_fk()
     fiscal_year: Mapped[int]  # FY ending, e.g. 2025 for Apr-2024..Mar-2025
+    sga: Mapped[float | None]
     # balance sheet
     total_assets: Mapped[float | None]
+    current_assets: Mapped[float | None]
     current_liabilities: Mapped[float | None]
     total_equity: Mapped[float | None]
+    retained_earnings: Mapped[float | None]
     minority_interest_bs: Mapped[float | None]
     total_debt: Mapped[float | None]
     cash_and_equivalents: Mapped[float | None]

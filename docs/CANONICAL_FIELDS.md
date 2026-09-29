@@ -19,12 +19,15 @@ NULL and is recorded as a data gap).
 | `pbt` | cr | fin_annual, fin_quarterly | Profit before tax | `Profit before tax` | `PretaxIncome` | — |
 | `tax` | cr | fin_annual, fin_quarterly | Tax expense | `Tax` | `TaxProvision` | — |
 | `pat` | cr | fin_annual, fin_quarterly | Net profit attributable to shareholders | `Net profit` | `NetIncomeCommonStockholders` / `NetIncome` | — |
+| `sga` | cr | fin_annual | Selling, general and administrative expenses (Beneish SGAI) | `Selling and admin` | `SellingGeneralAndAdministration` | — |
 | `minority_interest_pl` | cr | fin_annual, fin_quarterly | Profit attributable to minority interests | — | `MinorityInterests` (negated) | — |
 | `eps_diluted` | rs | fin_annual, fin_quarterly | Diluted EPS | derived: pat / shares_diluted_cr (annual only) | `DilutedEPS` | — |
 | `shares_diluted_cr` | cr_shares | fin_annual, fin_quarterly | Diluted (bonus/split-adjusted) share count, crore | `Adjusted Equity Shares in Cr` | `DilutedAverageShares` | — |
 | `total_assets` | cr | fin_annual | Total assets | `Total` | `TotalAssets` | — |
+| `current_assets` | cr | fin_annual | Current assets (Piotroski current ratio, Altman working capital) | — | `CurrentAssets` | — |
 | `current_liabilities` | cr | fin_annual | Current liabilities | — | `CurrentLiabilities` | — |
 | `total_equity` | cr | fin_annual | Shareholders' equity (excluding minority interest) | derived: Equity Share Capital + Reserves | `StockholdersEquity` | — |
+| `retained_earnings` | cr | fin_annual | Retained earnings (Screener: Reserves, which also holds share premium) | `Reserves` | `RetainedEarnings` | — |
 | `minority_interest_bs` | cr | fin_annual | Minority interest (balance sheet) | — | `MinorityInterest` | — |
 | `total_debt` | cr | fin_annual | Total borrowings | `Borrowings` | `TotalDebt` | — |
 | `cash_and_equivalents` | cr | fin_annual | Cash and bank balances | `Cash & Bank` | `CashAndCashEquivalents` | — |

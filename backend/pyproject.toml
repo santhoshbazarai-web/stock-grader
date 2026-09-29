@@ -37,6 +37,8 @@ dev = [
     "responses>=0.26.3",
     "types-requests>=2.33.0.20260906",
     "types-openpyxl>=3.1.5.20260827",
+    "jsonschema>=4.26.0",
+    "types-jsonschema>=4.26.0.20260518",
 ]
 
 [tool.uv]

@@ -170,6 +170,9 @@ def _delete(path: list[str]) -> Mutator:
         ("scoring", _delete(["maps", "rs_percentile"]), "rs_percentile"),
         ("scoring", _set(["knockouts", "cap_grade"], "E"), "cap_grade"),
         ("scoring", _set(["earned_premium", "momentum_entry_min"], 9), "less than or equal"),
+        ("scoring", _set(["forensic", "altman_safe_above"], 1.0), "altman_distress_below"),
+        ("scoring", _set(["fundamentals", "days_in_year"], 400), "days_in_year"),
+        ("scoring", _set(["fundamentals", "cagr_years"], []), "cagr_years"),
         # jobs
         ("jobs", _set(["schedules", "eod_prices"], "61 18 * * *"), "invalid cron"),
         ("jobs", _delete(["schedules", "nse_bhavcopy"]), "schedules missing jobs"),

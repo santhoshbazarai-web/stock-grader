@@ -1,0 +1,658 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "stock-grader/golden.schema.json",
+  "title": "Golden stock fixture (SPEC §13)",
+  "description": "Hand-verified inputs and expected outputs for one stock. Amounts in ₹ crore, ratios as fractions (0.18 = 18%), *_days in days, bank metrics in percent. See README.md.",
+  "type": "object",
+  "required": [
+    "symbol",
+    "name",
+    "model_type",
+    "sector",
+    "statement_type",
+    "verified",
+    "inputs",
+    "expected"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "symbol": {
+      "type": "string",
+      "pattern": "^[A-Z0-9&-]+$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "model_type": {
+      "enum": [
+        "private_bank",
+        "nbfc",
+        "insurer",
+        "it_services",
+        "fmcg",
+        "metal_cyclical",
+        "cement",
+        "capital_goods_compounder",
+        "holding_company",
+        "midcap_growth",
+        "example"
+      ]
+    },
+    "sector": {
+      "type": "string",
+      "description": "key in config/sectors.yaml"
+    },
+    "statement_type": {
+      "enum": [
+        "consolidated",
+        "standalone"
+      ]
+    },
+    "is_example": {
+      "type": "boolean",
+      "description": "true only for the fictional example file"
+    },
+    "verified": {
+      "type": "object",
+      "required": [
+        "by",
+        "on",
+        "sources"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "by": {
+          "type": "string",
+          "minLength": 1
+        },
+        "on": {
+          "type": "string",
+          "format": "date"
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "required": [
+        "annual"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "annual": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "object",
+            "required": [
+              "period_end",
+              "fiscal_year"
+            ],
+            "properties": {
+              "period_end": {
+                "type": "string",
+                "format": "date"
+              },
+              "fiscal_year": {
+                "type": "integer",
+                "minimum": 1990,
+                "maximum": 2100
+              },
+              "revenue": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "cogs": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "ebitda": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "other_income": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "depreciation": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "ebit": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "interest": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "pbt": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "tax": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "pat": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "sga": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "minority_interest_pl": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "eps_diluted": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "shares_diluted_cr": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "total_assets": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "current_assets": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "current_liabilities": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "total_equity": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "retained_earnings": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "minority_interest_bs": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "total_debt": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "cash_and_equivalents": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "non_operating_investments": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "receivables": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "inventory": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "payables": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "net_block": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "book_value_per_share": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "cfo": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "purchase_of_fixed_assets": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "sale_of_fixed_assets": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "dividends_paid": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "extra": {
+                "type": "object",
+                "description": "bank / NBFC inputs",
+                "properties": {
+                  "interest_earned": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "description": "Interest earned (₹ Cr)"
+                  },
+                  "interest_expended": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "description": "Interest expended (₹ Cr)"
+                  },
+                  "net_interest_income": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "description": "Net interest income, if reported directly (₹ Cr)"
+                  },
+                  "advances": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "description": "Net advances / loan book (₹ Cr)"
+                  },
+                  "gross_advances": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "description": "Gross advances (₹ Cr)"
+                  },
+                  "investments": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "description": "Investments (₹ Cr)"
+                  },
+                  "deposits": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "description": "Total deposits (₹ Cr; NBFCs: leave empty)"
+                  },
+                  "casa_deposits": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "description": "Current + savings account deposits (₹ Cr)"
+                  },
+                  "gross_npa": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "description": "Gross non-performing assets (₹ Cr)"
+                  },
+                  "net_npa": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "description": "Net non-performing assets (₹ Cr)"
+                  },
+                  "loan_loss_provisions": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "description": "Provisions for NPAs / credit losses in the P&L (₹ Cr)"
+                  },
+                  "operating_expenses": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "description": "Operating expenses (₹ Cr)"
+                  },
+                  "crar_pct": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "description": "Capital adequacy ratio as reported (%)"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "quarterly": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "period_end"
+            ],
+            "properties": {
+              "period_end": {
+                "type": "string",
+                "format": "date"
+              },
+              "revenue": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "cogs": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "ebitda": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "other_income": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "depreciation": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "ebit": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "interest": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "pbt": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "tax": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "pat": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "minority_interest_pl": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "eps_diluted": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "shares_diluted_cr": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    "expected": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "as_of_fiscal_year": {
+          "type": "integer"
+        },
+        "metrics": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[a-z0-9_]+$"
+          },
+          "additionalProperties": {
+            "type": "number"
+          }
+        },
+        "bank_metrics": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[a-z_]+_pct$"
+          },
+          "additionalProperties": {
+            "type": "number"
+          }
+        },
+        "forensic": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "piotroski": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9
+            },
+            "beneish_m": {
+              "type": "number"
+            },
+            "altman_z2": {
+              "type": "number"
+            }
+          }
+        },
+        "valuation": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Checked once the valuation engine exists (P8).",
+          "properties": {
+            "dcf": {
+              "type": "object",
+              "required": [
+                "inputs",
+                "value_per_share"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "inputs": {
+                  "type": "object",
+                  "description": "fixed assumptions: g1, g_terminal, wacc, tax_rate, base FCFF, net debt, shares ..."
+                },
+                "value_per_share": {
+                  "type": "number"
+                }
+              }
+            },
+            "pe_band": {
+              "type": "object",
+              "required": [
+                "lookback_years",
+                "median",
+                "sigma"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "lookback_years": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "median": {
+                  "type": "number"
+                },
+                "sigma": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "model_type": {
+            "enum": [
+              "private_bank",
+              "nbfc"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "expected": {
+            "required": [
+              "bank_metrics"
+            ],
+            "properties": {
+              "bank_metrics": {
+                "required": [
+                  "gnpa_pct",
+                  "nim_pct",
+                  "roa_pct"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "model_type": {
+            "not": {
+              "enum": [
+                "private_bank",
+                "nbfc",
+                "insurer"
+              ]
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "expected": {
+            "required": [
+              "metrics"
+            ],
+            "properties": {
+              "metrics": {
+                "required": [
+                  "roce_5y_avg",
+                  "cfo_to_ebitda_5y",
+                  "ccc_days",
+                  "debt_to_equity"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

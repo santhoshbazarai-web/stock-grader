@@ -39,3 +39,12 @@ scoring:
     nim_pct:            [[2, 0], [3, 50], [4, 85], [5, 100]]
     car_pct:            [[11.5, 0], [14, 50], [17, 85], [20, 100]]
     roa_pct:            [[0.5, 0], [1.0, 50], [1.6, 85], [2.2, 100]]
+  fundamentals:                 # SPEC §4 metric windows
+    cagr_years: [3, 5, 10]
+    cumulative_years: 5         # CFO/EBITDA, CFO/PAT, FCF conversion, averages
+    dilution_years: 5
+    days_in_year: 365
+  forensic:
+    beneish_flag_above: -2.22   # SPEC §4: M above this is a manipulation flag
+    altman_safe_above: 2.6      # Z'' (EM, without the 3.25 constant) zones, Altman (2005)
+    altman_distress_below: 1.1

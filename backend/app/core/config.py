@@ -441,6 +441,25 @@ class BankMaps(_Strict):
     roa_pct: PiecewiseLinearMap
 
 
+class FundamentalsConfig(_Strict):
+    cagr_years: list[PositiveInt] = Field(min_length=1)
+    cumulative_years: PositiveInt
+    dilution_years: PositiveInt
+    days_in_year: Annotated[int, Field(ge=360, le=366)]
+
+
+class ForensicConfig(_Strict):
+    beneish_flag_above: float
+    altman_safe_above: float
+    altman_distress_below: float
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        if self.altman_distress_below >= self.altman_safe_above:
+            raise ValueError("altman_distress_below must be < altman_safe_above")
+        return self
+
+
 class ScoringConfig(_Strict):
     weights: PillarWeights
     grade_cutoffs: GradeCutoffs
@@ -448,6 +467,8 @@ class ScoringConfig(_Strict):
     maps: ScoringMaps
     earned_premium: EarnedPremiumConfig
     bank_maps: BankMaps
+    fundamentals: FundamentalsConfig
+    forensic: ForensicConfig
 
 
 # ───────────────────────── technical.yaml ─────────────────────────

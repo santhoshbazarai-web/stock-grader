@@ -109,6 +109,10 @@ CANONICAL_FIELDS: dict[str, FieldSpec] = {
         {"screener": _l("Net profit"),
          "yfinance": _l("NetIncomeCommonStockholders", "NetIncome")},
     ),
+    "sga": FieldSpec(
+        "cr", ANNUAL, "Selling, general and administrative expenses (Beneish SGAI)",
+        {"screener": _l("Selling and admin"), "yfinance": _l("SellingGeneralAndAdministration")},
+    ),
     "minority_interest_pl": FieldSpec(
         "cr", BOTH, "Profit attributable to minority interests",
         {"yfinance": _l("MinorityInterests", sign=-1)},
@@ -127,6 +131,10 @@ CANONICAL_FIELDS: dict[str, FieldSpec] = {
         "cr", ANNUAL, "Total assets",
         {"screener": _l("Total"), "yfinance": _l("TotalAssets")},
     ),
+    "current_assets": FieldSpec(
+        "cr", ANNUAL, "Current assets (Piotroski current ratio, Altman working capital)",
+        {"yfinance": _l("CurrentAssets")},
+    ),
     "current_liabilities": FieldSpec(
         "cr", ANNUAL, "Current liabilities", {"yfinance": _l("CurrentLiabilities")},
     ),
@@ -134,6 +142,10 @@ CANONICAL_FIELDS: dict[str, FieldSpec] = {
         "cr", ANNUAL, "Shareholders' equity (excluding minority interest)",
         {"yfinance": _l("StockholdersEquity")},
         {"screener": "Equity Share Capital + Reserves"},
+    ),
+    "retained_earnings": FieldSpec(
+        "cr", ANNUAL, "Retained earnings (Screener: Reserves, which also holds share premium)",
+        {"screener": _l("Reserves"), "yfinance": _l("RetainedEarnings")},
     ),
     "minority_interest_bs": FieldSpec(
         "cr", ANNUAL, "Minority interest (balance sheet)", {"yfinance": _l("MinorityInterest")},

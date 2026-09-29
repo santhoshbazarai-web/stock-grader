@@ -93,6 +93,20 @@ Piotroski F-score: the standard 9 tests.
 Beneish M-score: 8-variable model. A reading above −2.22 is a flag.
 Altman Z″: the emerging-markets version. Skip for financials.
 Banks/NBFCs (`banking.py`): NIM, CASA ratio, GNPA, NNPA, PCR, credit cost, CAR/CRAR, cost-to-income, RoA, RoE, loan growth.
+
+Implementation notes (`fundamentals/`, pure functions; windows and thresholds in `scoring.yaml` → `fundamentals`, `forensic`):
+- Units: ratios are fractions (0.18 = 18%), `*_days` in days, bank metrics in percent, amounts in ₹ crore.
+- Years are fiscal years. "Opening" means the previous fiscal year's closing balance; a missing year is never bridged.
+- ROCE, ROE, ROIC and the accruals ratio use the average of opening and closing balances (ROIC's invested capital is averaged too).
+- ROIC: NOPAT = EBIT × (1 − effective tax rate), where the effective rate is tax / PBT when PBT > 0 and the rate lies in [0, 1]. Otherwise `valuation.tax_rate_default` is used, and the source is reported.
+- A ratio whose denominator is not positive is undefined (NaN), not zero. Interest coverage with zero interest and positive EBIT is +∞ (debt-free).
+- Multi-year figures (5-yr averages, 5-yr cumulative CFO/EBITDA, CFO/PAT, FCF conversion, capex intensity, CAGRs) need every year in the window. Otherwise there is no value, and the missing inputs are named.
+- CAGR is undefined unless both endpoints are positive. Dilution = CAGR of the diluted share count.
+- TTM = sum of the last four consecutive quarters.
+- Piotroski: ROA and asset turnover use opening total assets. Leverage = total debt / total assets. The score is undefined if any of the nine tests is undetermined.
+- Beneish: PP&E = net block, securities = non-operating investments. LVGI = (current liabilities + total debt) / total assets. Coefficients are Beneish (1999). A value above `forensic.beneish_flag_above` is flagged.
+- Altman Z″ = 6.56·X1 + 3.26·X2 + 6.72·X3 + 1.05·X4, where X1 = working capital / TA, X2 = retained earnings / TA, X3 = EBIT / TA, X4 = book equity / (TA − equity). Zones come from `forensic.altman_*`. Not computed for financials.
+- Banks: NIM = NII / average(advances + investments); GNPA uses gross advances; NNPA uses net advances; PCR = (GNPA − NNPA) / GNPA; credit cost = provisions / average advances. CRAR is taken as reported.
 ---
 5. Valuation (`valuation/`)
 5.1 FCFF DCF (`dcf.py`)
