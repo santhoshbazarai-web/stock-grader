@@ -31,7 +31,8 @@ Health check: `curl localhost:8000/api/health`.
 make install   # uv sync (backend) + npm ci (frontend)
 make test      # pytest; DB tests use TEST_DATABASE_URL
                # (default: stockgrader_test on localhost:5432, created by `make up`)
-               # and are skipped if Postgres is unreachable
+               # and are skipped if Postgres is unreachable; rate-limiter tests
+               # likewise use TEST_REDIS_URL (default redis://localhost:6379/15)
 make check     # ruff + mypy --strict + eslint + tsc
 ```
 
@@ -52,3 +53,14 @@ each model's `__upsert_key__`, so re-running a job is idempotent.
 
 After changing models: `make revision m="describe change"`, review the generated file, then
 `make migrate`.
+
+## Data routing
+
+`app.data.router.DataRouter` serves each dataset from the providers listed in
+`providers.yaml` `priority`, in order. Per provider it takes a Redis token-bucket token
+(`app.core.rate_limiter`, limits from `rate_limits`) before every try and retries transient
+`ProviderError`s with exponential backoff (`retry`). It falls through on
+`ProviderUnavailable`, exhausted retries, empty data, stale data (`staleness_hours`) or a
+rate-limit timeout. If nothing usable comes back it returns `data=None` and records a
+`data_gaps` row; if only stale data came back it returns the freshest copy flagged `stale`.
+Every result carries `source`, `fetched_at` and `reasons`.

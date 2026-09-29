@@ -106,10 +106,24 @@ class RateLimit(_Strict):
         return self
 
 
+class RetryConfig(_Strict):
+    max_attempts: PositiveInt
+    backoff_base_s: NonNegativeFloat
+    backoff_max_s: NonNegativeFloat
+    rate_limit_timeout_s: NonNegativeFloat
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        if self.backoff_base_s > self.backoff_max_s:
+            raise ValueError("backoff_base_s must be <= backoff_max_s")
+        return self
+
+
 class ProvidersConfig(_Strict):
     priority: dict[Dataset, list[Provider]]
     rate_limits: dict[Provider, RateLimit]
     staleness_hours: dict[Dataset, PositiveFloat]
+    retry: RetryConfig
     history_years: PositiveInt
 
     @model_validator(mode="after")

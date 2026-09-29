@@ -6,11 +6,14 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from cryptography.fernet import Fernet
+from redis import Redis
+from redis.exceptions import ConnectionError as RedisConnectionError
 from sqlalchemy import Connection, Engine, create_engine, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_config
+from app.core.security import get_cipher
 from app.core.settings import get_settings
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -30,9 +33,11 @@ def _env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setenv("CONFIG_DIR", str(REPO_CONFIG_DIR))
     get_settings.cache_clear()
     get_config.cache_clear()
+    get_cipher.cache_clear()
     yield
     get_settings.cache_clear()
     get_config.cache_clear()
+    get_cipher.cache_clear()
 
 
 # ───────────────────────── database ─────────────────────────
@@ -77,3 +82,19 @@ def db(migrated_engine: Engine) -> Iterator[Session]:
         finally:
             session.close()
             trans.rollback()
+
+
+# ───────────────────────── redis ─────────────────────────
+
+TEST_REDIS_URL = os.environ.get("TEST_REDIS_URL", "redis://localhost:6379/15")
+
+
+@pytest.fixture(scope="session")
+def redis_client() -> Iterator[Redis]:
+    client = Redis.from_url(TEST_REDIS_URL)
+    try:
+        client.ping()
+    except RedisConnectionError as exc:
+        pytest.skip(f"Redis not reachable at TEST_REDIS_URL ({exc})")
+    yield client
+    client.close()

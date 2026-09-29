@@ -22,4 +22,9 @@ providers:
     daily_ohlcv: 30
     ltp: 0.1
     fin_annual: 2400
+  retry:                  # per provider call, before the router falls through to the next provider
+    max_attempts: 3       # total tries for transient errors (ProviderUnavailable is never retried)
+    backoff_base_s: 0.5   # sleep = min(backoff_max_s, backoff_base_s * 2**(attempt-1))
+    backoff_max_s: 8
+    rate_limit_timeout_s: 30   # give up on a provider if no rate-limit token within this time
   history_years: 10

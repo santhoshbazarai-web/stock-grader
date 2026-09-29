@@ -129,6 +129,9 @@ def _delete(path: list[str]) -> Mutator:
         ("providers", _set(["rate_limits", "nse", "per_sec"], 0), "greater than 0"),
         ("providers", _set(["rate_limits", "kite"], {"per_sec": 10, "per_min": 5}), "per_min"),
         ("providers", _set(["unknown_key"], 1), "Extra inputs"),
+        ("providers", _set(["retry", "max_attempts"], 0), "greater than 0"),
+        ("providers", _set(["retry", "backoff_base_s"], 10), "backoff_base_s"),
+        ("providers", _delete(["retry"]), "retry"),
         # valuation
         ("valuation", _set(["risk_free_rate"], 6.5), "less than or equal to 1"),
         ("valuation", _set(["dcf", "terminal_growth"], 0.08), "terminal_growth_bounds"),
