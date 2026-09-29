@@ -10,6 +10,7 @@ Load with :func:`load_config` (explicit directory) or :func:`get_config` (cached
 """
 
 import math
+from datetime import time
 from enum import StrEnum
 from functools import lru_cache
 from itertools import pairwise
@@ -130,6 +131,8 @@ class ProvidersConfig(_Strict):
     staleness_hours: dict[Dataset, PositiveFloat]
     retry: RetryConfig
     api_limits: dict[Provider, ApiLimits]
+    token_daily_expiry_ist: dict[Provider, time]
+    instruments_cache_hours: PositiveFloat
     oauth_state_ttl_s: PositiveInt
     history_years: PositiveInt
 

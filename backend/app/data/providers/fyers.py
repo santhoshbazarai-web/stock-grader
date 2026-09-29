@@ -15,7 +15,6 @@ import json
 import logging
 import tempfile
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from itertools import batched
 from typing import Any, Protocol
@@ -27,7 +26,7 @@ from fyers_apiv3 import fyersModel
 
 from app.core.config import ApiLimits, Provider, ProvidersConfig
 from app.core.rate_limiter import Limiter
-from app.data.providers.base import ProviderError, ProviderUnavailable
+from app.data.providers.base import IssuedToken, ProviderError, ProviderUnavailable
 
 logger = logging.getLogger(__name__)
 
@@ -63,15 +62,6 @@ def from_fyers_symbol(fyers_symbol: str) -> str:
 
 
 # ───────────────────────── OAuth ─────────────────────────
-
-
-@dataclass(frozen=True)
-class IssuedToken:
-    access_token: str
-    expires_at: datetime
-
-    def __repr__(self) -> str:  # never expose the token
-        return f"IssuedToken(access_token=<redacted>, expires_at={self.expires_at.isoformat()})"
 
 
 def jwt_expiry(token: str) -> datetime:

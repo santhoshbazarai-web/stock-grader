@@ -73,3 +73,11 @@ open `http://localhost:8000/api/brokers/fyers/login`. After login Fyers calls ba
 Fernet-encrypted into `broker_tokens` with its JWT expiry, and you are redirected to
 `$WEB_URL/settings?broker=fyers&status=connected`. Tokens expire daily; `GET /api/brokers/status`
 shows validity. With no valid token the router falls through to the next provider.
+
+Kite: set `KITE_API_KEY`, `KITE_API_SECRET` and register `KITE_REDIRECT_URI`
+(`http://localhost:8000/api/brokers/kite/callback` locally) as the redirect URL in the Kite
+developer console, then open `http://localhost:8000/api/brokers/kite/login`. Kite tokens expire
+at 06:00 IST (`token_daily_expiry_ist`). Historical candles need Kite's paid historical-data
+add-on; without it the provider reports `unavailable` and the router uses the next provider.
+The NSE instruments dump (symbol → instrument token) is cached in Redis for
+`instruments_cache_hours`.

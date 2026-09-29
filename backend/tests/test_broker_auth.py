@@ -18,6 +18,7 @@ from app.core.security import InvalidStateError, StateSigner, TokenCipher, get_s
 from app.core.settings import get_settings
 from app.data.broker_tokens import BrokerTokenStore
 from app.data.providers.fyers import FyersAuth
+from app.data.providers.kite import IST as IST_TZ
 from app.db.enums import Broker
 from app.db.models import BrokerToken
 from app.main import create_app
@@ -246,3 +247,95 @@ def test_login_when_not_configured(store: BrokerTokenStore) -> None:
         res = c.get("/api/brokers/fyers/login")
     assert res.status_code == 503
     assert "FYERS_APP_ID" in res.json()["detail"]
+
+
+# ───────────────────────── Kite endpoints ─────────────────────────
+
+KITE_SESSION_URL = "https://api.kite.trade/session/token"
+KITE_FIXTURES = Path(__file__).parent / "fixtures" / "kite"
+
+
+@pytest.fixture
+def kite_client(store: BrokerTokenStore) -> Iterator[TestClient]:
+    from datetime import time
+
+    from app.api.deps import get_kite_auth
+    from app.data.providers.kite import KiteAuth
+
+    app = create_app()
+    app.dependency_overrides[get_token_store] = lambda: store
+    app.dependency_overrides[get_kite_auth] = lambda: KiteAuth("kitekey", "sec", time(6, 0))
+    with TestClient(app, follow_redirects=False) as c:
+        yield c
+
+
+def _kite_state(client: TestClient) -> str:
+    res = client.get("/api/brokers/kite/login")
+    assert res.status_code == 307
+    q = parse_qs(urlparse(res.headers["location"]).query)
+    return parse_qs(q["redirect_params"][0])["state"][0]
+
+
+def test_kite_login_redirect(kite_client: TestClient) -> None:
+    res = kite_client.get("/api/brokers/kite/login")
+    url = urlparse(res.headers["location"])
+    assert url.netloc == "kite.zerodha.com" and url.path == "/connect/login"
+    get_state_signer().verify(_kite_state(kite_client), "kite-login", max_age_s=600)
+
+
+def test_kite_callback_stores_token(
+    kite_client: TestClient, http: responses.RequestsMock, store: BrokerTokenStore, db: Session
+) -> None:
+    http.add(
+        responses.POST,
+        KITE_SESSION_URL,
+        json=json.loads((KITE_FIXTURES / "session_ok.json").read_text()),
+    )
+    res = kite_client.get(
+        "/api/brokers/kite/callback",
+        params={
+            "request_token": "req",
+            "action": "login",
+            "status": "success",
+            "state": _kite_state(kite_client),
+        },
+    )
+    assert _redirect_params(res) == {"broker": "kite", "status": "connected"}
+    assert store.get_valid(Broker.KITE) == "kite-access-token-abc123"
+    row = db.scalars(select(BrokerToken).where(BrokerToken.broker == Broker.KITE)).one()
+    assert row.expires_at.astimezone(IST_TZ).time() == datetime.min.time().replace(hour=6)
+    assert b"kite-access-token-abc123" not in row.access_token_encrypted
+
+
+def test_kite_state_not_valid_for_fyers(
+    kite_client: TestClient, http: responses.RequestsMock
+) -> None:
+    fyers_state = StateSigner(get_settings().fernet_key.get_secret_value()).issue("fyers-login")
+    res = kite_client.get(
+        "/api/brokers/kite/callback",
+        params={"request_token": "req", "status": "success", "state": fyers_state},
+    )
+    assert _redirect_params(res)["reason"] == "invalid_state"
+    assert len(http.calls) == 0
+
+
+def test_kite_callback_declined(kite_client: TestClient, http: responses.RequestsMock) -> None:
+    res = kite_client.get(
+        "/api/brokers/kite/callback",
+        params={"status": "cancelled", "state": _kite_state(kite_client)},
+    )
+    assert _redirect_params(res) == {
+        "broker": "kite",
+        "status": "error",
+        "reason": "login_declined",
+    }
+    assert len(http.calls) == 0
+
+
+def test_kite_login_when_not_configured(store: BrokerTokenStore) -> None:
+    app = create_app()
+    app.dependency_overrides[get_token_store] = lambda: store
+    with TestClient(app, follow_redirects=False) as c:
+        res = c.get("/api/brokers/kite/login")
+    assert res.status_code == 503
+    assert "KITE_API_KEY" in res.json()["detail"]

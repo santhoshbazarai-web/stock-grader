@@ -1,0 +1,13 @@
+{
+ "status": "success",
+ "data": {
+  "NSE:TCS": {
+   "instrument_token": 2953217,
+   "last_price": 3815.4
+  },
+  "NSE:BAJAJ-AUTO": {
+   "instrument_token": 4267265,
+   "last_price": 9050.0
+  }
+ }
+}

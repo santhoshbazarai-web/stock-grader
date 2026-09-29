@@ -28,6 +28,10 @@ providers:
     backoff_max_s: 8
     rate_limit_timeout_s: 30   # give up on a provider if no rate-limit token within this time
   api_limits:             # hard per-request limits of each broker API (verify against current docs)
-    fyers: {history_max_days: 366, quotes_max_symbols: 50}   # daily candles; symbols per /quotes
+    fyers: {history_max_days: 366, quotes_max_symbols: 50}    # daily candles; symbols per /quotes
+    kite:  {history_max_days: 2000, quotes_max_symbols: 1000} # day candles; instruments per /quote/ltp
+  token_daily_expiry_ist:  # brokers whose access tokens expire at a fixed IST time (Fyers: JWT exp)
+    kite: "06:00"
+  instruments_cache_hours: 20   # Kite instruments dump is republished daily; refresh after this
   oauth_state_ttl_s: 600  # broker login must complete within this many seconds
   history_years: 10

@@ -8,7 +8,8 @@ DataFrame conventions (so the router can judge freshness):
   explicitly; it takes precedence over the index.
 """
 
-from datetime import date
+from dataclasses import dataclass
+from datetime import date, datetime
 from typing import Protocol, runtime_checkable
 
 import pandas as pd
@@ -23,6 +24,17 @@ class ProviderError(Exception):
 class ProviderUnavailable(ProviderError):
     """Permanent for this call: no valid broker token, missing entitlement, unsupported symbol.
     Not retried; the router falls through to the next provider immediately."""
+
+
+@dataclass(frozen=True)
+class IssuedToken:
+    """A broker access token from an OAuth exchange, with its expiry."""
+
+    access_token: str
+    expires_at: datetime
+
+    def __repr__(self) -> str:  # never expose the token
+        return f"IssuedToken(access_token=<redacted>, expires_at={self.expires_at.isoformat()})"
 
 
 @runtime_checkable

@@ -134,6 +134,8 @@ def _delete(path: list[str]) -> Mutator:
         ("providers", _delete(["retry"]), "retry"),
         ("providers", _set(["api_limits", "fyers", "history_max_days"], 0), "greater than 0"),
         ("providers", _set(["oauth_state_ttl_s"], -1), "greater than 0"),
+        ("providers", _set(["token_daily_expiry_ist", "kite"], "25:00"), "token_daily_expiry_ist"),
+        ("providers", _set(["instruments_cache_hours"], 0), "greater than 0"),
         # valuation
         ("valuation", _set(["risk_free_rate"], 6.5), "less than or equal to 1"),
         ("valuation", _set(["dcf", "terminal_growth"], 0.08), "terminal_growth_bounds"),

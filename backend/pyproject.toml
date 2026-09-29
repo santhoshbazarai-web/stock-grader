@@ -20,6 +20,7 @@ dependencies = [
     "scipy>=1.14",
     "fyers-apiv3>=3.1.18",
     "requests>=2.31.0",
+    "kiteconnect>=5.2.2",
 ]
 
 [dependency-groups]
@@ -67,5 +68,5 @@ init_typed = true
 warn_required_dynamic_aliases = true
 
 [[tool.mypy.overrides]]
-module = ["apscheduler.*", "fyers_apiv3.*"]
+module = ["apscheduler.*", "fyers_apiv3.*", "kiteconnect.*"]
 ignore_missing_imports = true
