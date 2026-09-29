@@ -46,3 +46,4 @@ class JobStatus(StrEnum):
     RUNNING = "running"
     SUCCESS = "success"
     FAILED = "failed"
+    SKIPPED = "skipped"  # another run held the lock, or outside the job's season

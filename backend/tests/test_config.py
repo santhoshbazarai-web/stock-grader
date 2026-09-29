@@ -54,7 +54,14 @@ def test_repo_config_loads() -> None:
 
 
 def test_config_files_split() -> None:
-    assert set(CONFIG_FILES) == {"providers", "valuation", "sectors", "scoring", "technical"}
+    assert set(CONFIG_FILES) == {
+        "providers",
+        "valuation",
+        "sectors",
+        "scoring",
+        "technical",
+        "jobs",
+    }
     for name in CONFIG_FILES:
         assert (REPO_CONFIG_DIR / f"{name}.yaml").is_file()
 
@@ -163,6 +170,13 @@ def _delete(path: list[str]) -> Mutator:
         ("scoring", _delete(["maps", "rs_percentile"]), "rs_percentile"),
         ("scoring", _set(["knockouts", "cap_grade"], "E"), "cap_grade"),
         ("scoring", _set(["earned_premium", "momentum_entry_min"], 9), "less than or equal"),
+        # jobs
+        ("jobs", _set(["schedules", "eod_prices"], "61 18 * * *"), "invalid cron"),
+        ("jobs", _delete(["schedules", "nse_bhavcopy"]), "schedules missing jobs"),
+        ("jobs", _set(["schedules", "made_up_job"], "0 1 * * *"), "schedules"),
+        ("jobs", _set(["timezone"], "Mars/Olympus"), "unknown timezone"),
+        ("jobs", _set(["universe_index"], "NIFTY9000"), "universe_index"),
+        ("jobs", _set(["shareholding_season", "days"], [25, 1]), "first, last"),
         # technical
         ("technical", _set(["atr_period"], 0), "greater than 0"),
         ("technical", _set(["avwap_anchors"], ["low_52w", "ipo_date"]), "avwap_anchors"),

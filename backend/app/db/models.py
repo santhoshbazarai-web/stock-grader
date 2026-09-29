@@ -404,6 +404,7 @@ class JobRun(Base):
     finished_at: Mapped[datetime | None]
     params: Mapped[dict[str, Any] | None]
     rows_written: Mapped[int | None]
+    details: Mapped[dict[str, Any] | None]  # per-job summary: counts, failed symbols, sources
     error: Mapped[str | None] = mapped_column(Text)
 
 

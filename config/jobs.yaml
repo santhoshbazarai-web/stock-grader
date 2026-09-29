@@ -1,0 +1,33 @@
+# jobs.yaml — validated at startup by app.core.config (fail fast on invalid values).
+# Worker schedules (SPEC §10) and job parameters. Cron fields: minute hour day month weekday,
+# evaluated in `timezone`. A job listed here but not yet implemented is skipped by the worker.
+
+jobs:
+  timezone: Asia/Kolkata
+  lock_ttl_s: 7200            # Redis lock expiry: a crashed run frees its lock after this
+  misfire_grace_s: 900        # run a missed trigger if the worker comes back within this
+  schedules:
+    corporate_actions: "0 18 * * mon-fri"   # before eod_prices so adjustment sees new actions
+    eod_prices: "15 18 * * mon-fri"
+    nse_bhavcopy: "45 18 * * mon-fri"
+    technicals: "15 19 * * mon-fri"
+    valuation_scores: "45 19 * * mon-fri"
+    alerts_intraday: "*/5 9-15 * * mon-fri"  # the job itself trims to market hours (P14)
+    shareholding: "30 20 * * *"              # runs only inside shareholding_season
+    index_constituents: "0 7 1 * *"
+    results_watch: "0 21 * * *"              # runs only inside results_season
+  universe_index: NIFTY500    # symbols = current members of this index + watchlist
+  constituent_indices: [NIFTY500, NIFTY50, NIFTYBANK, NIFTYIT, NIFTYPHARMA, NIFTYFMCG,
+                        NIFTYAUTO, NIFTYMETAL, NIFTYREALTY]
+  benchmark_indices: [NIFTY500, NIFTY50, NIFTYBANK, NIFTYIT, NIFTYPHARMA, NIFTYFMCG,
+                      NIFTYAUTO, NIFTYMETAL, NIFTYREALTY]
+  eod_prices:
+    overlap_days: 7           # re-fetch this many days before the last stored bar (late fixes)
+  corporate_actions:
+    lookback_days: 30         # scheduled runs; --full / new symbols use nse.corporate_actions_from_years
+  shareholding_season:        # SEBI: filed within 21 days of quarter end
+    months: [1, 4, 7, 10]
+    days: [1, 31]
+  results_season:             # quarterly results: within 45 days (60 for Q4) of quarter end
+    months: [1, 2, 4, 5, 7, 8, 10, 11]
+    days: [1, 31]

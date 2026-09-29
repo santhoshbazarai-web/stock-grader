@@ -17,6 +17,8 @@ from app.core.config import get_config
 from app.core.security import get_cipher
 from app.core.settings import get_settings
 
+pytest_plugins = ["tests.jobs_support"]  # the `env` fixture for job tests
+
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 REPO_CONFIG_DIR = BACKEND_DIR.parent / "config"
 

@@ -468,6 +468,83 @@ class TechnicalConfig(_Strict):
     )
 
 
+# ───────────────────────── jobs.yaml ─────────────────────────
+
+
+class JobName(StrEnum):
+    """SPEC §10 jobs plus ``corporate_actions`` (feeds split/bonus adjustment)."""
+
+    CORPORATE_ACTIONS = "corporate_actions"
+    EOD_PRICES = "eod_prices"
+    NSE_BHAVCOPY = "nse_bhavcopy"
+    TECHNICALS = "technicals"
+    VALUATION_SCORES = "valuation_scores"
+    ALERTS_INTRADAY = "alerts_intraday"
+    SHAREHOLDING = "shareholding"
+    INDEX_CONSTITUENTS = "index_constituents"
+    RESULTS_WATCH = "results_watch"
+
+
+class Season(_Strict):
+    """Calendar window: ``months`` of the year, and day-of-month range [first, last]."""
+
+    months: list[Annotated[int, Field(ge=1, le=12)]] = Field(min_length=1)
+    days: tuple[Annotated[int, Field(ge=1, le=31)], Annotated[int, Field(ge=1, le=31)]]
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        if self.days[0] > self.days[1]:
+            raise ValueError("days must be [first, last]")
+        return self
+
+    def contains(self, month: int, day: int) -> bool:
+        return month in self.months and self.days[0] <= day <= self.days[1]
+
+
+class EodPricesJobConfig(_Strict):
+    overlap_days: Annotated[int, Field(ge=0)]
+
+
+class CorporateActionsJobConfig(_Strict):
+    lookback_days: PositiveInt
+
+
+class JobsConfig(_Strict):
+    timezone: str
+    lock_ttl_s: PositiveInt
+    misfire_grace_s: PositiveInt
+    schedules: dict[JobName, str]
+    universe_index: str
+    constituent_indices: list[str] = Field(min_length=1)
+    benchmark_indices: list[str]
+    eod_prices: EodPricesJobConfig
+    corporate_actions: CorporateActionsJobConfig
+    shareholding_season: Season
+    results_season: Season
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        from apscheduler.triggers.cron import CronTrigger
+
+        try:
+            tz = ZoneInfo(self.timezone)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(f"unknown timezone {self.timezone!r}") from exc
+        missing = set(JobName) - set(self.schedules)
+        if missing:
+            raise ValueError(f"schedules missing jobs: {sorted(missing)}")
+        for name, expr in self.schedules.items():
+            try:
+                CronTrigger.from_crontab(expr, timezone=tz)
+            except ValueError as exc:
+                raise ValueError(f"schedules.{name}: invalid cron {expr!r}: {exc}") from exc
+        if self.universe_index not in self.constituent_indices:
+            raise ValueError("universe_index must be one of constituent_indices")
+        return self
+
+
 # ───────────────────────── aggregate + loader ─────────────────────────
 
 
@@ -477,6 +554,7 @@ class AppConfig(_Strict):
     sectors: SectorsConfig
     scoring: ScoringConfig
     technical: TechnicalConfig
+    jobs: JobsConfig
 
 
 CONFIG_FILES: tuple[str, ...] = tuple(AppConfig.model_fields)

@@ -97,3 +97,23 @@ The NSE instruments dump (symbol → instrument token) is cached in Redis for
 
 Every source's labels map onto one canonical schema in `backend/app/data/canonical.py`;
 the generated table is in [`docs/CANONICAL_FIELDS.md`](docs/CANONICAL_FIELDS.md).
+
+## Jobs
+
+The `worker` service runs the SPEC §10 jobs on the cron schedules in `config/jobs.yaml`
+(IST). Each run takes a Redis lock (a concurrent run is recorded as `skipped`) and is logged
+in `job_runs` with rows written, a details summary and any error.
+
+```bash
+python -m app.jobs list                                  # jobs, schedules, readiness
+python -m app.jobs run eod_prices --symbols TCS,INFY     # one job now (add --full to backfill)
+python -m app.jobs run nse_bhavcopy --date 2024-03-28
+python -m app.jobs run shareholding --force              # ignore the filing-season window
+python -m app.jobs verify-adjustment --symbol INFY       # raw vs adjusted around splits/bonuses
+```
+
+In Docker: `docker compose run --rm worker python -m app.jobs run eod_prices --symbols TCS`.
+
+Prices are stored raw and split/bonus-adjusted (`adj_*`, `data/adjust.py`); adjustment is
+recomputed whenever new bars or corporate actions arrive. `technicals`, `valuation_scores` and
+`alerts_intraday` are registered but not scheduled until their engines exist.

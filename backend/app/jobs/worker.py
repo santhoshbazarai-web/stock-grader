@@ -1,30 +1,59 @@
-"""Worker process: APScheduler running the SPEC §10 jobs. Run with ``python -m app.jobs.worker``."""
+"""Worker process: APScheduler running the SPEC §10 jobs. Run with ``python -m app.jobs.worker``.
+
+Triggers come from ``config/jobs.yaml``; jobs whose engine is not built yet are logged and not
+scheduled. Each trigger goes through ``run_job`` (Redis lock + ``job_runs`` row), with
+``coalesce`` and ``max_instances=1`` so a backlog never piles up.
+"""
 
 import logging
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.blocking import BlockingScheduler
+from apscheduler.triggers.cron import CronTrigger
 
-from app.core.config import get_config
+from app.core.config import AppConfig, JobName, get_config
 from app.core.logging import configure_logging
 from app.core.settings import get_settings
+from app.jobs.registry import REGISTRY
+from app.jobs.runner import JobContext, JobSpec, run_job
 
 logger = logging.getLogger(__name__)
 
-TIMEZONE = "Asia/Kolkata"
+
+def _trigger(spec: JobSpec, ctx: JobContext) -> None:
+    run_job(spec, ctx)  # failures are recorded in job_runs; the scheduler keeps going
 
 
-def build_scheduler() -> BlockingScheduler:
-    # Jobs are registered here from P6 onwards.
-    return BlockingScheduler(timezone=TIMEZONE)
+def build_scheduler(ctx: JobContext, config: AppConfig) -> BlockingScheduler:
+    tz = ZoneInfo(config.jobs.timezone)
+    scheduler = BlockingScheduler(timezone=tz)
+    for name in JobName:
+        spec = REGISTRY[name]
+        if spec.fn is None:
+            logger.info("not scheduling %s: pending %s", name, spec.pending_phase)
+            continue
+        scheduler.add_job(
+            _trigger,
+            CronTrigger.from_crontab(config.jobs.schedules[name], timezone=tz),
+            args=[spec, ctx],
+            id=str(name),
+            name=spec.description,
+            coalesce=True,
+            max_instances=1,
+            misfire_grace_time=config.jobs.misfire_grace_s,
+        )
+    return scheduler
 
 
 def main() -> None:
+    from app.jobs.context import build_context
+
     settings = get_settings()
     configure_logging(settings.log_level)
-    # Fail fast: an invalid env or config/*.yaml aborts startup.
-    get_config()
-    scheduler = build_scheduler()
-    logger.info("worker started with %d job(s)", len(scheduler.get_jobs()))
+    config = get_config()  # fail fast on invalid env or config/*.yaml
+    scheduler = build_scheduler(build_context(settings, config), config)
+    for job in scheduler.get_jobs():
+        logger.info("scheduled %s: %s", job.id, job.trigger)
     scheduler.start()
 
 
