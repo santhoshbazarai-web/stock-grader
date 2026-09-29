@@ -5,9 +5,11 @@ Tunable model parameters live in ``config/*.yaml`` (see ``app.core.config``), ne
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
+from urllib.parse import urlsplit
 
 from cryptography.fernet import Fernet
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # backend/app/core/settings.py -> repo root is three levels above backend/app
@@ -19,7 +21,12 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        # Startup errors end up in container logs: never echo the (secret-bearing) input.
+        hide_input_in_errors=True,
     )
+
+    # "production" turns on the deployment checks in ``_production_checks`` (fail fast).
+    app_env: Literal["development", "production"] = "development"
 
     database_url: str = "postgresql+psycopg://stockgrader:stockgrader@localhost:5432/stockgrader"
     redis_url: str = "redis://localhost:6379/0"
@@ -68,6 +75,41 @@ class Settings(BaseSettings):
         if not v.get_secret_value():
             raise ValueError("APP_PASSWORD must not be empty")
         return v
+
+    @model_validator(mode="after")
+    def _production_checks(self) -> "Settings":
+        """In production, refuse to start with settings that are only safe on localhost.
+        Every problem is reported at once."""
+        if self.app_env != "production":
+            return self
+        problems: list[str] = []
+        web = urlsplit(self.web_url)
+        if web.scheme != "https" or not web.hostname:
+            problems.append("WEB_URL must be an https:// URL (the public address of the app)")
+        elif web.path.strip("/") or web.query:
+            problems.append("WEB_URL must be the bare origin, e.g. https://grader.example.com")
+        if not self.session_cookie_secure:
+            problems.append("SESSION_COOKIE_SECURE must be true (the session cookie is HTTPS-only)")
+        if len(self.app_password.get_secret_value()) < MIN_PROD_PASSWORD:
+            problems.append(f"APP_PASSWORD must be at least {MIN_PROD_PASSWORD} characters")
+        db_password = urlsplit(self.database_url).password
+        if db_password in (None, "", "stockgrader"):
+            problems.append("DATABASE_URL must use a real password (not the development default)")
+        for broker, uri in (("fyers", self.fyers_redirect_uri), ("kite", self.kite_redirect_uri)):
+            if uri is None:
+                continue
+            expected = f"{self.web_url.rstrip('/')}/api/brokers/{broker}/callback"
+            if uri != expected:
+                problems.append(
+                    f"{broker.upper()}_REDIRECT_URI must be {expected} (and registered exactly "
+                    "like that in the broker's developer console)"
+                )
+        if problems:
+            raise ValueError("APP_ENV=production: " + "; ".join(problems))
+        return self
+
+
+MIN_PROD_PASSWORD = 12
 
 
 @lru_cache

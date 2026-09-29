@@ -1,0 +1,62 @@
+# Production reverse proxy (docker-compose.prod.yml). Caddy obtains and renews the TLS
+# certificate for $DOMAIN automatically (Let's Encrypt / ZeroSSL) and redirects HTTP to HTTPS.
+# The DNS A/AAAA record for $DOMAIN must point at this server, with ports 80 and 443 open.
+{
+	email {$ACME_EMAIL}
+	# Extra global options from the environment, e.g. "local_certs" for a test box without
+	# public DNS (Caddy's internal CA; browsers will warn).
+	{$CADDY_GLOBAL_OPTIONS}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+		-X-Powered-By
+	}
+
+	# Screener uploads are capped by the API (UPLOAD_MAX_BYTES, 10 MB default); everything else
+	# is small JSON.
+	@upload path /api/uploads/*
+	request_body @upload {
+		max_size 25MB
+	}
+	@other not path /api/uploads/*
+	request_body @other {
+		max_size 2MB
+	}
+
+	# The API directly (one hop, so TRUSTED_PROXIES is just Caddy); everything else is Next.js.
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+	handle {
+		reverse_proxy web:3000
+	}
+
+	# Access log on stdout. Broker OAuth callbacks carry one-time codes in the query string:
+	# they are redacted, like cookies and Authorization headers (never log tokens, rule 8).
+	log {
+		output stdout
+		format filter {
+			wrap json
+			fields {
+				request>uri query {
+					replace request_token REDACTED
+					replace auth_code REDACTED
+					replace code REDACTED
+					replace state REDACTED
+				}
+				request>headers>Cookie delete
+				request>headers>Authorization delete
+				resp_headers>Set-Cookie delete
+			}
+		}
+	}
+}

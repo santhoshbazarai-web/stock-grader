@@ -1,6 +1,7 @@
 .env
 .env.*
 !.env.example
+!.env.production.example
 
 # python
 __pycache__/
@@ -18,3 +19,5 @@ node_modules/
 
 # local redis-server snapshots
 dump.rdb
+# production backups (docker-compose.prod.yml)
+/backups/

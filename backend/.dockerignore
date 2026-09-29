@@ -7,3 +7,6 @@ __pycache__
 .env*
 Dockerfile
 .dockerignore
+tests
+.hypothesis
+dump.rdb

@@ -5,3 +5,7 @@ Dockerfile
 .dockerignore
 *.log
 .env*
+test-results
+playwright-report
+e2e
+tsconfig.tsbuildinfo

@@ -1,3 +1,5 @@
+import os
+
 import pytest
 from pydantic import ValidationError
 
@@ -23,3 +25,86 @@ def test_missing_app_password_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("APP_PASSWORD")
     with pytest.raises(ValidationError, match="app_password"):
         Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+PROD = {
+    "APP_ENV": "production",
+    "WEB_URL": "https://grader.example.com",
+    "SESSION_COOKIE_SECURE": "true",
+    "APP_PASSWORD": "a-long-enough-password",
+    "DATABASE_URL": "postgresql+psycopg://stockgrader:s3cr3t-hex@db:5432/stockgrader",
+    "FYERS_REDIRECT_URI": "https://grader.example.com/api/brokers/fyers/callback",
+    "KITE_REDIRECT_URI": "https://grader.example.com/api/brokers/kite/callback",
+}
+
+
+def _prod(monkeypatch: pytest.MonkeyPatch, **changes: str | None) -> Settings:
+    for key, value in {**PROD, **changes}.items():
+        if value is None:
+            monkeypatch.delenv(key, raising=False)
+        else:
+            monkeypatch.setenv(key, value)
+    return Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+def test_production_settings_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
+    s = _prod(monkeypatch)
+    assert s.app_env == "production" and s.session_cookie_secure
+    assert (
+        _prod(monkeypatch, FYERS_REDIRECT_URI=None, KITE_REDIRECT_URI=None).fyers_redirect_uri
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"WEB_URL": "http://grader.example.com"}, "WEB_URL must be an https"),
+        ({"WEB_URL": "https://grader.example.com/app"}, "bare origin"),
+        ({"SESSION_COOKIE_SECURE": "false"}, "SESSION_COOKIE_SECURE must be true"),
+        ({"APP_PASSWORD": "short"}, "at least 12 characters"),
+        (
+            {"DATABASE_URL": "postgresql+psycopg://stockgrader:stockgrader@db:5432/stockgrader"},
+            "real password",
+        ),
+        ({"DATABASE_URL": "postgresql+psycopg://stockgrader@db:5432/stockgrader"}, "real password"),
+        (
+            {"FYERS_REDIRECT_URI": "http://localhost:8000/api/brokers/fyers/callback"},
+            "FYERS_REDIRECT_URI must be https://grader.example.com/api/brokers/fyers/callback",
+        ),
+        (
+            {"KITE_REDIRECT_URI": "https://other.example.com/api/brokers/kite/callback"},
+            "KITE_REDIRECT_URI must be",
+        ),
+    ],
+)
+def test_production_rejects_unsafe_settings(
+    monkeypatch: pytest.MonkeyPatch, changes: dict[str, str], message: str
+) -> None:
+    with pytest.raises(ValidationError, match=message):
+        _prod(monkeypatch, **changes)
+
+
+def test_production_reports_every_problem(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:telegram-secret")
+    with pytest.raises(ValidationError) as err:
+        _prod(
+            monkeypatch, WEB_URL="http://x", SESSION_COOKIE_SECURE="false", APP_PASSWORD="pw-secret"
+        )
+    text = str(err.value)
+    assert "WEB_URL" in text and "SESSION_COOKIE_SECURE" in text and "APP_PASSWORD" in text
+    # Errors reach container logs: no secret from the input is echoed.
+    for secret in ("pw-secret", "telegram-secret", "s3cr3t-hex", os.environ["FERNET_KEY"]):
+        assert secret not in text
+
+
+def test_invalid_key_error_does_not_echo_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FERNET_KEY", "almost-a-secret-key")
+    with pytest.raises(ValidationError) as err:
+        Settings(_env_file=None)  # type: ignore[call-arg]
+    assert "almost-a-secret-key" not in str(err.value)
+
+
+def test_development_is_lenient(monkeypatch: pytest.MonkeyPatch) -> None:
+    s = _prod(monkeypatch, APP_ENV="development", WEB_URL="http://localhost:3000", APP_PASSWORD="x")
+    assert s.app_env == "development"

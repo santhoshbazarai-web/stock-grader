@@ -10,7 +10,8 @@ grade and action. See [`AGENTS.md`](AGENTS.md) and [`docs/SPEC.md`](docs/SPEC.md
 | `backend/` | FastAPI api + APScheduler worker (Python 3.12, uv) |
 | `frontend/` | Next.js 15 + Tailwind + shadcn/ui |
 | `config/` | `providers.yaml`, `valuation.yaml`, `sectors.yaml`, `scoring.yaml`, `technical.yaml` — every threshold and weight, validated at startup |
-| `docs/` | Spec and build prompts |
+| `docs/` | Spec, build prompts and the [deployment guide](docs/DEPLOY.md) |
+| `deploy/` | Production Caddyfile, backup and restore scripts |
 
 ## Quick start
 
@@ -24,6 +25,26 @@ make migrate   # alembic upgrade head
 ```
 
 Health check: `curl localhost:8000/api/health`.
+
+## Production
+
+`docker-compose.prod.yml` runs the production stack:
+
+- Caddy with automatic HTTPS in front of the web app and API
+- the worker
+- Postgres with nightly verified backups and a one-command restore
+- Redis
+
+Only ports 80 and 443 are published. All settings come from `.env.production`: copy
+`.env.production.example`, then run `make prod-up`.
+
+With `APP_ENV=production`, start-up refuses unsafe settings: plain HTTP, an insecure cookie,
+a weak password, the development database password, or broker redirect URIs that don't match
+the domain.
+
+The full guide is [`docs/DEPLOY.md`](docs/DEPLOY.md). It covers server setup, registering the
+broker redirect URIs (`https://<DOMAIN>/api/brokers/{fyers,kite}/callback`), backups, restore
+and updates.
 
 ## Development
 

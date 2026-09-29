@@ -349,9 +349,11 @@ def test_config_update_validates_before_saving(config_copy: Path, db: Session) -
         assert c.put("/api/config", json={"name": "../etc", "yaml": "x: 1"}).status_code == 422
 
         tuned = original.replace("momentum_entry_min: 6", "momentum_entry_min: 7")
+        (config_copy / "scoring.yaml").chmod(0o640)
         ok = c.put("/api/config", json={"name": "scoring", "yaml": tuned})
         assert ok.status_code == 200 and ok.json()["saved"] is True
         assert (config_copy / "scoring.yaml").read_text() == tuned
+        assert (config_copy / "scoring.yaml").stat().st_mode & 0o777 == 0o640  # mode kept
         view = c.get("/api/config").json()
         assert view["parsed"]["scoring"]["earned_premium"]["momentum_entry_min"] == 7
         assert not list(config_copy.glob(".scoring.*"))  # no staging leftovers
@@ -509,6 +511,22 @@ def test_config_dry_run_validates_without_saving(config_copy: Path, db: Session)
         bad = original.replace("quality: 25", "quality: 30")
         res = c.put("/api/config", params={"dry_run": True}, json={"name": "scoring", "yaml": bad})
         assert res.status_code == 422 and "sum to 100" in res.json()["detail"]
+
+
+def test_config_update_on_read_only_dir_is_a_clear_503(
+    config_copy: Path, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def denied(*_: object, **__: object) -> tuple[int, str]:
+        raise PermissionError(13, "Permission denied")
+
+    for c in app_client(db):
+        original = (config_copy / "scoring.yaml").read_text()
+        monkeypatch.setattr("app.api.admin.tempfile.mkstemp", denied)
+        res = c.put("/api/config", json={"name": "scoring", "yaml": original})
+        assert res.status_code == 503
+        assert res.json()["detail"] == (
+            "config directory is not writable by the API (Permission denied); nothing saved"
+        )
 
 
 def test_broker_status_reports_configuration(

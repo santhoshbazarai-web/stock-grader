@@ -179,7 +179,10 @@ def view_config(settings: SettingsDep, config: ConfigDep) -> ConfigView:
 @router.put(
     "/config",
     tags=["config"],
-    responses={422: {"description": "YAML invalid or fails validation; nothing saved"}},
+    responses={
+        422: {"description": "YAML invalid or fails validation; nothing saved"},
+        503: {"description": "Config directory not writable; nothing saved"},
+    },
 )
 def update_config(body: ConfigUpdate, settings: SettingsDep, dry_run: bool = False) -> ConfigSaved:
     """Replace one config file. The new YAML is validated together with the other files
@@ -205,10 +208,18 @@ def update_config(body: ConfigUpdate, settings: SettingsDep, dry_run: bool = Fal
     if dry_run:
         return ConfigSaved(name=body.name, saved=False, note="valid (not saved: dry run)")
     target = live / f"{body.name}.yaml"
-    fd, staged = tempfile.mkstemp(dir=live, prefix=f".{body.name}.", suffix=".yaml")
-    with os.fdopen(fd, "w") as fh:
-        fh.write(body.yaml)
-    os.replace(staged, target)
+    try:
+        fd, staged = tempfile.mkstemp(dir=live, prefix=f".{body.name}.", suffix=".yaml")
+        with os.fdopen(fd, "w") as fh:
+            fh.write(body.yaml)
+        # mkstemp creates 0600; keep the file's existing permissions (git, the worker, backups).
+        os.chmod(staged, target.stat().st_mode & 0o777 if target.exists() else 0o644)
+        os.replace(staged, target)
+    except OSError as exc:  # e.g. a read-only mount, or the directory owned by another user
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            f"config directory is not writable by the API ({exc.strerror}); nothing saved",
+        ) from exc
     get_config.cache_clear()
     return ConfigSaved(name=body.name, saved=True, note="applied to the API; restart the worker")
 
