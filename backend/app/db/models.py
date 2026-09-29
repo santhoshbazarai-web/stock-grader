@@ -54,6 +54,7 @@ __all__ = [
     "IndexMembership",
     "Instrument",
     "JobRun",
+    "Notification",
     "PriceDaily",
     "Report",
     "Score",
@@ -385,6 +386,8 @@ class Alert(TimestampMixin, Base):
     is_active: Mapped[bool] = mapped_column(Boolean, server_default="true")
     last_triggered_at: Mapped[datetime | None]
     last_triggered_price: Mapped[float | None]
+    # Evaluator memory between runs: last price seen and which side of the level it was on.
+    state: Mapped[dict[str, Any] | None]
 
 
 class BrokerToken(TimestampMixin, Base):
@@ -474,3 +477,23 @@ class ScreenerPreset(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(Integer, Identity(), primary_key=True)
     name: Mapped[str] = mapped_column(String(64))
     filters: Mapped[dict[str, Any]]
+
+
+class Notification(Base):
+    """In-app notification (SPEC §8 alerts), optionally also delivered to Telegram."""
+
+    __tablename__ = "notifications"
+    __upsert_key__ = ("id",)
+    __table_args__ = (Index("ix_notifications_created", "created_at"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    alert_id: Mapped[int | None] = mapped_column(ForeignKey("alerts.id", ondelete="SET NULL"))
+    symbol: Mapped[str | None] = mapped_column(String(32))
+    kind: Mapped[str] = mapped_column(String(32))  # alert type, or "test"
+    title: Mapped[str] = mapped_column(Text)
+    body: Mapped[str] = mapped_column(Text)
+    price: Mapped[float | None]
+    read_at: Mapped[datetime | None]
+    telegram: Mapped[str] = mapped_column(String(16))  # sent | failed | disabled
+    telegram_error: Mapped[str | None] = mapped_column(Text)

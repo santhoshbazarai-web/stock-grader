@@ -110,3 +110,16 @@ test("uploads list shows stored Screener datasets", async ({ page }) => {
   await login(page, "/settings");
   await expect(page.getByRole("table", { name: "Uploaded fundamentals" })).toContainText("DEMOIT");
 });
+
+test("notifications: test message reaches the bell, which marks it read", async ({ page }) => {
+  await login(page, "/settings");
+  await page.getByRole("button", { name: "Send test notification" }).click();
+  await expect(page.getByRole("status").filter({ hasText: /Test (sent|notification created)/ })).toBeVisible();
+  const bell = page.getByRole("button", { name: /Notifications, \d+ unread/ });
+  await expect(bell).toBeVisible(); // refreshed immediately, not on the next poll
+  await bell.click();
+  const panel = page.getByRole("dialog", { name: "Notifications" });
+  await expect(panel).toContainText("Stock Grader test notification");
+  await panel.getByRole("button", { name: "Mark all read" }).click();
+  await expect(page.getByRole("button", { name: "Notifications", exact: true })).toBeVisible();
+});

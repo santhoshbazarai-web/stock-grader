@@ -21,6 +21,7 @@ from redis.exceptions import LockError
 from sqlalchemy import update
 from sqlalchemy.orm import Session
 
+from app.alerts.telegram import TelegramNotifier
 from app.core.config import AppConfig, JobName
 from app.data.gaps import GapRecorder
 from app.data.router import DataRouter
@@ -40,6 +41,7 @@ class JobContext:
     redis: Redis
     gaps: GapRecorder
     clock: Callable[[], datetime] = lambda: datetime.now(UTC)
+    notifier: TelegramNotifier | None = None  # alerts: optional Telegram delivery
 
     def now(self) -> datetime:
         return self.clock().astimezone(ZoneInfo(self.config.jobs.timezone))

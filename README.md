@@ -162,6 +162,25 @@ Sign in with `APP_PASSWORD`. Every page is behind the login (SPEC §9).
 Broker tokens expire daily (Kite at 06:00 IST), so reconnect from Settings each morning. The
 API only uses them for market data.
 
+### Price alerts
+
+Create alerts on the Watchlist & alerts page. Each one watches for a single event: the price
+enters the buy zone, or crosses FV, the top band or the invalidation level.
+
+The worker's `alerts_intraday` job checks them every 5 minutes during market hours (09:15–15:30
+IST). Live prices come from Fyers first, with Kite asked for any symbol Fyers didn't price, and
+the levels come from each stock's latest report.
+
+An alert fires once per transition. A 0.2% hysteresis band and a 60-minute cooldown (both in
+`jobs.yaml` → `alerts`) stop a price hovering on a level from spamming you.
+
+Triggered alerts appear under the bell in the nav and on the dashboard. Set
+`TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` to also get them on Telegram, then use Settings →
+Notifications → "Send test notification" to check delivery.
+
+To run a check outside market hours:
+`python -m app.jobs run alerts_intraday --force`.
+
 ## Stock report page
 
 `/stocks/{SYMBOL}` in the web app (SPEC §9). It needs the single-user login and is served

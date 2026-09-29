@@ -2,6 +2,7 @@
 
 from redis import Redis
 
+from app.alerts.telegram import build_notifier
 from app.core.config import AppConfig, Provider
 from app.core.rate_limiter import RateLimiter
 from app.core.security import TokenCipher
@@ -44,4 +45,5 @@ def build_context(settings: Settings, config: AppConfig) -> JobContext:
     providers = {k: v for k, v in candidates.items() if v is not None}
     gaps = DbGapRecorder(session_factory)
     router = DataRouter(providers, pc, limiter=limiter, gaps=gaps)
-    return JobContext(config, session_factory, router, redis, gaps)
+    notifier = build_notifier(settings, config.jobs.alerts.telegram_timeout_s)
+    return JobContext(config, session_factory, router, redis, gaps, notifier=notifier)

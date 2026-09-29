@@ -6,10 +6,18 @@ import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Empty, ErrorText, Page } from "@/components/common";
+import { NOTIFICATIONS_CHANGED } from "@/components/notification-bell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { api, ApiError } from "@/lib/api";
-import type { BrokerStatus, ConfigFileName, ConfigView, UploadedDataset } from "@/lib/types";
+import type {
+  BrokerStatus,
+  ConfigFileName,
+  ConfigView,
+  Notification,
+  NotificationsView,
+  UploadedDataset,
+} from "@/lib/types";
 
 import { BrokerList } from "./brokers";
 
@@ -374,11 +382,71 @@ function Uploads() {
   );
 }
 
+function Notifications() {
+  const [configured, setConfigured] = useState<boolean | null>(null);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  useEffect(() => {
+    api<NotificationsView>("/notifications?limit=1")
+      .then((v) => setConfigured(v.telegram_configured))
+      .catch(() => setConfigured(null));
+  }, []);
+  async function test() {
+    setMsg(null);
+    try {
+      const n = await api<Notification>("/notifications/test", { method: "POST" });
+      window.dispatchEvent(new Event(NOTIFICATIONS_CHANGED));
+      setMsg(
+        n.telegram === "sent"
+          ? { ok: true, text: "Test sent in-app and to Telegram." }
+          : n.telegram === "failed"
+            ? { ok: false, text: `In-app OK; Telegram failed: ${n.telegram_error ?? "error"}` }
+            : { ok: true, text: "Test notification created (in-app only)." },
+      );
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof ApiError ? e.detail : "failed" });
+    }
+  }
+  return (
+    <Card className="gap-4">
+      <CardHeader>
+        <CardTitle className="text-base">Notifications</CardTitle>
+        <CardDescription>
+          Price alerts (Watchlist & alerts) are checked every 5 minutes during market hours, using Fyers live
+          prices with Kite as fallback. They appear under the bell; Telegram is optional.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2 text-sm">
+        <p>
+          Telegram:{" "}
+          {configured == null ? "—" : configured ? (
+            <strong>configured</strong>
+          ) : (
+            <span className="text-muted-foreground">
+              not configured — set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env and restart the worker and API.
+            </span>
+          )}
+        </p>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={test}>
+            Send test notification
+          </Button>
+          {msg && (
+            <span role="status" className={`text-xs ${msg.ok ? "text-muted-foreground" : "text-destructive"}`}>
+              {msg.text}
+            </span>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function Settings() {
   return (
     <Page>
       <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
       <Brokers />
+      <Notifications />
       <ConfigEditor />
       <Uploads />
     </Page>

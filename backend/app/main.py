@@ -12,7 +12,17 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI
 
 from app import __version__
-from app.api import admin, auth, brokers, health, screener, stocks, technical, watchlist
+from app.api import (
+    admin,
+    auth,
+    brokers,
+    health,
+    notifications,
+    screener,
+    stocks,
+    technical,
+    watchlist,
+)
 from app.api.deps import require_user
 from app.core.config import get_config
 from app.core.logging import configure_logging
@@ -26,6 +36,7 @@ TAGS = [
     {"name": "technical", "description": "Chart-overlay debug output of the technical engine"},
     {"name": "screener", "description": "Filter and sort the latest reports"},
     {"name": "watchlist & alerts", "description": "Watchlist and in-app price alerts"},
+    {"name": "notifications", "description": "Triggered alerts (in-app; Telegram optional)"},
     {"name": "uploads", "description": "Screener.in Excel exports"},
     {"name": "config", "description": "View / edit the validated YAML config"},
     {"name": "backtests", "description": "Point-in-time backtests (SPEC §11)"},
@@ -64,7 +75,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router, prefix="/api")
     app.include_router(auth.router, prefix="/api")
     app.include_router(brokers.router, prefix="/api")  # per-route auth; callbacks use state
-    for module in (stocks, technical, screener, watchlist, admin):
+    for module in (stocks, technical, screener, watchlist, notifications, admin):
         app.include_router(
             module.router,
             prefix="/api",

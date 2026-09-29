@@ -5,6 +5,7 @@ import { LogOut } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
+import { NotificationBell } from "@/components/notification-bell";
 import { SymbolSearch } from "@/components/report/symbol-search";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -47,6 +48,7 @@ export function AppNav() {
       </div>
       <div className="flex items-center gap-2">
         <SymbolSearch />
+        <NotificationBell />
         <Button size="sm" variant="ghost" onClick={logout} aria-label="Sign out">
           <LogOut />
         </Button>

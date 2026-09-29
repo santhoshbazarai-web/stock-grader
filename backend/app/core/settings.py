@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     kite_api_secret: SecretStr | None = None
     kite_redirect_uri: str | None = None
 
+    # Optional Telegram delivery for alert notifications (never logged).
+    telegram_bot_token: SecretStr | None = None
+    telegram_chat_id: str | None = None
+
     @field_validator("fernet_key")
     @classmethod
     def _valid_fernet_key(cls, v: SecretStr) -> SecretStr:

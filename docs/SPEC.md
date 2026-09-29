@@ -389,6 +389,17 @@ Refresh, config and backtests
 - `POST /refresh` queues the symbol in Redis (deduplicated). The worker's `refresh_queue` job, run every minute, re-runs corporate actions, EOD prices, results and shareholding for it (ignoring seasons), then rebuilds the report.
 - `PUT /api/config` validates the new YAML together with the other files, exactly as at startup, before an atomic write. The API applies it at once; the worker needs a restart.
 - `POST /api/backtests` stores the request as `queued`. The engine is P15.
+Implementation notes (alerts, P14):
+- **Schedule:** `alerts_intraday` runs every 5 minutes (jobs.yaml). It does nothing outside `jobs.alerts.market_open`–`market_close` IST on weekdays, unless run with `--force`. NSE holidays are not modelled; on a holiday the price does not move, so nothing fires.
+- **Levels:** taken from each stock's latest report: the technical buy zone (only when its status is `zone`), FV, top band and invalidation. An alert whose level is missing never fires, and says why.
+- **Prices:** `DataRouter.ltp_filled` asks the providers in `priority.ltp` order (Fyers, then Kite). Each later provider is asked only for the symbols still unpriced, and symbols nobody priced are one data gap.
+- **When an alert fires:** on a transition, using the state stored in `alerts.state`.
+  - Enters buy zone: price in [low, high] after not being inside. The first observation counts.
+  - Crossings: price on the other side of the level than at the previous observation, in either direction; the first observation only records the side.
+  - Within `hysteresis_pct` of a level or a zone edge, the previous state is kept.
+  - `cooldown_minutes` suppresses repeats; the transition is still recorded, so it is not replayed later.
+- **Delivery:** each firing writes a `notifications` row (the in-app bell) and, when `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are set, sends a Telegram message. A Telegram failure is stored on the row and never loses the in-app notification, and the bot token never reaches logs or stored errors.
+- **Scope:** alerts are notifications only. No orders or broker GTTs (rule 7).
 ---
 9. Frontend pages
 Dashboard: broker connection status, data freshness, top A-grade stocks in the buy zone, triggered alerts.

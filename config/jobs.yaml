@@ -29,6 +29,12 @@ jobs:
   shareholding_season:        # SEBI: filed within 21 days of quarter end
     months: [1, 4, 7, 10]
     days: [1, 31]
+  alerts:                     # alerts_intraday (SPEC §8 alert types)
+    market_open: "09:15"      # IST; outside this window the job skips (unless --force)
+    market_close: "15:30"
+    hysteresis_pct: 0.002     # a level counts as crossed only once price clears it by 0.2%
+    cooldown_minutes: 60      # the same alert does not fire again within this window
+    telegram_timeout_s: 10
   results_season:             # quarterly results: within 45 days (60 for Q4) of quarter end
     months: [1, 2, 4, 5, 7, 8, 10, 11]
     days: [1, 31]

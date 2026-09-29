@@ -486,3 +486,39 @@ def test_broker_status_reports_configuration(
     get_settings.cache_clear()
     body = {b["broker"]: b for b in client.get("/api/brokers/status").json()}
     assert body["kite"]["configured"] is True and body["kite"]["connected"] is False
+
+
+# ───────────────────────── P14 notifications ─────────────────────────
+
+
+def test_notifications_list_and_read(client: TestClient, db: Session) -> None:
+    from app.db.models import Notification
+
+    body = client.get("/api/notifications").json()
+    assert body == {"items": [], "unread": 0, "telegram_configured": False}
+    for i in range(3):
+        db.add(Notification(kind="crosses_fv", title=f"T{i}", body="b", telegram="disabled"))
+    db.flush()
+    body = client.get("/api/notifications").json()
+    assert body["unread"] == 3 and [n["title"] for n in body["items"]] == ["T2", "T1", "T0"]
+    first = body["items"][0]["id"]
+    assert client.post(f"/api/notifications/{first}/read").status_code == 204
+    assert client.get("/api/notifications", params={"unread_only": True}).json()["unread"] == 2
+    assert client.post("/api/notifications/999999/read").status_code == 404
+    assert client.post("/api/notifications/read-all").status_code == 204
+    assert client.get("/api/notifications").json()["unread"] == 0
+
+
+def test_notification_test_message(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    import responses
+
+    res = client.post("/api/notifications/test")
+    assert res.status_code == 201 and res.json()["telegram"] == "disabled"
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "1:abc")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "42")
+    get_settings.cache_clear()
+    with responses.RequestsMock() as rsps:
+        rsps.post("https://api.telegram.org/bot1:abc/sendMessage", json={"ok": True})
+        sent = client.post("/api/notifications/test").json()
+    assert sent["telegram"] == "sent" and sent["kind"] == "test"
+    assert client.get("/api/notifications").json()["telegram_configured"] is True

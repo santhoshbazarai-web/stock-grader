@@ -66,4 +66,5 @@ def test_spec_tables_present() -> None:
         "user_overrides",
         "backtests",  # SPEC §8 /api/backtests
         "screener_presets",  # SPEC §9 screener presets
+        "notifications",  # in-app alert notifications
     } == MODEL_TABLES

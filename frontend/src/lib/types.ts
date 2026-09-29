@@ -360,3 +360,19 @@ export type ConfigView = {
   files: { name: ConfigFileName; yaml: string }[];
   parsed: Record<string, unknown>;
 };
+
+// ── P14 notifications (app/api/notifications.py) ──
+export type Notification = {
+  id: number;
+  created_at: string;
+  symbol: string | null;
+  kind: string;
+  title: string;
+  body: string;
+  price: number | null;
+  read: boolean;
+  telegram: "sent" | "failed" | "disabled";
+  telegram_error: string | null;
+};
+
+export type NotificationsView = { items: Notification[]; unread: number; telegram_configured: boolean };

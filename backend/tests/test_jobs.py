@@ -117,9 +117,12 @@ def test_lock_has_ttl_while_running(env: Env) -> None:
 
 
 def test_pending_jobs_refuse_to_run(env: Env) -> None:
-    with pytest.raises(JobNotImplementedError, match="P14"):
-        run_job(REGISTRY[JobName.ALERTS_INTRADAY], env.ctx)
+    # Every registered job is implemented now; the guard still protects future ones.
+    pending = JobSpec(JobName.ALERTS_INTRADAY, "later", pending_phase="P99")
+    with pytest.raises(JobNotImplementedError, match="P99"):
+        run_job(pending, env.ctx)
     assert job_runs(env) == []
+    assert all(spec.fn is not None for spec in REGISTRY.values())
 
 
 def test_registry_covers_every_scheduled_job() -> None:

@@ -684,6 +684,20 @@ class CorporateActionsJobConfig(_Strict):
     lookback_days: PositiveInt
 
 
+class AlertsJobConfig(_Strict):
+    market_open: time
+    market_close: time
+    hysteresis_pct: Fraction
+    cooldown_minutes: Annotated[int, Field(ge=0)]
+    telegram_timeout_s: PositiveFloat
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        if self.market_open >= self.market_close:
+            raise ValueError("alerts.market_open must be before market_close")
+        return self
+
+
 class JobsConfig(_Strict):
     timezone: str
     lock_ttl_s: PositiveInt
@@ -694,6 +708,7 @@ class JobsConfig(_Strict):
     benchmark_indices: list[str]
     eod_prices: EodPricesJobConfig
     corporate_actions: CorporateActionsJobConfig
+    alerts: AlertsJobConfig
     shareholding_season: Season
     results_season: Season
 

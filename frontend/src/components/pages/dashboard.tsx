@@ -9,17 +9,11 @@ import { ActionBadge, Empty, ErrorText, GradeBadge, Page } from "@/components/co
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api, ApiError } from "@/lib/api";
 import { inr, pct } from "@/lib/format";
-import type { Alert, BrokerStatus, JobsView, ScreenerRow } from "@/lib/types";
+import type { BrokerStatus, JobsView, NotificationsView, ScreenerRow } from "@/lib/types";
 
 import { BrokerList } from "./brokers";
 
 const NEAR_ZONE = 0.05; // "near" = within 5% above the buy zone (display filter only)
-const ALERT_LABEL: Record<string, string> = {
-  enters_buy_zone: "entered buy zone",
-  crosses_fv: "crossed fair value",
-  crosses_top_band: "crossed top band",
-  crosses_invalidation: "crossed invalidation",
-};
 
 function useLoad<T>(path: string): { data: T | null; error: string | null } {
   const [data, setData] = useState<T | null>(null);
@@ -133,26 +127,25 @@ function BuyZoneList({ rows }: { rows: ScreenerRow[] }) {
   );
 }
 
-function TriggeredAlerts({ alerts }: { alerts: Alert[] }) {
-  const hits = alerts
-    .filter((a) => a.last_triggered_at)
-    .sort((a, b) => (b.last_triggered_at ?? "").localeCompare(a.last_triggered_at ?? ""))
-    .slice(0, 10);
-  if (hits.length === 0) {
-    return <Empty>No alerts have triggered yet ({alerts.filter((a) => a.is_active).length} active).</Empty>;
-  }
+function TriggeredAlerts({ view }: { view: NotificationsView }) {
+  const hits = view.items.filter((n) => n.kind !== "test").slice(0, 10);
+  if (hits.length === 0) return <Empty>No alerts have triggered yet.</Empty>;
   return (
     <ul className="flex flex-col divide-y text-sm">
-      {hits.map((a) => (
-        <li key={a.id} className="flex justify-between gap-2 py-1.5">
+      {hits.map((n) => (
+        <li key={n.id} className="flex justify-between gap-2 py-1.5">
           <span>
-            <Link href={`/stocks/${a.symbol}`} className="font-medium hover:underline">
-              {a.symbol}
-            </Link>{" "}
-            {ALERT_LABEL[a.alert_type]} at {inr(a.last_triggered_price)}
+            {n.symbol ? (
+              <Link href={`/stocks/${n.symbol}`} className={`hover:underline ${n.read ? "" : "font-medium"}`}>
+                {n.title}
+              </Link>
+            ) : (
+              n.title
+            )}
+            <span className="text-muted-foreground block text-xs">{n.body}</span>
           </span>
-          <span className="text-muted-foreground text-xs tabular-nums">
-            {new Date(a.last_triggered_at!).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+          <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
+            {new Date(n.created_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
           </span>
         </li>
       ))}
@@ -166,7 +159,7 @@ export function Dashboard() {
   const near = useLoad<ScreenerRow[]>(
     `/screener?grade=A_plus&grade=A&max_distance_to_buy_zone=${NEAR_ZONE}&sort=pct_to_buy_zone&order=asc`,
   );
-  const alerts = useLoad<Alert[]>("/alerts");
+  const alerts = useLoad<NotificationsView>("/notifications?limit=10");
   const box = (title: string, body: React.ReactNode, extra?: React.ReactNode) => (
     <Card className="gap-4">
       <CardHeader className="flex flex-row items-baseline justify-between">
@@ -201,7 +194,7 @@ export function Dashboard() {
       )}
       {box(
         "Triggered alerts",
-        show(alerts, (d) => <TriggeredAlerts alerts={d} />),
+        show(alerts, (d) => <TriggeredAlerts view={d} />),
         <Link href="/watchlist" className="text-muted-foreground text-xs hover:underline">
           Manage alerts
         </Link>,

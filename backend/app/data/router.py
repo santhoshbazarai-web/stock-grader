@@ -223,6 +223,43 @@ class DataRouter:
 
     # ───────────── generic routing ─────────────
 
+    def ltp_filled(self, symbols: list[str]) -> tuple[dict[str, tuple[float, Provider]], list[str]]:
+        """LTP for every symbol it can get: the first provider in priority answers what it can,
+        the next is asked only for the symbols still missing, and so on (a broker that rejects
+        one symbol must not cost the rest their prices). Returns ({symbol: (price, source)},
+        reasons). Symbols no provider priced are recorded as one data gap."""
+        prices: dict[str, tuple[float, Provider]] = {}
+        reasons: list[str] = []
+        for name in self._config.priority[Dataset.LTP]:
+            missing = [s for s in symbols if s not in prices]
+            if not missing:
+                break
+            res = self.fetch(
+                Dataset.LTP,
+                PriceProvider,
+                lambda p, m=missing: p.ltp(m),  # type: ignore[misc]
+                symbol=None,
+                providers=[name],
+                record_gap=False,
+            )
+            reasons += [a.describe() for a in res.attempts]
+            for sym, price in (res.data or {}).items():
+                if sym in missing and price and price > 0:
+                    prices[sym] = (float(price), name)
+        unpriced = [s for s in symbols if s not in prices]
+        if unpriced:
+            reason = f"no LTP for {', '.join(unpriced)} ({'; '.join(reasons) or 'no providers'})"
+            reasons.append(reason)
+            self._gaps.record(
+                GapRecord(
+                    dataset=Dataset.LTP,
+                    symbol=unpriced[0] if len(unpriced) == 1 else None,
+                    reason=reason[:2000],
+                    providers_tried=list(self._config.priority[Dataset.LTP]),
+                )
+            )
+        return prices, reasons
+
     def fetch[T](
         self,
         dataset: Dataset,
@@ -230,6 +267,8 @@ class DataRouter:
         call: Callable[[Any], T],
         *,
         symbol: str | None,
+        providers: list[Provider] | None = None,
+        record_gap: bool = True,
     ) -> RouteResult[T]:
         now = self._clock()
         hours = self._config.staleness_hours.get(dataset)
@@ -251,7 +290,7 @@ class DataRouter:
                 attempts=tuple(attempts),
             )
 
-        for name in self._config.priority[dataset]:
+        for name in providers if providers is not None else self._config.priority[dataset]:
             impl = self._providers.get(name)
             if impl is None:
                 attempts.append(Attempt(name, Outcome.NOT_CONFIGURED))
@@ -284,6 +323,8 @@ class DataRouter:
 
         res: RouteResult[T] = result(None, None, None, stale=False)
         logger.warning("%s %s: no provider succeeded: %s", dataset, symbol, res.reasons)
+        if not record_gap:
+            return res
         self._gaps.record(
             GapRecord(
                 dataset=dataset,
