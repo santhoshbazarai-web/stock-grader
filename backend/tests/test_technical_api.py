@@ -12,11 +12,11 @@ from sqlalchemy.orm import Session
 from app.core.config import JobName
 from app.db.models import Instrument, PriceDaily, TechnicalSnapshot
 from app.db.upsert import upsert
+from app.devtools.synthetic import synthetic_daily
 from app.jobs.registry import REGISTRY
 from app.jobs.runner import JobOptions, run_job
 from tests.api_support import app_client
 from tests.jobs_support import Env
-from tests.test_technical import synthetic_daily
 
 
 def store_prices(

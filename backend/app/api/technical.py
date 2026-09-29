@@ -27,13 +27,14 @@ def technical_debug(
     top_band: float | None = None,
     grade: Annotated[str | None, Query(pattern="^(A_plus|A|B|C|D)$")] = None,
     mos: Annotated[float | None, Query(ge=0, lt=1)] = None,
+    include_daily: bool = False,
 ) -> dict[str, Any]:
     """Weekly bars, 30-week SMA, swings, BOS/CHoCH, demand/supply zones, FVGs, dealing range,
     AVWAPs, volume profile, RS, momentum, participation and the stage.
 
     Pass ``fair_value`` (plus ``baseline`` / ``top_band`` and ``grade`` or ``mos``) to also get
     the SPEC §6 buy zone for those valuation levels. ``mos`` defaults to the grade's configured
-    margin of safety.
+    margin of safety. ``include_daily`` adds the adjusted daily candles (``daily_bars``).
     """
     try:
         daily = prices.adjusted_daily(session, symbol)
@@ -57,6 +58,22 @@ def technical_debug(
         levels=levels,
     )
     payload = debug_payload(analysis, symbol.upper())
+    if include_daily:
+        # Daily candles for the chart's daily view; overlays stay weekly (SPEC §6).
+        ohlcv = daily[["open", "high", "low", "close", "volume"]].to_numpy(dtype=float)
+        payload["daily_bars"] = [
+            {
+                "time": d.date().isoformat(),
+                "open": o,
+                "high": h,
+                "low": lo,
+                "close": c,
+                "volume": v,
+            }
+            for d, (o, h, lo, c, v) in zip(
+                pd.DatetimeIndex(daily.index), ohlcv.tolist(), strict=True
+            )
+        ]
     payload["valuation_levels"] = (
         None
         if levels is None

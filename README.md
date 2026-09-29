@@ -147,6 +147,49 @@ curl -H "Authorization: Bearer $TOKEN" localhost:8000/api/stocks/TCS/report
 | `GET /api/jobs` | Job history, data freshness, open data gaps, refresh queue |
 | `GET /api/brokers/status`, `/api/brokers/{fyers,kite}/login` | Broker connections |
 
+## Stock report page
+
+`/stocks/{SYMBOL}` in the web app (SPEC §9). It needs the single-user login and is served
+through a same-origin `/api` proxy in Next.js, so the session cookie works without CORS.
+
+- **Header:** CMP, grade and action badges, and data sources. "Refresh data" queues a refresh.
+- **Zone gauge:** the five valuation zones, with Baseline / FV / Top band ticks, the buy-zone
+  track and a CMP marker.
+- **Chart:** weekly or daily candles (lightweight-charts) with these overlays:
+  - demand and supply zone rectangles, and the buy zone
+  - 30-week SMA and AVWAP lines
+  - Baseline, FV, Top band, POC and invalidation lines
+- **Valuation:**
+  - the method table, reverse DCF and scenarios
+  - a WACC × terminal-growth sensitivity heatmap, coloured by value versus CMP
+  - editable assumptions, which POST overrides and swap in the recomputed report, chart and
+    heatmap
+- **Scorecard:** a six-pillar radar plus expandable sub-metrics, each with its reason.
+- **Decision:** the reasons, earned-premium conditions, "why is it cheap?" / value-trap
+  checklists and a technical summary.
+- **Red flags and data gaps.**
+- **10-year fundamentals:** small multiples for sales, EBITDA, PAT, CFO, FCF, ROCE and CCC,
+  plus the shareholding trend. Each chart has a table view.
+
+Chart colours are one validated palette, defined as `--viz-*` tokens in `globals.css`, with
+light and dark steps. The app follows the OS colour scheme.
+
+**Demo data.** To explore the UI before any broker or Screener data exists, seed six synthetic
+stocks (`DEMOIT`, `DEMOSOFT`, `DEMOCODE`, `DEMOTECH`, `DEMOBANK`, `DEMOFMCG`):
+
+```bash
+make demo                                                # or: python -m app.devtools.demo
+python -m app.devtools.demo --purge                      # remove them again
+```
+
+They are clearly synthetic: names end in "(synthetic demo)" and prices have `source=demo`. A
+synthetic NIFTY500 is written only when no NIFTY500 prices exist, and it is purged with the
+demo.
+
+**UI tests.** With the stack running and demo data seeded:
+`E2E_PASSWORD=<APP_PASSWORD> make e2e`. This runs Playwright over the login gate, every report
+section, saving and clearing an assumption, the daily/weekly toggle, and a bank with no DCF.
+
 ## Technical debug endpoint
 
 `GET /api/stocks/{symbol}/technical/debug` runs the weekly technical engine (SPEC §6) on

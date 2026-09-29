@@ -21,6 +21,12 @@ class Levels(_Dto):
     top_band: float | None
     mos_pct: float | None = Field(description="Margin of safety (fraction) for the MoS grade")
     confidence: Literal["high", "medium", "low"] | None
+    discount_edge: float | None = Field(
+        None, description="FV x (1 - MoS): Discount below, Fair from here"
+    )
+    fair_upper: float | None = Field(
+        None, description="FV x zones.fair_upper_mult: Fair up to here, Premium above"
+    )
 
 
 class BuyZoneDto(_Dto):
@@ -65,6 +71,9 @@ class ValuationDto(_Dto):
     market_cap_cr: float | None
     extra_methods: dict[str, float | None] = Field(
         default_factory=dict, description="Reported but not blended (EPV, Graham, RI)"
+    )
+    dcf_inputs: dict[str, float] | None = Field(
+        None, description="Base DCF assumptions used (after overrides): g1, ebit_margin, ..."
     )
     reasons: list[str]
 

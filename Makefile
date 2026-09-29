@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help install up down logs migrate revision test check fmt
+.PHONY: help install up down logs migrate revision test check fmt demo e2e
 
 COMPOSE := docker compose
 BACKEND := cd backend &&
@@ -37,6 +37,12 @@ check: ## Lint + type-check backend (ruff, mypy --strict) and frontend (eslint, 
 	$(BACKEND) uv run mypy app
 	$(FRONTEND) npm run lint
 	$(FRONTEND) npm run typecheck
+
+demo: ## Seed synthetic DEMO* stocks and build their reports (local dev DB only)
+	$(COMPOSE) run --rm api python -m app.devtools.demo
+
+e2e: ## Playwright UI tests against the running stack + demo data (E2E_PASSWORD=<APP_PASSWORD>)
+	$(FRONTEND) npm run e2e
 
 fmt: ## Auto-format backend code
 	$(BACKEND) uv run ruff check --fix .

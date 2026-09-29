@@ -336,8 +336,8 @@ class Score(ComputedMixin, Base):
     governance: Mapped[float | None]
     technical: Mapped[float | None]
     total: Mapped[float | None]
-    provisional_grade: Mapped[str | None] = mapped_column(String(4))
-    grade: Mapped[str | None] = mapped_column(String(4))
+    provisional_grade: Mapped[str | None] = mapped_column(String(8))
+    grade: Mapped[str | None] = mapped_column(String(8))
     knockouts: Mapped[list[str]] = mapped_column(server_default="[]")
     earned_premium: Mapped[int | None]
     action: Mapped[str | None] = mapped_column(String(32))

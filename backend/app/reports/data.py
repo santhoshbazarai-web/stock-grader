@@ -31,7 +31,7 @@ from app.db.models import (
 from app.reports.dto import PeerStats
 from app.reports.overrides import Overrides
 
-SHP_COLUMNS = ("promoter_pct", "promoter_pledge_pct", "fii_pct", "dii_pct", "mf_pct")
+SHP_COLUMNS = ("promoter_pct", "promoter_pledge_pct", "fii_pct", "dii_pct", "mf_pct", "public_pct")
 ASM_GSM = (SurveillanceList.ASM_LT, SurveillanceList.ASM_ST, SurveillanceList.GSM)
 
 
@@ -57,7 +57,7 @@ class StockData:
     notes: list[str] = field(default_factory=list)
 
 
-def _financials(
+def load_financials(
     session: Session, model: type[FinAnnual] | type[FinQuarterly], iid: int, table: str
 ) -> tuple[pd.DataFrame, str | None, str | None]:
     """Consolidated first; standalone only if there is no consolidated statement (rule 5)."""
@@ -84,7 +84,7 @@ def _financials(
     return empty, None, None
 
 
-def _shareholding(session: Session, iid: int) -> tuple[pd.DataFrame, str | None]:
+def load_shareholding(session: Session, iid: int) -> tuple[pd.DataFrame, str | None]:
     rows = list(
         session.scalars(
             select(Shareholding)
@@ -153,9 +153,9 @@ def load_stock_data(
     if inst is None:
         raise prices.NoPriceData(f"{sym}: unknown instrument")
     daily = prices.adjusted_daily(session, sym)
-    annual, basis, fin_source = _financials(session, FinAnnual, inst.id, "fin_annual")
-    quarterly, _, _ = _financials(session, FinQuarterly, inst.id, "fin_quarterly")
-    shp, shp_source = _shareholding(session, inst.id)
+    annual, basis, fin_source = load_financials(session, FinAnnual, inst.id, "fin_annual")
+    quarterly, _, _ = load_financials(session, FinQuarterly, inst.id, "fin_quarterly")
+    shp, shp_source = load_shareholding(session, inst.id)
     price_source = session.scalar(
         select(PriceDaily.source)
         .where(PriceDaily.instrument_id == inst.id)

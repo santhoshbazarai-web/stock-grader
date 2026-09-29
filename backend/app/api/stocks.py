@@ -20,6 +20,7 @@ from app.db.upsert import upsert
 from app.jobs.refresh import enqueue_refresh
 from app.reports.data import load_overrides
 from app.reports.dto import StockReport
+from app.reports.history import FundamentalsHistory, load_history
 from app.reports.overrides import Overrides
 from app.reports.service import latest_report, latest_sensitivity, refresh_report
 
@@ -176,3 +177,13 @@ def clear_overrides(symbol: Symbol, session: SessionDep) -> None:
     iid = _instrument_id(session, symbol)
     session.execute(delete(UserOverride).where(UserOverride.instrument_id == iid))
     session.commit()
+
+
+@router.get("/{symbol}/fundamentals", responses=_NOT_FOUND)
+def fundamentals(symbol: Symbol, session: SessionDep, config: ConfigDep) -> FundamentalsHistory:
+    """Ten fiscal years of sales, EBITDA, PAT, CFO, FCF, ROCE and CCC, plus the shareholding
+    trend, for the report page charts. Missing years are ``null``, never 0."""
+    history = load_history(session, symbol, config)
+    if history is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"unknown symbol {symbol.upper()}")
+    return history

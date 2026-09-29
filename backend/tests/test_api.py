@@ -17,8 +17,13 @@ from app.jobs.refresh import PENDING_KEY, QUEUE_KEY
 from app.main import create_app
 from tests.api_support import app_client
 from tests.conftest import REPO_CONFIG_DIR
-from tests.report_support import seed_company, seed_index, store_prices
-from tests.test_technical import synthetic_daily
+from tests.report_support import (
+    ensure_instrument,
+    seed_company,
+    seed_index,
+    store_prices,
+    synthetic_daily,
+)
 
 SCREENER_FIXTURE = Path(__file__).parent / "fixtures" / "screener" / "sample_export.xlsx"
 
@@ -124,9 +129,9 @@ def test_report_builds_once_then_serves_stored(client: TestClient, seeded: Sessi
 def test_report_errors(client: TestClient, db: Session) -> None:
     assert client.get("/api/stocks/NOPE/report").status_code == 404
     assert client.get("/api/stocks/bad$sym/report").status_code == 422
-    from tests.report_support import _instrument
-
-    store_prices(db, _instrument(db, "RAW", None), synthetic_daily(n_days=300), adjusted=False)
+    store_prices(
+        db, ensure_instrument(db, "RAW", None), synthetic_daily(n_days=300), adjusted=False
+    )
     res = client.get("/api/stocks/RAW/report")
     assert res.status_code == 409 and "adjusted" in res.json()["detail"]
 
@@ -386,3 +391,31 @@ def test_jobs_view(client: TestClient, seeded: Session, db: Session) -> None:
     assert f["prices"] and f["reports"] and f["shareholding_period"] == "2024-03-31"
     assert f["delivery"] is None
     assert body["open_data_gaps"] > 0
+
+
+def test_fundamentals_history(client: TestClient, seeded: Session) -> None:
+    body = client.get("/api/stocks/SYNTH/fundamentals").json()
+    assert [y["fiscal_year"] for y in body["years"]] == list(range(2015, 2025))
+    first, last = body["years"][0], body["years"][-1]
+    assert first["revenue"] == pytest.approx(1000.0)
+    assert last["revenue"] == pytest.approx(1000 * 1.12**9)
+    # FCF = CFO - capex (fixture: capex 4% of revenue); ROCE needs the prior year → null first
+    assert last["fcf"] == pytest.approx(last["cfo"] - 0.04 * last["revenue"])
+    assert first["roce"] is None and last["roce"] > 0
+    assert body["statement_type"] == "consolidated" and body["missing"] == []
+    shp = body["shareholding"]
+    assert [s["period_end"] for s in shp] == ["2023-12-31", "2024-03-31"]
+    assert shp[-1]["fii_pct"] == 20.5 and shp[-1]["public_pct"] == pytest.approx(12.0)
+    assert client.get("/api/stocks/NOPE/fundamentals").status_code == 404
+
+
+def test_report_carries_zone_bounds(client: TestClient, seeded: Session) -> None:
+    lv = client.get("/api/stocks/SYNTH/report").json()["levels"]
+    assert lv["discount_edge"] == pytest.approx(lv["fair_value"] * (1 - lv["mos_pct"]))
+    assert lv["fair_upper"] == pytest.approx(lv["fair_value"] * 1.10)
+
+
+def test_technical_debug_daily_bars(client: TestClient, seeded: Session) -> None:
+    body = client.get("/api/stocks/SYNTH/technical/debug", params={"include_daily": True}).json()
+    assert len(body["daily_bars"]) == 900 and body["daily_bars"][0]["time"] == "2021-01-01"
+    assert "daily_bars" not in client.get("/api/stocks/SYNTH/technical/debug").json()

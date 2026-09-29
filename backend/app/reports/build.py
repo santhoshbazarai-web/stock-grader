@@ -34,6 +34,7 @@ from app.reports.dto import (
     TechnicalDto,
     ValuationDto,
 )
+from app.reports.overrides import DCF_KEYS
 from app.reports.valuation_run import ValuationRun, run_valuation, ttm_by_quarter
 from app.scoring.common import Grade, Pillar
 from app.scoring.decision import Decision, DecisionInputs, decide
@@ -515,6 +516,12 @@ def _assemble(
             top_band=val.top_band if val else None,
             mos_pct=val.mos_pct if val else None,
             confidence=val.confidence.value if val else None,
+            discount_edge=val.fair_value * (1 - val.mos_pct) if val and val.fair_value else None,
+            fair_upper=(
+                val.fair_value * config.valuation.zones.fair_upper_mult
+                if val and val.fair_value
+                else None
+            ),
         ),
         zone=val.zone.value if val and val.zone else None,
         buy_zone=BuyZoneDto(
@@ -549,6 +556,9 @@ def _assemble(
             beta=run.beta,
             market_cap_cr=run.market_cap_cr,
             extra_methods=run.extra,
+            dcf_inputs=(
+                {k: float(getattr(run.base, k)) for k in DCF_KEYS} if run.base is not None else None
+            ),
             reasons=run.reasons + (val.reasons if val else []),
         ),
         scores=Scores(

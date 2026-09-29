@@ -120,3 +120,50 @@
     @apply bg-background text-foreground font-sans;
   }
 }
+
+/* ───────── Data-viz tokens ─────────
+   Categorical slots 1-4 validated (light + dark) with the dataviz skill's validator:
+   adjacent CVD ΔE ≥ 8.4, normal-vision ΔE ≥ 19.8. Light aqua/yellow sit below 3:1 on the
+   surface, so every chart using them has visible labels and a table view.
+   Diverging pair (cheap ↔ expensive): blue ↔ red with a neutral gray midpoint.
+   Status (up/down candles, demand/supply zones): good / critical, never used for series. */
+:root {
+  --viz-surface: #fcfcfb;
+  --viz-ink: #0b0b0b;
+  --viz-ink-2: #52514e;
+  --viz-muted: #898781;
+  --viz-grid: #e1e0d9;
+  --viz-axis: #c3c2b7;
+  --viz-s1: #2a78d6;
+  --viz-s2: #eb6834;
+  --viz-s3: #1baf7a;
+  --viz-s4: #eda100;
+  --viz-good: #0ca30c;
+  --viz-critical: #d03b3b;
+  --viz-div-neg-3: #1c5cab;
+  --viz-div-neg-2: #3987e5;
+  --viz-div-neg-1: #9ec5f4;
+  --viz-div-mid: #f0efec;
+  --viz-div-pos-1: #f3b1b0;
+  --viz-div-pos-2: #e34948;
+  --viz-div-pos-3: #b02b2b;
+}
+.dark {
+  --viz-surface: #1a1a19;
+  --viz-ink: #ffffff;
+  --viz-ink-2: #c3c2b7;
+  --viz-muted: #898781;
+  --viz-grid: #2c2c2a;
+  --viz-axis: #383835;
+  --viz-s1: #3987e5;
+  --viz-s2: #d95926;
+  --viz-s3: #199e70;
+  --viz-s4: #c98500;
+  --viz-div-neg-3: #86b6ef;
+  --viz-div-neg-2: #3987e5;
+  --viz-div-neg-1: #184f95;
+  --viz-div-mid: #383835;
+  --viz-div-pos-1: #7a2626;
+  --viz-div-pos-2: #e66767;
+  --viz-div-pos-3: #f3b1b0;
+}

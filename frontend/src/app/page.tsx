@@ -1,5 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { SymbolSearch } from "@/components/report/symbol-search";
 import { fetchHealth } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
@@ -10,6 +11,7 @@ export default async function Home() {
   return (
     <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 p-8">
       <h1 className="text-3xl font-semibold tracking-tight">Stock Grader</h1>
+      <SymbolSearch />
       <Card>
         <CardHeader>
           <CardTitle>API status</CardTitle>

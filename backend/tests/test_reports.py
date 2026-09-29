@@ -110,6 +110,10 @@ def test_report_is_internally_consistent(seeded: Session) -> None:
     assert r.levels.baseline <= r.levels.fair_value <= r.levels.top_band  # type: ignore[operator]
     dcf = {d.scenario: d.value_per_share for d in r.valuation.dcf}
     assert dcf["bear"] < dcf["base"] < dcf["bull"]  # type: ignore[operator]
+    inputs = r.valuation.dcf_inputs
+    assert inputs is not None and inputs["g1"] == pytest.approx(0.12)  # min(5y CAGR, cap)
+    assert inputs["wacc"] == pytest.approx(r.valuation.wacc)
+    assert inputs["ebit_margin"] == pytest.approx(0.20)  # fixture margin
     assert r.valuation.reverse_dcf is not None and r.valuation.reverse_dcf.implied_growth
     # Sales grow exactly 12% a year in the fixture.
     assert r.fundamentals["sales_cagr_5y"] == pytest.approx(0.12)
@@ -270,3 +274,28 @@ def test_valuation_scores_job_uses_this_runs_peers(env: Env) -> None:
 def test_annual_fixture_shape() -> None:
     rows = annual_rows(1, 0.12)
     assert len(rows) == 10 and rows[-1]["fiscal_year"] == 2024
+
+
+def test_demo_seed_and_purge(db: Session) -> None:
+    from app.devtools.demo import DEMO_STOCKS, purge, seed
+
+    symbols = seed(db, CFG)
+    assert symbols == [s for s, *_ in DEMO_STOCKS]
+    it = latest_report(db, "DEMOIT")
+    assert it is not None and it.name == "Demoit Ltd (synthetic demo)"
+    assert it.sources["prices"] == "demo"
+    rel = next(m for m in it.valuation.methods if m.name == "relative")
+    assert rel.value is not None  # three IT peers from the same seed
+    assert len(it.levels.model_dump()) and it.levels.discount_edge is not None
+    assert purge(db, CFG) == len(DEMO_STOCKS)
+    assert db.scalar(select(Instrument.id).where(Instrument.symbol == "NIFTY500")) is None
+
+
+def test_a_plus_grade_persists(seeded: Session) -> None:
+    # Regression: scores.grade was VARCHAR(4) and "A_plus" did not fit.
+    built = build_for(seeded, "SYNTH", CFG)
+    report = built.report.model_copy(update={"grade": "A_plus", "provisional_grade": "A_plus"})
+    built.report = report
+    persist(seeded, built)
+    seeded.flush()
+    assert seeded.scalars(select(Score.grade)).one() == "A_plus"

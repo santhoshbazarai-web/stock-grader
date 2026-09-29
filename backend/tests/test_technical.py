@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 from app.core.config import TechnicalConfig, load_config
+from app.devtools.synthetic import synthetic_daily
 from app.technical.avwap import anchored_vwap, avwaps
 from app.technical.bars import atr, rsi, to_weekly
 from app.technical.buy_zone import Support, buy_zone, valuation_range
@@ -454,23 +455,6 @@ def test_buy_zone_without_valuation_levels() -> None:
 
 
 # ───────────────────────── engine & payload ─────────────────────────
-
-
-def synthetic_daily(n_days: int = 900, seed: int = 11) -> pd.DataFrame:
-    rng = np.random.default_rng(seed)
-    days = pd.bdate_range("2021-01-01", periods=n_days)
-    close = 100 * np.cumprod(1 + rng.normal(0.0008, 0.018, n_days))
-    spread = close * rng.uniform(0.005, 0.03, n_days)
-    return pd.DataFrame(
-        {
-            "open": close * (1 + rng.normal(0, 0.005, n_days)),
-            "high": close + spread,
-            "low": close - spread,
-            "close": close,
-            "volume": rng.integers(10_000, 50_000, n_days).astype(float),
-        },
-        index=days,
-    )
 
 
 def test_engine_end_to_end_payload_is_chart_ready() -> None:
