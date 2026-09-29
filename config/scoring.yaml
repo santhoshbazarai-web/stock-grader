@@ -10,6 +10,7 @@ scoring:
     negative_cfo_window_years: 5
     min_mcap_cr: 500
     min_avg_traded_value_cr_20d: 5
+    traded_value_days: 20        # sessions averaged for the liquidity check
     beneish_m_max: -1.78
     auditor_resignation_years: 2
     on_asm_gsm: true

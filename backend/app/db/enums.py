@@ -47,3 +47,10 @@ class JobStatus(StrEnum):
     SUCCESS = "success"
     FAILED = "failed"
     SKIPPED = "skipped"  # another run held the lock, or outside the job's season
+
+
+class BacktestStatus(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    DONE = "done"
+    FAILED = "failed"

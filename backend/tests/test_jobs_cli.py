@@ -24,7 +24,7 @@ def test_list(env: Env, capsys: pytest.CaptureFixture[str]) -> None:
     assert cli(env, "list") == 0
     out = capsys.readouterr().out
     assert "eod_prices" in out and "15 18 * * mon-fri" in out
-    assert "pending P11" in out
+    assert "pending P14" in out
 
 
 def test_run_with_symbols(env: Env, capsys: pytest.CaptureFixture[str]) -> None:
@@ -44,7 +44,7 @@ def test_run_failed_job_exit_code(env: Env, capsys: pytest.CaptureFixture[str]) 
     assert "no delivery data" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize(("job", "message"), [("nope", "unknown job"), ("valuation_scores", "P11")])
+@pytest.mark.parametrize(("job", "message"), [("nope", "unknown job"), ("alerts_intraday", "P14")])
 def test_unknown_or_pending_job(
     env: Env, capsys: pytest.CaptureFixture[str], job: str, message: str
 ) -> None:
@@ -76,8 +76,8 @@ def test_scheduler_registers_ready_jobs_with_config_triggers(env: Env) -> None:
     jobs = {j.id: j for j in scheduler.get_jobs()}
     ready = {str(n) for n, spec in REGISTRY.items() if spec.fn is not None}
     assert set(jobs) == ready
-    assert {"valuation_scores", "alerts_intraday"}.isdisjoint(jobs)
-    assert "technicals" in jobs
+    assert "alerts_intraday" not in jobs
+    assert {"technicals", "valuation_scores", "refresh_queue"} <= set(jobs)
 
     tz = ZoneInfo("Asia/Kolkata")
     trigger = jobs["eod_prices"].trigger

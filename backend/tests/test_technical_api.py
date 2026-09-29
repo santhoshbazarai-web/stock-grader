@@ -11,11 +11,10 @@ from sqlalchemy.orm import Session
 
 from app.core.config import JobName
 from app.db.models import Instrument, PriceDaily, TechnicalSnapshot
-from app.db.session import get_session
 from app.db.upsert import upsert
 from app.jobs.registry import REGISTRY
 from app.jobs.runner import JobOptions, run_job
-from app.main import create_app
+from tests.api_support import app_client
 from tests.jobs_support import Env
 from tests.test_technical import synthetic_daily
 
@@ -49,14 +48,7 @@ def store_prices(
 
 @pytest.fixture
 def client(db: Session) -> Iterator[TestClient]:
-    app = create_app()
-
-    def session_override() -> Iterator[Session]:
-        yield db
-
-    app.dependency_overrides[get_session] = session_override
-    with TestClient(app) as c:
-        yield c
+    yield from app_client(db)
 
 
 def test_debug_endpoint_returns_overlays(db: Session, client: TestClient) -> None:

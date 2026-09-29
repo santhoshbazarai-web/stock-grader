@@ -22,6 +22,7 @@ from app.data.providers.kite import IST as IST_TZ
 from app.db.enums import Broker
 from app.db.models import BrokerToken
 from app.main import create_app
+from tests.api_support import login
 
 FIXTURES = Path(__file__).parent / "fixtures" / "fyers"
 TOKEN_URL = "https://api-t1.fyers.in/api/v3/validate-authcode"
@@ -131,6 +132,7 @@ def client(store: BrokerTokenStore) -> Iterator[TestClient]:
     app.dependency_overrides[get_token_store] = lambda: store
     app.dependency_overrides[get_fyers_auth] = lambda: FyersAuth(APP_ID, "s3cret", REDIRECT)
     with TestClient(app, follow_redirects=False) as c:
+        login(c)
         yield c
 
 
@@ -244,6 +246,7 @@ def test_login_when_not_configured(store: BrokerTokenStore) -> None:
     app = create_app()
     app.dependency_overrides[get_token_store] = lambda: store
     with TestClient(app, follow_redirects=False) as c:
+        login(c)
         res = c.get("/api/brokers/fyers/login")
     assert res.status_code == 503
     assert "FYERS_APP_ID" in res.json()["detail"]
@@ -266,6 +269,7 @@ def kite_client(store: BrokerTokenStore) -> Iterator[TestClient]:
     app.dependency_overrides[get_token_store] = lambda: store
     app.dependency_overrides[get_kite_auth] = lambda: KiteAuth("kitekey", "sec", time(6, 0))
     with TestClient(app, follow_redirects=False) as c:
+        login(c)
         yield c
 
 
@@ -336,6 +340,7 @@ def test_kite_login_when_not_configured(store: BrokerTokenStore) -> None:
     app = create_app()
     app.dependency_overrides[get_token_store] = lambda: store
     with TestClient(app, follow_redirects=False) as c:
+        login(c)
         res = c.get("/api/brokers/kite/login")
     assert res.status_code == 503
     assert "KITE_API_KEY" in res.json()["detail"]

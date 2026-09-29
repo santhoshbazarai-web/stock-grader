@@ -30,6 +30,14 @@ class Settings(BaseSettings):
 
     fernet_key: SecretStr
     app_password: SecretStr
+    # Single-user session: signed cookie lifetime, and Secure flag (enable behind HTTPS).
+    session_ttl_hours: float = Field(default=12.0, gt=0)
+    session_cookie_secure: bool = False
+    # Login brute-force protection: failures per client IP before a lockout of this long.
+    login_max_failures: int = Field(default=5, ge=1)
+    login_lockout_s: int = Field(default=900, ge=1)
+    # Screener Excel uploads larger than this are rejected.
+    upload_max_bytes: int = Field(default=10 * 1024 * 1024, ge=1024)
 
     fyers_app_id: str | None = None
     fyers_secret: SecretStr | None = None

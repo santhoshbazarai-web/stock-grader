@@ -233,10 +233,16 @@ class DcfConfig(_Strict):
         return self
 
 
+class AnnouncementLag(_Strict):
+    quarterly: PositiveInt
+    annual: PositiveInt
+
+
 class BandsConfig(_Strict):
     lookback_years: list[PositiveInt] = Field(min_length=1)
     multiples: list[Literal["pe", "ev_ebitda", "pb"]] = Field(min_length=1)
     min_observations: PositiveInt
+    assumed_announcement_lag_days: AnnouncementLag
 
 
 class EpvConfig(_Strict):
@@ -251,6 +257,7 @@ class BlendConfig(_Strict):
 class RelativeConfig(_Strict):
     roce_exponent: NonNegativeFloat
     growth_exponent: NonNegativeFloat
+    min_peers: PositiveInt
 
 
 class GradeFractions(_Strict):
@@ -428,6 +435,7 @@ class KnockoutsConfig(_Strict):
     negative_cfo_window_years: PositiveInt
     min_mcap_cr: NonNegativeFloat
     min_avg_traded_value_cr_20d: NonNegativeFloat
+    traded_value_days: PositiveInt
     beneish_m_max: float
     auditor_resignation_years: PositiveInt
     on_asm_gsm: bool
@@ -619,6 +627,7 @@ class TechnicalConfig(_Strict):
     updown_volume_weeks: PositiveInt
     vcp: VcpConfig
     buy_zone_point_band_atr: NonNegativeFloat
+    rs_percentile_max_age_days: PositiveInt
     min_weekly_bars: PositiveInt
 
     @model_validator(mode="after")
@@ -648,6 +657,7 @@ class JobName(StrEnum):
     SHAREHOLDING = "shareholding"
     INDEX_CONSTITUENTS = "index_constituents"
     RESULTS_WATCH = "results_watch"
+    REFRESH_QUEUE = "refresh_queue"
 
 
 class Season(_Strict):

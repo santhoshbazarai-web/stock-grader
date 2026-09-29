@@ -27,6 +27,10 @@ valuation:
     lookback_years: [5, 10]
     multiples: [pe, ev_ebitda, pb]
     min_observations: 250        # trading days with a valid multiple needed to trust a band
+    # When a filing's announcement date is unknown (e.g. Screener uploads), the live report
+    # treats it as known this many days after period end (SEBI LODR deadlines) and flags it.
+    # Backtests never use this: they need real announcement dates (rule 4).
+    assumed_announcement_lag_days: {quarterly: 45, annual: 60}
   epv:
     normalise_years: 5           # normalised EBIT = mean EBIT margin over N years x latest revenue
   graham_multiplier: 22.5        # Graham number = sqrt(multiplier x EPS x BVPS)
@@ -36,6 +40,7 @@ valuation:
   relative:
     roce_exponent: 0.5
     growth_exponent: 0.5
+    min_peers: 3                 # sector peers with a positive multiple needed for a relative value
   mos_by_grade: {A_plus: 0.15, A: 0.15, B: 0.275, C: 0.40, D: 0.40}
   zones:
     fair_upper_mult: 1.10

@@ -5,7 +5,7 @@ from collections.abc import Callable
 from datetime import datetime
 from urllib.parse import urlencode
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
@@ -16,6 +16,7 @@ from app.api.deps import (
     SettingsDep,
     StateSignerDep,
     TokenStoreDep,
+    require_user,
 )
 from app.core.config import AppConfig
 from app.core.security import InvalidStateError, StateSigner
@@ -26,6 +27,8 @@ from app.db.enums import Broker
 
 logger = logging.getLogger(__name__)
 
+# Login and status need the app session. The OAuth callbacks are reached by the broker's redirect
+# and are protected by the signed, expiring ``state`` issued from an authenticated login.
 router = APIRouter(prefix="/brokers", tags=["brokers"])
 
 
@@ -77,7 +80,7 @@ def _complete_login(
     return back("connected")
 
 
-@router.get("/status")
+@router.get("/status", dependencies=[Depends(require_user)])
 def broker_status(store: TokenStoreDep) -> list[BrokerStatus]:
     return [
         BrokerStatus(
@@ -90,7 +93,7 @@ def broker_status(store: TokenStoreDep) -> list[BrokerStatus]:
 # ───────────────────────── Fyers ─────────────────────────
 
 
-@router.get("/fyers/login")
+@router.get("/fyers/login", dependencies=[Depends(require_user)])
 def fyers_login(auth: FyersAuthDep, signer: StateSignerDep) -> RedirectResponse:
     state = signer.issue(_state_purpose(Broker.FYERS))
     return RedirectResponse(auth.login_url(state), status_code=307)
@@ -123,7 +126,7 @@ def fyers_callback(
 # ───────────────────────── Kite ─────────────────────────
 
 
-@router.get("/kite/login")
+@router.get("/kite/login", dependencies=[Depends(require_user)])
 def kite_login(auth: KiteAuthDep, signer: StateSignerDep) -> RedirectResponse:
     state = signer.issue(_state_purpose(Broker.KITE))
     return RedirectResponse(auth.login_url(state), status_code=307)

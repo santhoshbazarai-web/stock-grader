@@ -16,6 +16,7 @@ jobs:
     shareholding: "30 20 * * *"              # runs only inside shareholding_season
     index_constituents: "0 7 1 * *"
     results_watch: "0 21 * * *"              # runs only inside results_season
+    refresh_queue: "* * * * *"               # drains POST /api/stocks/{symbol}/refresh requests
   universe_index: NIFTY500    # symbols = current members of this index + watchlist
   constituent_indices: [NIFTY500, NIFTY50, NIFTYBANK, NIFTYIT, NIFTYPHARMA, NIFTYFMCG,
                         NIFTYAUTO, NIFTYMETAL, NIFTYREALTY]

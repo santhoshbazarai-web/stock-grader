@@ -111,3 +111,45 @@ class DbGapRecorder:
             session.commit()
         finally:
             session.close()
+
+
+class SessionGapRecorder:
+    """Writes gaps into the caller's session, so they commit (or roll back) with the caller's
+    data — used where the data and its gaps belong together, e.g. a Screener upload."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def record(self, gap: GapRecord) -> None:
+        instrument_id = DbGapRecorder._instrument_id(self._session, gap.symbol)
+        upsert(
+            self._session,
+            DataGap,
+            [
+                {
+                    "instrument_id": instrument_id,
+                    "dataset": str(gap.dataset),
+                    "field": gap.field,
+                    "period": gap.period,
+                    "reason": gap.reason,
+                    "providers_tried": gap.providers_tried,
+                    "resolved_at": None,
+                }
+            ],
+        )
+
+    def resolve(self, dataset: Dataset, symbol: str | None) -> None:
+        instrument_id = DbGapRecorder._instrument_id(self._session, symbol)
+        if symbol is not None and instrument_id is None:
+            return
+        self._session.execute(
+            update(DataGap)
+            .where(
+                DataGap.instrument_id == instrument_id,
+                DataGap.dataset == str(dataset),
+                DataGap.field.is_(None),
+                DataGap.period.is_(None),
+                DataGap.resolved_at.is_(None),
+            )
+            .values(resolved_at=func.now())
+        )

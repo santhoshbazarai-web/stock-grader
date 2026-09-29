@@ -347,6 +347,48 @@ StockReport DTO (abridged)
   "reasons": ["..."], "red_flags": ["..."], "data_gaps": ["..."], "thesis": "optional LLM text"
 }
 ```
+
+Implementation notes (`reports/`, `api/`)
+
+Report pipeline
+- `reports/data.py` is the only step that reads the database. It loads adjusted prices, statements, shareholding, delivery, surveillance lists, the benchmark index, user overrides, and peers' latest `peer_stats`.
+- Consolidated statements are used first. Standalone statements are used only when no consolidated ones exist, and the report then carries a red flag (rule 5).
+- `reports/build.py` is pure and runs the steps in this order:
+  1. fundamentals
+  2. technicals
+  3. the five non-valuation pillars and knock-outs, then the provisional grade (§7.3)
+  4. valuation with that grade's MoS, then the Valuation pillar and the final grade
+  5. earned premium
+  6. buy zone, using the final grade for the A-range check and the provisional MoS
+  7. decision
+- `reports/service.py` persists one date's results: `valuation_snapshots` (including the sensitivity grid), the weekly `technical_snapshots` (now with buy zone and invalidation), `scores`, `reports` and `data_gaps`. The report date is the last price date.
+
+Valuation wiring (§5)
+- The PE band uses TTM EPS from four consecutive quarters, or annual EPS if there are not four. EV/EBITDA and P/B use annual figures.
+- Band denominators are keyed by announcement date. When that date is unknown (Screener uploads), the live report assumes `bands.assumed_announcement_lag_days` (quarterly 45 / annual 60) and records a gap. Backtests must not use this assumption.
+- Each band uses the first lookback in `bands.lookback_years` with enough observations. Its method value is the band median as a price. The primary band is the sector's highest-weighted band method.
+- Market cap = CMP × latest diluted shares. The cost of equity uses the Blume beta against `jobs.universe_index`.
+- DCF, reverse DCF and EPV run only for the FCFF and cyclical models (rule 10).
+- Relative valuation needs `relative.min_peers` sector peers with a positive multiple. Peer figures come from this run (`valuation_scores` job, two passes) or from peers' latest stored reports (on-demand builds).
+- Institutional holding = FII + DII, because DII already includes mutual funds.
+- The liquidity knock-out is the mean traded value over `knockouts.traded_value_days`. With fewer sessions on file, the check is unknown.
+- The technicals job's RS percentile is used only if it is at most `rs_percentile_max_age_days` old.
+
+Overrides and manual inputs
+- `POST /overrides` accepts DCF assumptions, which replace the computed base inputs, and `sector`, which selects the model.
+- It also accepts manual inputs the sources cannot supply: NAV, embedded value, VNB, P/EV multiples, SOTP holdings, the related-party-transaction flag and auditor resignations.
+- Fields sent with a value are saved. Fields sent as `null` are cleared. Fields left out are unchanged.
+
+Auth
+- There is one password (`APP_PASSWORD`). A successful login gets a signed, expiring token as an HttpOnly `SameSite=Lax` cookie, and as a Bearer token for API clients.
+- The signing key is derived from `FERNET_KEY` and the password, so changing the password logs out every session.
+- Failed logins per IP are counted in Redis. After `LOGIN_MAX_FAILURES` failures the IP is locked out (429).
+- Public routes: `/api/health`, `/api/auth/login|logout` and the broker OAuth callbacks. The callbacks are protected by the signed `state`.
+
+Refresh, config and backtests
+- `POST /refresh` queues the symbol in Redis (deduplicated). The worker's `refresh_queue` job, run every minute, re-runs corporate actions, EOD prices, results and shareholding for it (ignoring seasons), then rebuilds the report.
+- `PUT /api/config` validates the new YAML together with the other files, exactly as at startup, before an atomic write. The API applies it at once; the worker needs a restart.
+- `POST /api/backtests` stores the request as `queued`. The engine is P15.
 ---
 9. Frontend pages
 Dashboard: broker connection status, data freshness, top A-grade stocks in the buy zone, triggered alerts.

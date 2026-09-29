@@ -13,6 +13,8 @@ from sqlalchemy import Connection, Engine, create_engine, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
+from app.api.deps import get_redis
+from app.core.auth import get_session_signer
 from app.core.config import get_config
 from app.core.security import get_cipher
 from app.core.settings import get_settings
@@ -28,6 +30,8 @@ TEST_DATABASE_URL = os.environ.get(
     "postgresql+psycopg://stockgrader:stockgrader@localhost:5432/stockgrader_test",
 )
 
+
+TEST_REDIS_URL = os.environ.get("TEST_REDIS_URL", "redis://localhost:6379/15")
 
 _LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 _real_connect = socket.socket.connect
@@ -54,13 +58,13 @@ def _env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setenv("FERNET_KEY", Fernet.generate_key().decode())
     monkeypatch.setenv("APP_PASSWORD", "test-password")
     monkeypatch.setenv("CONFIG_DIR", str(REPO_CONFIG_DIR))
-    get_settings.cache_clear()
-    get_config.cache_clear()
-    get_cipher.cache_clear()
+    monkeypatch.setenv("REDIS_URL", TEST_REDIS_URL)
+    caches = (get_settings, get_config, get_cipher, get_session_signer, get_redis)
+    for c in caches:
+        c.cache_clear()
     yield
-    get_settings.cache_clear()
-    get_config.cache_clear()
-    get_cipher.cache_clear()
+    for c in caches:
+        c.cache_clear()
 
 
 # ───────────────────────── database ─────────────────────────
@@ -108,8 +112,6 @@ def db(migrated_engine: Engine) -> Iterator[Session]:
 
 
 # ───────────────────────── redis ─────────────────────────
-
-TEST_REDIS_URL = os.environ.get("TEST_REDIS_URL", "redis://localhost:6379/15")
 
 
 @pytest.fixture(scope="session")

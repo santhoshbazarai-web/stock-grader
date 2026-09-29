@@ -41,4 +41,5 @@ technical:
     max_distance_from_pivot: 0.05   # close within this of the last swing high
   # buy zone (buy_zone.py)
   buy_zone_point_band_atr: 0.5   # AVWAP / POC / swing-low supports become [level - this x ATR, level]
+  rs_percentile_max_age_days: 7   # a report uses the technicals job's RS percentile if this fresh
   min_weekly_bars: 60            # below this the engine reports "insufficient history"

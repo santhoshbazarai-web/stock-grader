@@ -36,7 +36,7 @@ _DETAIL_KEYS = (
 )
 
 
-def _detail(t: TechnicalAnalysis, symbol: str) -> dict[str, Any]:
+def snapshot_detail(t: TechnicalAnalysis, symbol: str) -> dict[str, Any]:
     full = debug_payload(t, symbol)
     detail = {k: full[k] for k in _DETAIL_KEYS}
     detail["avwaps"] = [
@@ -97,7 +97,7 @@ def technicals(ctx: JobContext, options: JobOptions) -> JobOutcome:
                     "buy_zone_high": None,
                     "invalidation": None,
                     "atr": t.atr_now,
-                    "detail": _detail(t, symbol),
+                    "detail": snapshot_detail(t, symbol),
                     "reasons": t.reasons,
                 }
             )

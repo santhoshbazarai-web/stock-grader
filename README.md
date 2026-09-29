@@ -115,8 +115,37 @@ python -m app.jobs verify-adjustment --symbol INFY       # raw vs adjusted aroun
 In Docker: `docker compose run --rm worker python -m app.jobs run eod_prices --symbols TCS`.
 
 Prices are stored raw and split/bonus-adjusted (`adj_*`, `data/adjust.py`); adjustment is
-recomputed whenever new bars or corporate actions arrive. `valuation_scores` and
-`alerts_intraday` are registered but not scheduled until their engines exist.
+recomputed whenever new bars or corporate actions arrive. `valuation_scores` builds every
+report in two passes: the first collects each stock's multiples as sector peers, the second
+builds the reports. `refresh_queue` handles `POST /api/stocks/{symbol}/refresh` requests.
+`alerts_intraday` is registered but not scheduled until P14.
+
+## API
+
+Interactive docs are served at `/api/docs` (Swagger) and `/api/redoc`, and the schema at
+`/api/openapi.json`. There is a single user. Log in with `APP_PASSWORD`; the session comes
+back as an HttpOnly cookie and as a Bearer token:
+
+```bash
+TOKEN=$(curl -s localhost:8000/api/auth/login -H 'content-type: application/json' \
+  -d '{"password": "..."}' | jq -r .token)
+curl -H "Authorization: Bearer $TOKEN" localhost:8000/api/stocks/TCS/report
+```
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/stocks/search?q=` | Symbol / name search |
+| `GET /api/stocks/{symbol}/report[?rebuild=true]` | StockReport DTO: the stored one, built on first request |
+| `POST /api/stocks/{symbol}/refresh` | Queue a data refresh + rebuild (worker, within a minute) |
+| `GET /api/stocks/{symbol}/valuation/sensitivity` | DCF WACC × terminal-growth grid |
+| `GET/POST/DELETE /api/stocks/{symbol}/overrides` | User assumptions and manual inputs; POST recomputes |
+| `GET /api/screener` | Filter by grade / zone / sector / action / EP / buy-zone distance / mcap, and sort |
+| `GET/POST/DELETE /api/watchlist`, `/api/alerts` | Watchlist; in-app price alerts (no broker orders) |
+| `POST /api/uploads/screener` | Screener.in Excel export (state consolidated / standalone) |
+| `GET /api/config`, `PUT /api/config` | View the YAML; replace one file, validated first |
+| `POST /api/backtests`, `GET /api/backtests/{id}` | Queue a backtest / poll it (engine: P15) |
+| `GET /api/jobs` | Job history, data freshness, open data gaps, refresh queue |
+| `GET /api/brokers/status`, `/api/brokers/{fyers,kite}/login` | Broker connections |
 
 ## Technical debug endpoint
 

@@ -117,8 +117,8 @@ def test_lock_has_ttl_while_running(env: Env) -> None:
 
 
 def test_pending_jobs_refuse_to_run(env: Env) -> None:
-    with pytest.raises(JobNotImplementedError, match="P11"):
-        run_job(REGISTRY[JobName.VALUATION_SCORES], env.ctx)
+    with pytest.raises(JobNotImplementedError, match="P14"):
+        run_job(REGISTRY[JobName.ALERTS_INTRADAY], env.ctx)
     assert job_runs(env) == []
 
 

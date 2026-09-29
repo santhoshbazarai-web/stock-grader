@@ -64,4 +64,5 @@ def test_spec_tables_present() -> None:
         "job_runs",
         "data_gaps",
         "user_overrides",
+        "backtests",  # SPEC §8 /api/backtests
     } == MODEL_TABLES

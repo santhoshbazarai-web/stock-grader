@@ -32,6 +32,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base, ComputedMixin, SourcedMixin, TimestampMixin, str_enum
 from app.db.enums import (
     AlertType,
+    BacktestStatus,
     Broker,
     CorporateActionType,
     JobStatus,
@@ -42,6 +43,7 @@ from app.db.enums import (
 
 __all__ = [
     "Alert",
+    "Backtest",
     "Base",
     "BrokerToken",
     "CorporateAction",
@@ -446,3 +448,16 @@ class UserOverride(TimestampMixin, Base):
     instrument_id: Mapped[int] = _instrument_fk()
     key: Mapped[str] = mapped_column(String(64))
     value: Mapped[dict[str, Any]]  # {"value": ...} so any JSON type can be stored
+
+
+class Backtest(TimestampMixin, Base):
+    """A backtest request (SPEC §8, §11) and, once run, its results."""
+
+    __tablename__ = "backtests"
+    __upsert_key__ = ("id",)
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    status: Mapped[BacktestStatus] = mapped_column(str_enum(BacktestStatus))
+    params: Mapped[dict[str, Any]]
+    results: Mapped[dict[str, Any] | None]
+    error: Mapped[str | None] = mapped_column(Text)
