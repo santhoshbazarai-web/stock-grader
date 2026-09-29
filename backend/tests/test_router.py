@@ -57,6 +57,9 @@ class FakePriceProvider:
         result: pd.DataFrame = self._next()
         return result
 
+    def index_ohlcv(self, index: str, start: date, end: date) -> pd.DataFrame:
+        return self.daily_ohlcv(index, start, end)
+
     def ltp(self, symbols: list[str]) -> dict[str, float]:
         result: dict[str, float] = self._next()
         return result

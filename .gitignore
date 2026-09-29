@@ -15,3 +15,6 @@ __pycache__/
 node_modules/
 
 .DS_Store
+
+# local redis-server snapshots
+dump.rdb

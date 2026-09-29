@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     config_dir: Path = Field(default=_REPO_ROOT / "config")
     log_level: str = "INFO"
+    # Browser-facing URL of the web app; broker OAuth callbacks redirect back here.
+    web_url: str = "http://localhost:3000"
 
     fernet_key: SecretStr
     app_password: SecretStr

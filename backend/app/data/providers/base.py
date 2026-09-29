@@ -35,6 +35,16 @@ class PriceProvider(Protocol):
 
 
 @runtime_checkable
+class IndexPriceProvider(Protocol):
+    """Index candles (Nifty 500, sectoral) for RS and beta. ``index`` is the canonical index
+    code, e.g. ``"NIFTY500"``; each provider maps it to its own symbology."""
+
+    name: Provider
+
+    def index_ohlcv(self, index: str, start: date, end: date) -> pd.DataFrame: ...
+
+
+@runtime_checkable
 class FundamentalsProvider(Protocol):
     name: Provider
 

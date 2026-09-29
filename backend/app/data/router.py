@@ -37,6 +37,7 @@ from app.core.rate_limiter import Limiter, RateLimitTimeout
 from app.data.gaps import GapRecord, GapRecorder
 from app.data.providers.base import (
     FundamentalsProvider,
+    IndexPriceProvider,
     PriceProvider,
     ProviderError,
     ProviderUnavailable,
@@ -153,8 +154,8 @@ class DataRouter:
     def index_ohlcv(self, index: str, start: date, end: date) -> RouteResult[pd.DataFrame]:
         return self.fetch(
             Dataset.INDEX_OHLCV,
-            PriceProvider,
-            lambda p: p.daily_ohlcv(index, start, end),
+            IndexPriceProvider,
+            lambda p: p.index_ohlcv(index, start, end),
             symbol=None,
         )
 

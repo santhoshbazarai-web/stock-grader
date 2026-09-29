@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app import __version__
-from app.api import health
+from app.api import brokers, health
 from app.core.config import get_config
 from app.core.logging import configure_logging
 from app.core.settings import get_settings
@@ -28,6 +28,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 def create_app() -> FastAPI:
     app = FastAPI(title="Stock Grader API", version=__version__, lifespan=lifespan)
     app.include_router(health.router, prefix="/api")
+    app.include_router(brokers.router, prefix="/api")
     return app
 
 

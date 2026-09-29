@@ -119,11 +119,18 @@ class RetryConfig(_Strict):
         return self
 
 
+class ApiLimits(_Strict):
+    history_max_days: PositiveInt
+    quotes_max_symbols: PositiveInt
+
+
 class ProvidersConfig(_Strict):
     priority: dict[Dataset, list[Provider]]
     rate_limits: dict[Provider, RateLimit]
     staleness_hours: dict[Dataset, PositiveFloat]
     retry: RetryConfig
+    api_limits: dict[Provider, ApiLimits]
+    oauth_state_ttl_s: PositiveInt
     history_years: PositiveInt
 
     @model_validator(mode="after")

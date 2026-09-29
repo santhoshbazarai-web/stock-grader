@@ -18,6 +18,8 @@ dependencies = [
     "pandas>=2.2",
     "numpy>=2.1",
     "scipy>=1.14",
+    "fyers-apiv3>=3.1.18",
+    "requests>=2.31.0",
 ]
 
 [dependency-groups]
@@ -29,6 +31,8 @@ dev = [
     "mypy>=1.13",
     "types-pyyaml>=6.0",
     "pandas-stubs>=2.2",
+    "responses>=0.26.3",
+    "types-requests>=2.33.0.20260906",
 ]
 
 [tool.uv]
@@ -63,5 +67,5 @@ init_typed = true
 warn_required_dynamic_aliases = true
 
 [[tool.mypy.overrides]]
-module = ["apscheduler.*"]
+module = ["apscheduler.*", "fyers_apiv3.*"]
 ignore_missing_imports = true

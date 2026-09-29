@@ -1,4 +1,5 @@
 import os
+import socket
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -24,6 +25,26 @@ TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL",
     "postgresql+psycopg://stockgrader:stockgrader@localhost:5432/stockgrader_test",
 )
+
+
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+_real_connect = socket.socket.connect
+
+
+def _guarded_connect(self: socket.socket, address: object) -> None:
+    host = address[0] if isinstance(address, tuple) else None
+    if host is not None and host not in _LOCAL_HOSTS:
+        raise RuntimeError(f"tests must not use the network (attempted {address!r})")
+    _real_connect(self, address)  # type: ignore[arg-type]
+
+
+@pytest.fixture(autouse=True)
+def _no_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Only localhost (test Postgres/Redis) is reachable; external hosts raise.
+    Proxy variables are cleared so a local HTTP proxy can't tunnel requests out."""
+    for var in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setattr(socket.socket, "connect", _guarded_connect)
 
 
 @pytest.fixture(autouse=True)

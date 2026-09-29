@@ -64,3 +64,12 @@ After changing models: `make revision m="describe change"`, review the generated
 rate-limit timeout. If nothing usable comes back it returns `data=None` and records a
 `data_gaps` row; if only stale data came back it returns the freshest copy flagged `stale`.
 Every result carries `source`, `fetched_at` and `reasons`.
+
+## Brokers (read-only)
+
+Fyers: set `FYERS_APP_ID`, `FYERS_SECRET`, `FYERS_REDIRECT_URI` (register the same redirect URI,
+`http://localhost:8000/api/brokers/fyers/callback` locally, in the Fyers developer console), then
+open `http://localhost:8000/api/brokers/fyers/login`. After login Fyers calls back, the token is
+Fernet-encrypted into `broker_tokens` with its JWT expiry, and you are redirected to
+`$WEB_URL/settings?broker=fyers&status=connected`. Tokens expire daily; `GET /api/brokers/status`
+shows validity. With no valid token the router falls through to the next provider.

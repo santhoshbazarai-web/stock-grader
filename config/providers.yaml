@@ -27,4 +27,7 @@ providers:
     backoff_base_s: 0.5   # sleep = min(backoff_max_s, backoff_base_s * 2**(attempt-1))
     backoff_max_s: 8
     rate_limit_timeout_s: 30   # give up on a provider if no rate-limit token within this time
+  api_limits:             # hard per-request limits of each broker API (verify against current docs)
+    fyers: {history_max_days: 366, quotes_max_symbols: 50}   # daily candles; symbols per /quotes
+  oauth_state_ttl_s: 600  # broker login must complete within this many seconds
   history_years: 10
