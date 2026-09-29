@@ -3,9 +3,9 @@
 // Stock Report page (SPEC §9): header, zone gauge, chart, valuation panel, scorecard,
 // decision, red flags / data gaps and 10-year fundamentals. Saving assumptions swaps in the
 // recomputed report, which re-fetches the chart overlays and sensitivity grid.
-import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { AppNav } from "@/components/common";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api, ApiError } from "@/lib/api";
 import type { StockReport } from "@/lib/types";
@@ -14,7 +14,6 @@ import { FundamentalsCharts } from "./fundamentals-charts";
 import { DecisionPanel, FlagsPanel, ReportHeader } from "./panels";
 import { PriceChart } from "./price-chart";
 import { Scorecard } from "./scorecard";
-import { SymbolSearch } from "./symbol-search";
 import { ValuationPanel } from "./valuation-panel";
 import { ZoneGauge } from "./zone-gauge";
 
@@ -51,12 +50,7 @@ export function ReportView({ symbol }: { symbol: string }) {
 
   return (
     <main className="mx-auto flex max-w-7xl flex-col gap-6 p-4 sm:p-6">
-      <nav className="flex items-center justify-between gap-4">
-        <Link href="/" className="text-sm font-semibold">
-          Stock Grader
-        </Link>
-        <SymbolSearch />
-      </nav>
+      <AppNav />
       {error && (
         <Card>
           <CardContent className="text-sm">

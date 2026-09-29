@@ -1,14 +1,6 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
-const PASSWORD = process.env.E2E_PASSWORD ?? "demo-pass";
-
-async function login(page: Page, path: string) {
-  await page.goto(path);
-  await expect(page).toHaveURL(/\/login\?next=/);
-  await page.fill("#password", PASSWORD);
-  await page.click("button[type=submit]");
-  await expect(page).toHaveURL(new RegExp(`${path}$`));
-}
+import { login } from "./helpers";
 
 test("login gate rejects a wrong password", async ({ page }) => {
   await page.goto("/stocks/DEMOIT");

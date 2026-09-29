@@ -236,6 +236,7 @@ def test_status(client: TestClient, store: BrokerTokenStore) -> None:
     assert by_broker["fyers"]["connected"] is True
     assert by_broker["kite"] == {
         "broker": "kite",
+        "configured": False,  # no KITE_* env in tests
         "connected": False,
         "expires_at": None,
         "reason": "not connected",

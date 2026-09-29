@@ -22,6 +22,7 @@ from app.api.schemas import (
     Freshness,
     JobRunOut,
     JobsView,
+    UploadedDataset,
     UploadSummary,
 )
 from app.core.config import ConfigError, get_config, load_config
@@ -33,6 +34,8 @@ from app.db.models import (
     DataGap,
     DeliveryDaily,
     FinAnnual,
+    FinQuarterly,
+    Instrument,
     JobRun,
     PriceDaily,
     Report,
@@ -99,6 +102,66 @@ def upload_screener(
     )
 
 
+@router.get("/uploads/screener", tags=["uploads"])
+def list_uploads(session: SessionDep) -> list[UploadedDataset]:
+    """Stocks with uploaded Screener fundamentals, newest upload first."""
+    annual = (
+        select(
+            FinAnnual.instrument_id,
+            FinAnnual.statement_type,
+            func.count().label("years"),
+            func.min(FinAnnual.fiscal_year).label("first"),
+            func.max(FinAnnual.fiscal_year).label("last"),
+            func.max(FinAnnual.fetched_at).label("uploaded"),
+        )
+        .where(FinAnnual.source == "screener")
+        .group_by(FinAnnual.instrument_id, FinAnnual.statement_type)
+        .subquery()
+    )
+    quarters = (
+        select(
+            FinQuarterly.instrument_id,
+            FinQuarterly.statement_type,
+            func.count().label("quarters"),
+        )
+        .where(FinQuarterly.source == "screener")
+        .group_by(FinQuarterly.instrument_id, FinQuarterly.statement_type)
+        .subquery()
+    )
+    rows = session.execute(
+        select(
+            Instrument.symbol,
+            Instrument.name,
+            annual.c.statement_type,
+            annual.c.years,
+            annual.c.first,
+            annual.c.last,
+            func.coalesce(quarters.c.quarters, 0),
+            annual.c.uploaded,
+        )
+        .join(annual, annual.c.instrument_id == Instrument.id)
+        .outerjoin(
+            quarters,
+            (quarters.c.instrument_id == annual.c.instrument_id)
+            & (quarters.c.statement_type == annual.c.statement_type),
+        )
+        .order_by(annual.c.uploaded.desc(), Instrument.symbol)
+    ).all()
+    return [
+        UploadedDataset(
+            symbol=sym,
+            name=name,
+            statement_type=str(basis),  # type: ignore[arg-type]
+            annual_years=years,
+            first_fiscal_year=first,
+            last_fiscal_year=last,
+            quarters=q,
+            uploaded_at=uploaded,
+        )
+        for sym, name, basis, years, first, last, q, uploaded in rows
+    ]
+
+
 # ───────────────────────── config ─────────────────────────
 
 
@@ -117,10 +180,10 @@ def view_config(settings: SettingsDep, config: ConfigDep) -> ConfigView:
     tags=["config"],
     responses={422: {"description": "YAML invalid or fails validation; nothing saved"}},
 )
-def update_config(body: ConfigUpdate, settings: SettingsDep) -> ConfigSaved:
+def update_config(body: ConfigUpdate, settings: SettingsDep, dry_run: bool = False) -> ConfigSaved:
     """Replace one config file. The new YAML is validated together with the other files
     exactly as at startup; only a fully valid config is written (atomically). The API uses it
-    immediately; the worker picks it up on restart."""
+    immediately; the worker picks it up on restart. ``dry_run`` validates without saving."""
     try:
         yaml.safe_load(body.yaml)
     except yaml.YAMLError as exc:
@@ -133,7 +196,13 @@ def update_config(body: ConfigUpdate, settings: SettingsDep) -> ConfigSaved:
         try:
             load_config(Path(tmp))
         except ConfigError as exc:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
+            # The message names the scratch directory; point at the edited file instead.
+            detail = str(exc).replace(f"invalid config in {tmp}:", f"{body.name}.yaml is invalid:")
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT, detail.replace(tmp, "config")
+            ) from exc
+    if dry_run:
+        return ConfigSaved(name=body.name, saved=False, note="valid (not saved: dry run)")
     target = live / f"{body.name}.yaml"
     fd, staged = tempfile.mkstemp(dir=live, prefix=f".{body.name}.", suffix=".yaml")
     with os.fdopen(fd, "w") as fh:

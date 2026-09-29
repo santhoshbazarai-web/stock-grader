@@ -2,14 +2,19 @@
 
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Path, Query, status
+from sqlalchemy import delete, select
 
 from app.api.deps import SessionDep
-from app.api.schemas import ScreenerRow
+from app.api.schemas import PresetIn, PresetOut, ScreenerFilters, ScreenerRow
 from app.core.config import GradeKey, ZoneKey
+from app.db.models import ScreenerPreset
+from app.db.upsert import upsert
 from app.reports.service import latest_payloads
 
 router = APIRouter(tags=["screener"])
+
+PresetName = Annotated[str, Path(min_length=1, max_length=64, pattern=r"^[\w .()\-+&%]+$")]
 
 SortKey = Literal[
     "symbol", "total_score", "pct_to_buy_zone", "earned_premium", "rs_percentile",
@@ -102,3 +107,51 @@ def screener(
     missing = [r for r in kept if getattr(r, sort) is None]
     present.sort(key=lambda r: getattr(r, sort), reverse=order == "desc")
     return (present + sorted(missing, key=lambda r: r.symbol))[:limit]
+
+
+# ───────────────────────── presets ─────────────────────────
+
+# Server sort keys plus the columns the web screener sorts client-side.
+PRESET_SORT_KEYS = frozenset(
+    {*SortKey.__args__, "grade", "zone", "sector", "fair_value", "action"}  # type: ignore[attr-defined]
+)
+
+
+@router.get("/screener/presets")
+def list_presets(session: SessionDep) -> list[PresetOut]:
+    """Saved screener filter sets, by name."""
+    rows = session.scalars(select(ScreenerPreset).order_by(ScreenerPreset.name))
+    return [
+        PresetOut(
+            name=p.name, filters=ScreenerFilters.model_validate(p.filters), updated_at=p.updated_at
+        )
+        for p in rows
+    ]
+
+
+@router.put("/screener/presets/{name}")
+def save_preset(name: PresetName, body: PresetIn, session: SessionDep) -> PresetOut:
+    """Create or replace a preset. ``sort`` must be a screener sort key."""
+    if body.filters.sort not in PRESET_SORT_KEYS:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, f"unknown sort {body.filters.sort!r}"
+        )
+    upsert(
+        session, ScreenerPreset, [{"name": name, "filters": body.filters.model_dump(mode="json")}]
+    )
+    session.commit()
+    p = session.scalars(select(ScreenerPreset).where(ScreenerPreset.name == name)).one()
+    session.refresh(p)
+    return PresetOut(name=p.name, filters=body.filters, updated_at=p.updated_at)
+
+
+@router.delete(
+    "/screener/presets/{name}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={404: {"description": "No such preset"}},
+)
+def delete_preset(name: PresetName, session: SessionDep) -> None:
+    result = session.execute(delete(ScreenerPreset).where(ScreenerPreset.name == name))
+    if not result.rowcount:  # type: ignore[attr-defined]
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"no preset {name!r}")
+    session.commit()

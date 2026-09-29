@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     # Login brute-force protection: failures per client IP before a lockout of this long.
     login_max_failures: int = Field(default=5, ge=1)
     login_lockout_s: int = Field(default=900, ge=1)
+    # Reverse proxies (IPs or CIDRs, JSON list) allowed to report the client IP in
+    # X-Forwarded-For, e.g. the web container's network. Empty = use the direct peer.
+    trusted_proxies: list[str] = Field(default_factory=list)
     # Screener Excel uploads larger than this are rejected.
     upload_max_bytes: int = Field(default=10 * 1024 * 1024, ge=1024)
 

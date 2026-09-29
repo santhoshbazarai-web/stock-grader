@@ -147,6 +147,21 @@ curl -H "Authorization: Bearer $TOKEN" localhost:8000/api/stocks/TCS/report
 | `GET /api/jobs` | Job history, data freshness, open data gaps, refresh queue |
 | `GET /api/brokers/status`, `/api/brokers/{fyers,kite}/login` | Broker connections |
 
+## Web app pages
+
+Sign in with `APP_PASSWORD`. Every page is behind the login (SPEC §9).
+
+| Page | What it does |
+|---|---|
+| `/` Dashboard | Broker connection status; data freshness (latest prices, delivery, technicals, reports, shareholding), open data gaps and recent failed jobs; A-grade stocks at or within 5% of their buy zone; recently triggered alerts |
+| `/screener` | Filter by grade, zone, sector, action, EP score, % above the buy zone and market cap. Every column sorts. Filters live in the URL, so any view is linkable, and can be saved as named presets on the server |
+| `/watchlist` | Watchlist (unknown symbols are added and picked up by the data jobs) and in-app price alerts (enters buy zone / crosses FV / top band / invalidation), which can be paused or deleted. Alerts never place orders |
+| `/settings` | **Brokers:** status, plus Connect / Reconnect for configured brokers (Fyers or Kite OAuth, via the API; the callback returns here with a banner). **Config:** a YAML editor for each `config/*.yaml`, validated as you type exactly as at startup; only a valid file can be saved. **Uploads:** import a Screener.in export (you choose consolidated or standalone), which rebuilds the report, and a list of uploaded datasets |
+| `/stocks/{SYMBOL}` | The stock report (below) |
+
+Broker tokens expire daily (Kite at 06:00 IST), so reconnect from Settings each morning. The
+API only uses them for market data.
+
 ## Stock report page
 
 `/stocks/{SYMBOL}` in the web app (SPEC §9). It needs the single-user login and is served
@@ -186,9 +201,16 @@ They are clearly synthetic: names end in "(synthetic demo)" and prices have `sou
 synthetic NIFTY500 is written only when no NIFTY500 prices exist, and it is purged with the
 demo.
 
-**UI tests.** With the stack running and demo data seeded:
-`E2E_PASSWORD=<APP_PASSWORD> make e2e`. This runs Playwright over the login gate, every report
-section, saving and clearing an assumption, the daily/weekly toggle, and a bank with no DCF.
+**UI tests.** With the stack running and demo data seeded, run
+`E2E_PASSWORD=<APP_PASSWORD> make e2e`. Playwright covers:
+
+- the login gate and every report section
+- saving and clearing an assumption
+- the screener's filters, sorting and presets
+- watchlist and alert changes
+- live config validation (it never saves)
+- the broker Connect redirect and callback banner
+- the uploads list
 
 ## Technical debug endpoint
 

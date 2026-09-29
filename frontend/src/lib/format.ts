@@ -28,8 +28,13 @@ export function signedPct(v: number | null | undefined, digits = 1): string {
   return `${v > 0 ? "+" : ""}${(v * 100).toFixed(digits)}%`;
 }
 
+const ACRONYMS: Record<string, string> = { it: "IT", fmcg: "FMCG", nbfc: "NBFC", ev: "EV", pb: "PB" };
+
 export function titleCase(s: string): string {
-  return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  return s
+    .split("_")
+    .map((w) => ACRONYMS[w.toLowerCase()] ?? w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
 }
 
 export const ZONE_LABEL: Record<string, string> = {

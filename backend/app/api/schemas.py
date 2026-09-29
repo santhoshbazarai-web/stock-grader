@@ -193,3 +193,41 @@ class JobsView(BaseModel):
     freshness: Freshness
     open_data_gaps: int
     refresh_queue: list[str]
+
+
+class ScreenerFilters(BaseModel):
+    """The screener's query parameters, as stored in a preset."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    grade: list[GradeKey] = []
+    zone: list[ZoneKey] = []
+    sector: list[str] = []
+    action: list[str] = []
+    min_earned_premium: int | None = Field(None, ge=0, le=8)
+    max_distance_to_buy_zone: float | None = None
+    min_mcap_cr: float | None = Field(None, ge=0)
+    max_mcap_cr: float | None = Field(None, ge=0)
+    sort: str = "total_score"
+    order: Literal["asc", "desc"] = "desc"
+
+
+class PresetIn(BaseModel):
+    filters: ScreenerFilters
+
+
+class PresetOut(BaseModel):
+    name: str
+    filters: ScreenerFilters
+    updated_at: datetime
+
+
+class UploadedDataset(BaseModel):
+    symbol: str
+    name: str | None
+    statement_type: Literal["consolidated", "standalone"]
+    annual_years: int
+    first_fiscal_year: int | None
+    last_fiscal_year: int | None
+    quarters: int
+    uploaded_at: datetime

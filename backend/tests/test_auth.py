@@ -104,3 +104,45 @@ def test_tokens_are_forged_expired_or_revoked_by_password_change(
     monkeypatch.setenv("APP_PASSWORD", "a-new-password")
     get_settings.cache_clear()
     assert not SessionSigner(get_settings()).valid(token)
+
+
+@pytest.mark.parametrize(
+    ("peer", "xff", "trusted", "expected"),
+    [
+        ("10.0.0.5", None, [], "10.0.0.5"),  # no proxy config: the peer
+        ("10.0.0.5", "1.2.3.4", [], "10.0.0.5"),  # untrusted peer: header ignored (spoofable)
+        ("172.18.0.3", "1.2.3.4", ["172.18.0.0/16"], "1.2.3.4"),  # web container → client
+        # client-supplied junk on the left is ignored; right-most untrusted hop wins
+        ("172.18.0.3", "6.6.6.6, 1.2.3.4, 172.18.0.2", ["172.18.0.0/16"], "1.2.3.4"),
+        ("127.0.0.1", "not-an-ip", ["127.0.0.1"], "not-an-ip"),
+        ("172.18.0.3", "172.18.0.2", ["172.18.0.0/16"], "172.18.0.3"),  # all hops trusted
+        (None, "1.2.3.4", ["0.0.0.0/0"], "unknown"),
+    ],
+)
+def test_client_ip(peer: str | None, xff: str | None, trusted: list[str], expected: str) -> None:
+    from app.core.auth import client_ip
+
+    assert client_ip(peer, xff, trusted) == expected
+
+
+def test_lockout_is_per_forwarded_client(
+    db: Session, redis_client: Redis, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The web app's proxy sits on loopback here; trust it so X-Forwarded-For counts.
+    monkeypatch.setenv("TRUSTED_PROXIES", '["127.0.0.1"]')
+    get_settings.cache_clear()
+    for ip in ("203.0.113.7", "198.51.100.9"):
+        redis_client.delete(f"auth:fail:{ip}")
+    for c in app_client(db, authed=False, client=("127.0.0.1", 50000)):
+        attacker = {"x-forwarded-for": "203.0.113.7"}
+        for _ in range(get_settings().login_max_failures):
+            c.post("/api/auth/login", json={"password": "nope"}, headers=attacker)
+        assert (
+            c.post("/api/auth/login", json={"password": PASSWORD}, headers=attacker).status_code
+            == 429
+        )
+        owner = {"x-forwarded-for": "198.51.100.9"}
+        assert (
+            c.post("/api/auth/login", json={"password": PASSWORD}, headers=owner).status_code == 200
+        )
+    redis_client.delete("auth:fail:203.0.113.7")

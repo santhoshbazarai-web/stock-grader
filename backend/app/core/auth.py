@@ -13,6 +13,7 @@
 
 import hashlib
 import hmac
+import ipaddress
 import time
 from collections.abc import Callable
 from functools import lru_cache
@@ -88,3 +89,34 @@ class LoginThrottle:
 
     def success(self, client: str) -> None:
         self._redis.delete(self._key(client))
+
+
+def _networks(entries: list[str]) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+    return [ipaddress.ip_network(e.strip(), strict=False) for e in entries if e.strip()]
+
+
+def client_ip(peer: str | None, forwarded_for: str | None, trusted: list[str]) -> str:
+    """The client address for per-IP throttling.
+
+    Requests reach the API through the web app's /api proxy (and in production a TLS proxy),
+    so the direct peer is usually a proxy. ``X-Forwarded-For`` is only believed when the peer
+    is a trusted proxy; then the right-most address that is not itself a trusted proxy is the
+    client (anything to its left could have been supplied by the client).
+    """
+    if not peer:
+        return "unknown"
+    nets = _networks(trusted)
+
+    def is_trusted(addr: str) -> bool:
+        try:
+            ip = ipaddress.ip_address(addr)
+        except ValueError:
+            return False
+        return any(ip in n for n in nets)
+
+    if not forwarded_for or not is_trusted(peer):
+        return peer
+    for hop in reversed([h.strip() for h in forwarded_for.split(",") if h.strip()]):
+        if not is_trusted(hop):
+            return hop
+    return peer

@@ -240,3 +240,123 @@ export type InstrumentHit = {
   industry: string | null;
   is_index: boolean;
 };
+
+// ── P13 pages (app/api/schemas.py, app/api/brokers.py) ──
+export type BrokerStatus = {
+  broker: "fyers" | "kite";
+  configured: boolean;
+  connected: boolean;
+  expires_at: string | null;
+  reason: string;
+};
+
+export type JobRun = {
+  id: number;
+  job_name: string;
+  status: "running" | "success" | "failed" | "skipped";
+  started_at: string;
+  finished_at: string | null;
+  params: Record<string, unknown> | null;
+  rows_written: number | null;
+  details: Record<string, unknown> | null;
+  error: string | null;
+};
+
+export type JobsView = {
+  runs: JobRun[];
+  freshness: {
+    prices: string | null;
+    delivery: string | null;
+    fundamentals_fetched: string | null;
+    shareholding_period: string | null;
+    technicals: string | null;
+    reports: string | null;
+  };
+  open_data_gaps: number;
+  refresh_queue: string[];
+};
+
+export type ScreenerRow = {
+  symbol: string;
+  name: string | null;
+  sector: string;
+  as_of: string;
+  cmp: number;
+  grade: Grade | null;
+  grade_label: string | null;
+  zone: ZoneName | null;
+  action: string | null;
+  total_score: number | null;
+  fair_value: number | null;
+  buy_zone_low: number | null;
+  buy_zone_high: number | null;
+  pct_to_buy_zone: number | null;
+  earned_premium: number | null;
+  rs_percentile: number | null;
+  market_cap_cr: number | null;
+};
+
+export type SortKey =
+  | "symbol"
+  | "total_score"
+  | "pct_to_buy_zone"
+  | "earned_premium"
+  | "rs_percentile"
+  | "market_cap_cr"
+  | "cmp";
+
+export type ScreenerFilters = {
+  grade: Grade[];
+  zone: ZoneName[];
+  sector: string[];
+  action: string[];
+  min_earned_premium: number | null;
+  max_distance_to_buy_zone: number | null;
+  min_mcap_cr: number | null;
+  max_mcap_cr: number | null;
+  sort: SortKey;
+  order: "asc" | "desc";
+};
+
+export type Preset = { name: string; filters: ScreenerFilters; updated_at: string };
+
+export type WatchlistItem = {
+  symbol: string;
+  name: string | null;
+  notes: string | null;
+  added_at: string;
+  grade: Grade | null;
+  zone: ZoneName | null;
+  action: string | null;
+  cmp: number | null;
+};
+
+export type AlertType = "enters_buy_zone" | "crosses_fv" | "crosses_top_band" | "crosses_invalidation";
+
+export type Alert = {
+  id: number;
+  symbol: string;
+  alert_type: AlertType;
+  is_active: boolean;
+  last_triggered_at: string | null;
+  last_triggered_price: number | null;
+  created_at: string;
+};
+
+export type UploadedDataset = {
+  symbol: string;
+  name: string | null;
+  statement_type: "consolidated" | "standalone";
+  annual_years: number;
+  first_fiscal_year: number | null;
+  last_fiscal_year: number | null;
+  quarters: number;
+  uploaded_at: string;
+};
+
+export type ConfigFileName = "providers" | "valuation" | "sectors" | "scoring" | "technical" | "jobs";
+
+export type ConfigView = {
+  files: { name: ConfigFileName; yaml: string }[];
+  parsed: Record<string, unknown>;
+};

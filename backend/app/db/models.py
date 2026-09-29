@@ -57,6 +57,7 @@ __all__ = [
     "PriceDaily",
     "Report",
     "Score",
+    "ScreenerPreset",
     "Shareholding",
     "SurveillanceFlag",
     "TechnicalSnapshot",
@@ -461,3 +462,15 @@ class Backtest(TimestampMixin, Base):
     params: Mapped[dict[str, Any]]
     results: Mapped[dict[str, Any] | None]
     error: Mapped[str | None] = mapped_column(Text)
+
+
+class ScreenerPreset(TimestampMixin, Base):
+    """Saved screener filters (SPEC §9: "Filters are saved as presets")."""
+
+    __tablename__ = "screener_presets"
+    __upsert_key__ = ("name",)
+    __table_args__ = (UniqueConstraint("name"),)
+
+    id: Mapped[int] = mapped_column(Integer, Identity(), primary_key=True)
+    name: Mapped[str] = mapped_column(String(64))
+    filters: Mapped[dict[str, Any]]

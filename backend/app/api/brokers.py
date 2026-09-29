@@ -34,9 +34,16 @@ router = APIRouter(prefix="/brokers", tags=["brokers"])
 
 class BrokerStatus(BaseModel):
     broker: Broker
+    configured: bool  # API credentials present in the environment (Connect is possible)
     connected: bool
     expires_at: datetime | None
     reason: str
+
+
+def broker_configured(broker: Broker, settings: Settings) -> bool:
+    if broker is Broker.FYERS:
+        return bool(settings.fyers_app_id and settings.fyers_secret and settings.fyers_redirect_uri)
+    return bool(settings.kite_api_key and settings.kite_api_secret)
 
 
 def _state_purpose(broker: Broker) -> str:
@@ -81,10 +88,15 @@ def _complete_login(
 
 
 @router.get("/status", dependencies=[Depends(require_user)])
-def broker_status(store: TokenStoreDep) -> list[BrokerStatus]:
+def broker_status(store: TokenStoreDep, settings: SettingsDep) -> list[BrokerStatus]:
+    """Token validity per broker, and whether its API credentials are configured."""
     return [
         BrokerStatus(
-            broker=s.broker, connected=s.connected, expires_at=s.expires_at, reason=s.reason
+            broker=s.broker,
+            configured=broker_configured(s.broker, settings),
+            connected=s.connected,
+            expires_at=s.expires_at,
+            reason=s.reason,
         )
         for s in store.all_statuses()
     ]

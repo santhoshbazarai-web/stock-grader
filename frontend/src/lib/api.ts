@@ -1,7 +1,5 @@
 // Browser-side API client. Every call goes through the same-origin /api proxy
 // (src/app/api/[...path]/route.ts); a 401 sends the user to /login.
-import { API_URL } from "@/lib/server-config";
-
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -27,7 +25,8 @@ function detailOf(body: unknown, fallback: string): string {
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
     ...init,
-    headers: { ...(init?.body ? { "content-type": "application/json" } : {}), ...init?.headers },
+    // JSON bodies are strings; FormData (uploads) sets its own multipart boundary.
+    headers: { ...(typeof init?.body === "string" ? { "content-type": "application/json" } : {}), ...init?.headers },
     credentials: "same-origin",
     cache: "no-store",
   });
@@ -39,20 +38,4 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const body: unknown = res.status === 204 ? null : await res.json().catch(() => null);
   if (!res.ok) throw new ApiError(res.status, detailOf(body, res.statusText));
   return body as T;
-}
-
-export type Health = {
-  status: string;
-  version: string;
-};
-
-// Server component use (home page): talks to the API directly.
-export async function fetchHealth(): Promise<Health | null> {
-  try {
-    const res = await fetch(`${API_URL}/api/health`, { cache: "no-store" });
-    if (!res.ok) return null;
-    return (await res.json()) as Health;
-  } catch {
-    return null;
-  }
 }

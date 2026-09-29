@@ -10,6 +10,7 @@ from app.core.auth import (
     SESSION_COOKIE,
     LoginThrottle,
     SessionSigner,
+    client_ip,
     get_session_signer,
     password_ok,
 )
@@ -43,7 +44,11 @@ def login(
     throttle: Annotated[LoginThrottle, Depends(get_login_throttle)],
 ) -> LoginResponse:
     """Check ``APP_PASSWORD`` and start a session."""
-    client = request.client.host if request.client else "unknown"
+    client = client_ip(
+        request.client.host if request.client else None,
+        request.headers.get("x-forwarded-for"),
+        settings.trusted_proxies,
+    )
     wait = throttle.locked_for(client)
     if wait:
         raise HTTPException(

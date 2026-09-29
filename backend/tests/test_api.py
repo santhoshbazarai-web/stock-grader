@@ -340,6 +340,8 @@ def test_config_update_validates_before_saving(config_copy: Path, db: Session) -
         broken = original.replace("quality: 25", "quality: 30")  # weights no longer sum to 100
         res = c.put("/api/config", json={"name": "scoring", "yaml": broken})
         assert res.status_code == 422 and "sum to 100" in res.json()["detail"]
+        assert res.json()["detail"].startswith("scoring.yaml is invalid:")
+        assert "/tmp" not in res.json()["detail"]
         assert (config_copy / "scoring.yaml").read_text() == original  # nothing written
         bad_yaml = c.put("/api/config", json={"name": "scoring", "yaml": "scoring: [unclosed"})
         assert bad_yaml.status_code == 422 and "YAML error" in bad_yaml.json()["detail"]
@@ -419,3 +421,68 @@ def test_technical_debug_daily_bars(client: TestClient, seeded: Session) -> None
     body = client.get("/api/stocks/SYNTH/technical/debug", params={"include_daily": True}).json()
     assert len(body["daily_bars"]) == 900 and body["daily_bars"][0]["time"] == "2021-01-01"
     assert "daily_bars" not in client.get("/api/stocks/SYNTH/technical/debug").json()
+
+
+# ───────────────────────── P13 additions ─────────────────────────
+
+
+def test_screener_presets_crud(client: TestClient) -> None:
+    assert client.get("/api/screener/presets").json() == []
+    body = {"filters": {"grade": ["A_plus", "A"], "zone": ["discount"], "min_earned_premium": 5}}
+    res = client.put("/api/screener/presets/Quality at a discount", json=body)
+    assert res.status_code == 200
+    saved = res.json()
+    assert saved["name"] == "Quality at a discount"
+    assert (
+        saved["filters"]["grade"] == ["A_plus", "A"] and saved["filters"]["sort"] == "total_score"
+    )
+    # replace
+    body["filters"]["min_earned_premium"] = 6
+    client.put("/api/screener/presets/Quality at a discount", json=body)
+    presets = client.get("/api/screener/presets").json()
+    assert len(presets) == 1 and presets[0]["filters"]["min_earned_premium"] == 6
+    bad_sort = {"filters": {"sort": "name; drop table"}}
+    assert client.put("/api/screener/presets/x", json=bad_sort).status_code == 422
+    assert (
+        client.put("/api/screener/presets/x", json={"filters": {"grade": ["E"]}}).status_code == 422
+    )
+    assert client.put("/api/screener/presets/x", json={"filters": {"extra": 1}}).status_code == 422
+    assert client.delete("/api/screener/presets/Quality at a discount").status_code == 204
+    assert client.delete("/api/screener/presets/Quality at a discount").status_code == 404
+
+
+def test_uploads_are_listed(client: TestClient) -> None:
+    assert client.get("/api/uploads/screener").json() == []
+    with SCREENER_FIXTURE.open("rb") as fh:
+        client.post(
+            "/api/uploads/screener",
+            files={"file": ("export.xlsx", fh, "application/octet-stream")},
+            data={"symbol": "SAMPLEIND", "statement_type": "standalone"},
+        )
+    [row] = client.get("/api/uploads/screener").json()
+    assert row["symbol"] == "SAMPLEIND" and row["statement_type"] == "standalone"
+    assert row["annual_years"] == 10 and row["last_fiscal_year"] == 2024 and row["quarters"] == 10
+
+
+def test_config_dry_run_validates_without_saving(config_copy: Path, db: Session) -> None:
+    for c in app_client(db):
+        original = (config_copy / "scoring.yaml").read_text()
+        tuned = original.replace("momentum_entry_min: 6", "momentum_entry_min: 7")
+        ok = c.put("/api/config", params={"dry_run": True}, json={"name": "scoring", "yaml": tuned})
+        assert ok.status_code == 200 and ok.json()["saved"] is False
+        assert (config_copy / "scoring.yaml").read_text() == original
+        bad = original.replace("quality: 25", "quality: 30")
+        res = c.put("/api/config", params={"dry_run": True}, json={"name": "scoring", "yaml": bad})
+        assert res.status_code == 422 and "sum to 100" in res.json()["detail"]
+
+
+def test_broker_status_reports_configuration(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    body = {b["broker"]: b for b in client.get("/api/brokers/status").json()}
+    assert body["fyers"]["configured"] is False and body["kite"]["configured"] is False
+    monkeypatch.setenv("KITE_API_KEY", "k")
+    monkeypatch.setenv("KITE_API_SECRET", "s")
+    get_settings.cache_clear()
+    body = {b["broker"]: b for b in client.get("/api/brokers/status").json()}
+    assert body["kite"]["configured"] is True and body["kite"]["connected"] is False
