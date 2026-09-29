@@ -202,7 +202,8 @@ def _pillar_dto(p: PillarScore, weight: float) -> PillarDto:
     )
 
 
-def build_report(data: StockData, config: AppConfig) -> Built:
+def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> Built:
+    """``lite`` skips the DCF sensitivity grid (backtests do not need it)."""
     vc, sc, tc = config.valuation, config.scoring, config.technical
     close = data.daily["close"]
     cmp = float(close.iloc[-1])
@@ -321,7 +322,7 @@ def build_report(data: StockData, config: AppConfig) -> Built:
     )
     pillars = non_valuation_pillars(pin, sc)
 
-    run = run_valuation(data, metrics, sector_key, sector, vc)
+    run = run_valuation(data, metrics, sector_key, sector, vc, sensitivity=not lite)
     for name in run.assumed_nil:
         gap(Dataset.FIN_ANNUAL, name, "not reported: taken as nil in the valuation")
     if run.announcement_dates_assumed:

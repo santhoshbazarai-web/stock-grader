@@ -196,6 +196,10 @@ def _delete(path: list[str]) -> Mutator:
         ("jobs", _set(["alerts", "market_open"], "16:00"), "market_open must be before"),
         ("jobs", _set(["alerts", "hysteresis_pct"], 2), "less than or equal to 1"),
         ("jobs", _delete(["alerts"]), "alerts"),
+        ("jobs", _set(["backtest", "cost_per_side"], 1.5), "cost_per_side"),
+        ("jobs", _set(["backtest", "execution_lag_days"], 9), "execution_lag_days"),
+        ("jobs", _set(["backtest", "equity_curve_points"], "hourly"), "equity_curve_points"),
+        ("jobs", _delete(["backtest"]), "backtest"),
         # technical
         ("technical", _set(["ote_retracement"], [0.79, 0.618]), "ote_retracement"),
         ("technical", _set(["major_swing_fractal_n"], 1), "major_swing_fractal_n"),

@@ -376,3 +376,80 @@ export type Notification = {
 };
 
 export type NotificationsView = { items: Notification[]; unread: number; telegram_configured: boolean };
+
+// ───────── backtests (backend/app/backtest/runner.py::run_backtest) ─────────
+
+export type BacktestStatus = "queued" | "running" | "done" | "failed";
+
+export type BacktestParams = {
+  grades: Grade[];
+  zones: ZoneName[];
+  holding_days: number;
+  start: string;
+  end: string;
+  symbols?: string[];
+};
+
+export type BacktestMetrics = {
+  cagr: number | null;
+  max_drawdown: number | null;
+  hit_rate: number | null;
+  avg_holding_days: number | null;
+  avg_trade_return: number | null;
+  trades: number;
+  exposure: number | null;
+  total_return: number | null;
+};
+
+export type BacktestCell = BacktestMetrics & {
+  grade: Grade;
+  zone: ZoneName;
+  signals: number;
+  selected: boolean;
+};
+
+export type BacktestTrade = {
+  symbol: string;
+  entry: string;
+  exit: string;
+  days: number;
+  return: number;
+  closed_by: "holding_period" | "data_end" | "backtest_end";
+};
+
+export type BacktestResults = {
+  period: { start: string; end: string; rebalances: number };
+  universe: { source: "symbols" | "index_membership"; avg_size: number; stocks_with_data: number };
+  portfolio: BacktestMetrics;
+  benchmark: { label: string; cagr: number | null; max_drawdown: number | null; total_return: number | null };
+  equity: { time: string; portfolio: number; benchmark: number | null }[];
+  cells: BacktestCell[];
+  trades_sample: BacktestTrade[];
+  caveats: string[];
+  notes: string[];
+  failures: Record<string, string>;
+};
+
+export type Backtest = {
+  id: number;
+  status: BacktestStatus;
+  params: BacktestParams;
+  /** While running: {progress: {done, total}}; when done: the full results. */
+  results: (Partial<BacktestResults> & { progress?: { done: number; total: number } }) | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type BacktestSummary = {
+  id: number;
+  status: BacktestStatus;
+  params: BacktestParams;
+  created_at: string;
+  updated_at: string;
+  progress: { done: number; total: number } | null;
+  trades: number | null;
+  cagr: number | null;
+  benchmark_cagr: number | null;
+  error: string | null;
+};

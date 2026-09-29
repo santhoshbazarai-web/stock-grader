@@ -17,6 +17,7 @@ jobs:
     index_constituents: "0 7 1 * *"
     results_watch: "0 21 * * *"              # runs only inside results_season
     refresh_queue: "* * * * *"               # drains POST /api/stocks/{symbol}/refresh requests
+    backtests: "* * * * *"                   # runs queued POST /api/backtests requests
   universe_index: NIFTY500    # symbols = current members of this index + watchlist
   constituent_indices: [NIFTY500, NIFTY50, NIFTYBANK, NIFTYIT, NIFTYPHARMA, NIFTYFMCG,
                         NIFTYAUTO, NIFTYMETAL, NIFTYREALTY]
@@ -35,6 +36,14 @@ jobs:
     hysteresis_pct: 0.002     # a level counts as crossed only once price clears it by 0.2%
     cooldown_minutes: 60      # the same alert does not fire again within this window
     telegram_timeout_s: 10
+  backtest:                   # SPEC §11
+    benchmark: NIFTY500       # price index; used when the TRI below has no stored prices
+    benchmark_tri: NIFTY500TRI
+    cost_per_side: 0.001      # brokerage + slippage, each buy and each sell
+    stt_buy: 0.001            # securities transaction tax, equity delivery
+    stt_sell: 0.001
+    execution_lag_days: 1     # signals use data to the rebalance close; trade N sessions later
+    equity_curve_points: weekly
   results_season:             # quarterly results: within 45 days (60 for Q4) of quarter end
     months: [1, 2, 4, 5, 7, 8, 10, 11]
     days: [1, 31]

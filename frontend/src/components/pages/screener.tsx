@@ -30,7 +30,7 @@ const COLUMNS: { key: Column; label: string; align?: "right" }[] = [
   { key: "action", label: "Action" },
 ];
 
-function Chips<T extends string>({
+export function Chips<T extends string>({
   label,
   options,
   value,

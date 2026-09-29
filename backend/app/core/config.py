@@ -658,6 +658,7 @@ class JobName(StrEnum):
     INDEX_CONSTITUENTS = "index_constituents"
     RESULTS_WATCH = "results_watch"
     REFRESH_QUEUE = "refresh_queue"
+    BACKTESTS = "backtests"
 
 
 class Season(_Strict):
@@ -698,6 +699,16 @@ class AlertsJobConfig(_Strict):
         return self
 
 
+class BacktestConfig(_Strict):
+    benchmark: str
+    benchmark_tri: str | None = None
+    cost_per_side: Fraction
+    stt_buy: Fraction
+    stt_sell: Fraction
+    execution_lag_days: Annotated[int, Field(ge=0, le=5)]
+    equity_curve_points: Literal["daily", "weekly"]
+
+
 class JobsConfig(_Strict):
     timezone: str
     lock_ttl_s: PositiveInt
@@ -709,6 +720,7 @@ class JobsConfig(_Strict):
     eod_prices: EodPricesJobConfig
     corporate_actions: CorporateActionsJobConfig
     alerts: AlertsJobConfig
+    backtest: BacktestConfig
     shareholding_season: Season
     results_season: Season
 

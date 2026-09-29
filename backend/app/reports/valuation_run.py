@@ -201,6 +201,8 @@ def run_valuation(
     sector_key: str,
     sector: SectorConfig,
     config: ValuationConfig,
+    *,
+    sensitivity: bool = True,
 ) -> ValuationRun:
     vc = config
     close = data.daily["close"]
@@ -374,7 +376,7 @@ def run_valuation(
                 scenarios = run_scenarios(base, vc)
                 for k, r in scenarios.items():
                     mr.setdefault(f"dcf_{k}", []).extend(r.reasons)
-                grid = sensitivity_grid(base, vc)
+                grid = sensitivity_grid(base, vc) if sensitivity else None
                 rev = reverse_dcf(base, cmp, hist_growth, vc)
         base_res = scenarios.get("base")
         mv["dcf_base"] = base_res.value_per_share if base_res else None

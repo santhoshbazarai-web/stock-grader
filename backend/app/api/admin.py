@@ -15,6 +15,7 @@ from app.api.schemas import (
     SYMBOL_PATTERN,
     BacktestOut,
     BacktestRequest,
+    BacktestSummary,
     ConfigFile,
     ConfigSaved,
     ConfigUpdate,
@@ -230,13 +231,41 @@ def _backtest_out(b: Backtest) -> BacktestOut:
 @router.post("/backtests", tags=["backtests"], status_code=status.HTTP_202_ACCEPTED)
 def create_backtest(body: BacktestRequest, session: SessionDep) -> BacktestOut:
     """Queue a backtest (grade set x zone set x holding period, SPEC §11). It runs point-in-time
-    in the worker; poll ``GET /api/backtests/{id}`` for status and results. The backtest engine
-    lands in P15: until then requests are stored and stay ``queued``."""
-    b = Backtest(status=BacktestStatus.QUEUED, params=body.model_dump(mode="json"))
+    in the worker (``backtests`` job, within a minute); poll ``GET /api/backtests/{id}`` for
+    progress and results."""
+    b = Backtest(
+        status=BacktestStatus.QUEUED, params=body.model_dump(mode="json", exclude_none=True)
+    )
     session.add(b)
     session.commit()
     session.refresh(b)
     return _backtest_out(b)
+
+
+@router.get("/backtests", tags=["backtests"])
+def list_backtests(
+    session: SessionDep, limit: Annotated[int, Query(ge=1, le=200)] = 50
+) -> list[BacktestSummary]:
+    """Recent backtests, newest first, without the full results."""
+    rows = session.scalars(select(Backtest).order_by(Backtest.id.desc()).limit(limit))
+    out = []
+    for b in rows:
+        r = b.results or {}
+        out.append(
+            BacktestSummary(
+                id=b.id,
+                status=b.status,
+                params=b.params,
+                created_at=b.created_at,
+                updated_at=b.updated_at,
+                progress=r.get("progress"),
+                trades=(r.get("portfolio") or {}).get("trades"),
+                cagr=(r.get("portfolio") or {}).get("cagr"),
+                benchmark_cagr=(r.get("benchmark") or {}).get("cagr"),
+                error=b.error,
+            )
+        )
+    return out
 
 
 @router.get(

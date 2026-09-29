@@ -16,6 +16,7 @@ const LINKS = [
   { href: "/", label: "Dashboard" },
   { href: "/screener", label: "Screener" },
   { href: "/watchlist", label: "Watchlist & alerts" },
+  { href: "/backtests", label: "Backtests" },
   { href: "/settings", label: "Settings" },
 ];
 

@@ -118,7 +118,7 @@ Prices are stored raw and split/bonus-adjusted (`adj_*`, `data/adjust.py`); adju
 recomputed whenever new bars or corporate actions arrive. `valuation_scores` builds every
 report in two passes: the first collects each stock's multiples as sector peers, the second
 builds the reports. `refresh_queue` handles `POST /api/stocks/{symbol}/refresh` requests.
-`alerts_intraday` is registered but not scheduled until P14.
+`backtests` runs queued backtest requests (below).
 
 ## API
 
@@ -156,6 +156,7 @@ Sign in with `APP_PASSWORD`. Every page is behind the login (SPEC §9).
 | `/` Dashboard | Broker connection status; data freshness (latest prices, delivery, technicals, reports, shareholding), open data gaps and recent failed jobs; A-grade stocks at or within 5% of their buy zone; recently triggered alerts |
 | `/screener` | Filter by grade, zone, sector, action, EP score, % above the buy zone and market cap. Every column sorts. Filters live in the URL, so any view is linkable, and can be saved as named presets on the server |
 | `/watchlist` | Watchlist (unknown symbols are added and picked up by the data jobs) and in-app price alerts (enters buy zone / crosses FV / top band / invalidation), which can be paused or deleted. Alerts never place orders |
+| `/backtests` | Queue a backtest (grades × zones × holding period, a date range, optionally a symbol list) and follow its progress; `/backtests/{id}` shows the results (below) |
 | `/settings` | **Brokers:** status, plus Connect / Reconnect for configured brokers (Fyers or Kite OAuth, via the API; the callback returns here with a banner). **Config:** a YAML editor for each `config/*.yaml`, validated as you type exactly as at startup; only a valid file can be saved. **Uploads:** import a Screener.in export (you choose consolidated or standalone), which rebuilds the report, and a list of uploaded datasets |
 | `/stocks/{SYMBOL}` | The stock report (below) |
 
@@ -180,6 +181,37 @@ Notifications → "Send test notification" to check delivery.
 
 To run a check outside market hours:
 `python -m app.jobs run alerts_intraday --force`.
+
+### Backtests
+
+Backtests ask one question: over a period, would buying the stocks whose grade and zone
+matched your rules have beaten the Nifty 500? They follow SPEC §11.
+
+- **Rebalancing:** monthly, over the point-in-time Nifty 500. Each stock's report is rebuilt
+  for each month from only the data available then: statements only after their announcement
+  date, shareholding only after its filing date, and adjusted prices.
+- **Trading:** entries fill at the close one session after the rebalance. Costs are 0.1% per
+  side plus STT; all parameters are in `jobs.yaml` → `backtest`.
+- **Results page:**
+  - CAGR, total return, max drawdown, hit rate, average holding period and trades, each
+    beside the Nifty 500.
+  - The equity curve against the Nifty 500, both rebased to 100.
+  - A grade × zone table in which every cell is its own portfolio, coloured by CAGR against
+    the benchmark.
+  - A sample of trades, and the run's caveats.
+
+Queued runs are picked up by the worker within a minute. To run them now:
+`python -m app.jobs run backtests`.
+
+What the results depend on:
+- **Membership history:** a point-in-time universe needs index membership history.
+  `index_constituents` records it from the day it first runs; load older constituents for
+  longer tests. A run over a period with no membership says so instead of reporting 0%.
+- **Symbol lists:** a symbol list is quick to run but biased by survivorship.
+- **Announcement dates:** statements without an announcement date (such as Screener uploads)
+  are excluded, and counted in the caveats.
+- **Benchmark:** the Nifty 500 TRI is used when its prices are stored, else the price index.
+  The price index understates the benchmark by the dividend yield.
 
 ## Stock report page
 
@@ -230,6 +262,9 @@ demo.
 - live config validation (it never saves)
 - the broker Connect redirect and callback banner
 - the uploads list
+- backtest form validation, queueing and history; with
+  `E2E_BACKTEST_CMD="cd backend && uv run python -m app.jobs run backtests"` set, it also
+  runs the job and checks the results page (metrics, equity curve, grade × zone table)
 
 ## Technical debug endpoint
 

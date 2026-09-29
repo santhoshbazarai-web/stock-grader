@@ -388,7 +388,7 @@ Auth
 Refresh, config and backtests
 - `POST /refresh` queues the symbol in Redis (deduplicated). The worker's `refresh_queue` job, run every minute, re-runs corporate actions, EOD prices, results and shareholding for it (ignoring seasons), then rebuilds the report.
 - `PUT /api/config` validates the new YAML together with the other files, exactly as at startup, before an atomic write. The API applies it at once; the worker needs a restart.
-- `POST /api/backtests` stores the request as `queued`. The engine is P15.
+- `POST /api/backtests` stores the request as `queued`; the worker's `backtests` job runs it (see §11). `GET /api/backtests` lists runs with progress and headline CAGR.
 Implementation notes (alerts, P14):
 - **Schedule:** `alerts_intraday` runs every 5 minutes (jobs.yaml). It does nothing outside `jobs.alerts.market_open`–`market_close` IST on weekdays, unless run with `--force`. NSE holidays are not modelled; on a holiday the price does not move, so nothing fires.
 - **Levels:** taken from each stock's latest report: the technical buy zone (only when its status is `zone`), FV, top band and invalidation. An alert whose level is missing never fires, and says why.
@@ -434,6 +434,36 @@ Monthly rebalance. The universe is point-in-time Nifty 500 membership (include d
 Fundamentals are used only after their announcement date. Prices are adjusted.
 Costs: 0.1% per side plus STT. Compare against Nifty 500 TRI where available.
 Report CAGR, max drawdown, hit rate and average holding period, broken down by grade × zone cell.
+Implementation notes (P15, `backend/app/backtest/`, parameters in `jobs.backtest`):
+- **Queue:** `POST /api/backtests` stores the rules (grades, zones, holding period in trading sessions, start, end, optional symbols). The worker's `backtests` job (every minute) claims queued rows with `FOR UPDATE SKIP LOCKED`, writes `{progress: {done, total}}` as it goes, then stores the results (`done`) or the error (`failed`).
+- **Rebalance dates:** the first trading session of each month in [start, end], taken from the stored benchmark sessions.
+- **Universe:** stocks whose `index_membership` interval for `jobs.universe_index` covers the date. Delisted and inactive instruments are included when they have prices.
+  - A symbol list replaces this and is flagged as survivorship-biased.
+  - If membership history starts after `start`, the earlier months have no universe, and a caveat says so. An empty membership table gives an explicit caveat, not a silent 0%.
+- **Point in time, at each rebalance date d:**
+  - Prices, benchmark and delivery data up to d.
+  - Annual and quarterly statements with `announcement_date ≤ d`. Rows without an announcement date are excluded and counted in a caveat; the live report's assumed lag (§8 notes) is never used.
+  - Shareholding with `filing_date ≤ d`.
+  - ASM/GSM rows effective at d, or "unknown" when no surveillance history is stored.
+  - RS percentile: Mansfield RS on weekly closes to d, ranked across that month's universe.
+  - Peers for relative valuation come from the previous rebalance's reports, to avoid a second pass.
+  - Sector is today's classification; user overrides are not applied. Both are listed as caveats.
+- **Signals:** each stock's report is built by the live pipeline (`build_report(..., lite=True)`, which skips only the DCF sensitivity grid). Its final grade and zone put it in one of 25 cells.
+- **Execution:**
+  - A signal on d is bought at the close `execution_lag_days` sessions later (default 1), so there is no same-close look-ahead.
+  - It is held for `holding_days` sessions and sold at that close.
+  - A stock already held is not bought again.
+  - Each new position gets `min(NAV / (open + new positions), cash / new positions)`. Existing positions are never re-weighted. Uninvested cash earns nothing.
+  - If a stock's prices end (delisting), it is sold at its last close (`data_end`). Positions open at the end are marked to the last close (`backtest_end`).
+- **Costs:** buy `cost_per_side + stt_buy`, sell `cost_per_side + stt_sell` (defaults 0.1% + 0.1% each way). Net trade return = `exit·(1−sell)·(1−buy)/entry − 1`.
+- **Metrics:**
+  - CAGR = `(end/start)^(365.25/days) − 1` on the daily NAV.
+  - Max drawdown = the minimum of `NAV/running max − 1`.
+  - Hit rate = the share of closed trades with net return > 0.
+  - Average holding period is in sessions. Exposure = the average invested fraction.
+- **Benchmark:** buy-and-hold of `benchmark_tri` when its prices are stored, else the `benchmark` price index (labelled as such), rebased to 100 on the same sessions.
+- **Grade × zone table:** every cell is simulated as its own portfolio of that cell's signals, under the same rules and costs. Cells in the chosen rules are marked. The chosen-rules portfolio is the union of those cells.
+- **Equity curve:** `equity_curve_points` (default weekly): each week's last real session plus the first point, so both curves start at 100.
 ---
 12. Compliance & safety
 The app is a personal research tool. Grades and targets are not published or distributed.

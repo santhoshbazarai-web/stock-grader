@@ -67,6 +67,7 @@ SPEC_PATHS = {
     ("get", "/api/config"),
     ("put", "/api/config"),
     ("post", "/api/backtests"),
+    ("get", "/api/backtests"),
     ("get", "/api/backtests/{backtest_id}"),
     ("get", "/api/jobs"),
 }
@@ -378,6 +379,40 @@ def test_backtests_queue_and_fetch(client: TestClient, db: Session) -> None:
     bad = client.post("/api/backtests", json={**req, "start": "2024-02-01"})
     assert bad.status_code == 422 and "start must be before end" in bad.text
     assert client.post("/api/backtests", json={**req, "grades": ["E"]}).status_code == 422
+
+
+def test_backtests_list_summarises(client: TestClient, db: Session) -> None:
+    params = {"grades": ["A"], "zones": ["fair"], "holding_days": 60}
+    db.add(Backtest(status="queued", params=params))
+    db.add(Backtest(status="running", params=params, results={"progress": {"done": 3, "total": 9}}))
+    db.add(
+        Backtest(
+            status="done",
+            params=params,
+            results={"portfolio": {"cagr": 0.12}, "benchmark": {"cagr": 0.1}, "cells": []},
+        )
+    )
+    db.commit()
+    rows = client.get("/api/backtests").json()
+    assert [r["status"] for r in rows] == ["done", "running", "queued"]
+    assert rows[0]["cagr"] == 0.12 and rows[0]["benchmark_cagr"] == 0.1
+    assert rows[0]["trades"] is None and rows[2]["trades"] is None
+    assert "results" not in rows[0]
+    assert rows[1]["progress"] == {"done": 3, "total": 9} and rows[1]["cagr"] is None
+    assert len(client.get("/api/backtests?limit=1").json()) == 1
+    assert client.get("/api/backtests?limit=0").status_code == 422
+    sym = client.post(
+        "/api/backtests",
+        json={**params, "start": "2020-01-01", "end": "2021-01-01", "symbols": ["TCS"]},
+    )
+    assert sym.json()["params"]["symbols"] == ["TCS"]
+    assert (
+        client.post(
+            "/api/backtests",
+            json={**params, "start": "2020-01-01", "end": "2021-01-01", "symbols": ["bad sym!"]},
+        ).status_code
+        == 422
+    )
 
 
 def test_jobs_view(client: TestClient, seeded: Session, db: Session) -> None:

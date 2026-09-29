@@ -2,6 +2,7 @@
 
 from app.core.config import JobName
 from app.jobs.alerts import alerts_intraday
+from app.jobs.backtests import backtests
 from app.jobs.fundamentals import results_watch, shareholding
 from app.jobs.market import corporate_actions, eod_prices, index_constituents, nse_bhavcopy
 from app.jobs.reports import refresh_queue, valuation_scores
@@ -25,5 +26,6 @@ REGISTRY: dict[JobName, JobSpec] = {
         JobSpec(JobName.INDEX_CONSTITUENTS, "Index membership + instruments", index_constituents),
         JobSpec(JobName.RESULTS_WATCH, "Flag new quarterly results (in season)", results_watch),
         JobSpec(JobName.REFRESH_QUEUE, "On-demand symbol refreshes from the API", refresh_queue),
+        JobSpec(JobName.BACKTESTS, "Run queued backtests (SPEC §11)", backtests),
     )
 }

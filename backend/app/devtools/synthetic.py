@@ -6,7 +6,7 @@ shareholding filings. Revenue grows ``growth`` a year at a 20% EBIT margin; the 
 scaled to trade around ``pe`` x EPS so the bands and the DCF land in a sensible range.
 """
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 import numpy as np
@@ -241,7 +241,7 @@ def seed_company(
             {
                 "instrument_id": iid,
                 "period_end": pe_,
-                "filing_date": None,
+                "filing_date": pe_ + timedelta(days=21),  # SEBI: within 21 days
                 "promoter_pct": promoter,
                 "promoter_pledge_pct": pl,
                 "fii_pct": fii,

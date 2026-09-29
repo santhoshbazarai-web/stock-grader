@@ -149,6 +149,11 @@ class BacktestRequest(BaseModel):
     holding_days: int = Field(ge=5, le=2520, description="Holding period in trading days")
     start: date
     end: date
+    symbols: list[SymbolField] | None = Field(
+        None,
+        max_length=1000,
+        description="Test these stocks instead of the point-in-time Nifty 500 (survivorship bias)",
+    )
 
     @model_validator(mode="after")
     def _check(self) -> "BacktestRequest":
@@ -165,6 +170,19 @@ class BacktestOut(BaseModel):
     error: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class BacktestSummary(BaseModel):
+    id: int
+    status: BacktestStatus
+    params: dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+    progress: dict[str, int] | None
+    trades: int | None
+    cagr: float | None
+    benchmark_cagr: float | None
+    error: str | None
 
 
 class JobRunOut(_Out):
