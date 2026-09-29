@@ -28,7 +28,7 @@ revision: ## Autogenerate a migration: make revision m="add prices_daily"
 	$(COMPOSE) run --rm -v $(CURDIR)/backend/app/db/alembic/versions:/app/app/db/alembic/versions \
 		api alembic revision --autogenerate -m "$(m)"
 
-test: ## Run backend tests
+test: ## Run backend tests (DB tests need Postgres at TEST_DATABASE_URL; `make up` provides one)
 	$(BACKEND) uv run pytest
 
 check: ## Lint + type-check backend (ruff, mypy --strict) and frontend (eslint, tsc)

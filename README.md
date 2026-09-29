@@ -29,7 +29,9 @@ Health check: `curl localhost:8000/api/health`.
 
 ```bash
 make install   # uv sync (backend) + npm ci (frontend)
-make test      # pytest
+make test      # pytest; DB tests use TEST_DATABASE_URL
+               # (default: stockgrader_test on localhost:5432, created by `make up`)
+               # and are skipped if Postgres is unreachable
 make check     # ruff + mypy --strict + eslint + tsc
 ```
 
@@ -40,3 +42,13 @@ refuses to start on any problem: missing file or key, unknown key, out-of-range 
 weights that do not sum to 1 (sectors) or 100 (pillars), non-monotonic score maps, a bank or
 insurance sector that uses FCFF DCF, etc. The config directory is `CONFIG_DIR` (defaults to
 `./config`; mounted read-only at `/config` in Docker).
+
+## Database
+
+Models live in `backend/app/db/models.py` (all SPEC §3.4 tables). Ingested data tables carry
+`source` + `fetched_at`; derived snapshots carry `computed_at`. Write with
+`app.db.upsert.upsert(session, Model, rows)`, which does `INSERT … ON CONFLICT DO UPDATE` on
+each model's `__upsert_key__`, so re-running a job is idempotent.
+
+After changing models: `make revision m="describe change"`, review the generated file, then
+`make migrate`.

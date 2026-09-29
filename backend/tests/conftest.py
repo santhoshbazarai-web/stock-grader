@@ -1,13 +1,26 @@
+import os
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from alembic import command
+from alembic.config import Config
 from cryptography.fernet import Fernet
+from sqlalchemy import Connection, Engine, create_engine, text
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import Session
 
 from app.core.config import get_config
 from app.core.settings import get_settings
 
-REPO_CONFIG_DIR = Path(__file__).resolve().parents[2] / "config"
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+REPO_CONFIG_DIR = BACKEND_DIR.parent / "config"
+
+# A throwaway PostgreSQL 16 database; tests drop and recreate its schema.
+TEST_DATABASE_URL = os.environ.get(
+    "TEST_DATABASE_URL",
+    "postgresql+psycopg://stockgrader:stockgrader@localhost:5432/stockgrader_test",
+)
 
 
 @pytest.fixture(autouse=True)
@@ -20,3 +33,47 @@ def _env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     yield
     get_settings.cache_clear()
     get_config.cache_clear()
+
+
+# ───────────────────────── database ─────────────────────────
+
+
+def alembic_config(connection: Connection) -> Config:
+    cfg = Config()  # no ini file → env.py leaves logging alone
+    cfg.set_main_option("script_location", str(BACKEND_DIR / "app" / "db" / "alembic"))
+    cfg.attributes["connection"] = connection
+    return cfg
+
+
+@pytest.fixture(scope="session")
+def engine() -> Iterator[Engine]:
+    eng = create_engine(TEST_DATABASE_URL)
+    try:
+        with eng.connect():
+            pass
+    except OperationalError as exc:
+        pytest.skip(f"PostgreSQL not reachable at TEST_DATABASE_URL ({exc.orig})")
+    with eng.begin() as conn:
+        conn.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public"))
+    yield eng
+    eng.dispose()
+
+
+@pytest.fixture(scope="session")
+def migrated_engine(engine: Engine) -> Engine:
+    with engine.begin() as conn:
+        command.upgrade(alembic_config(conn), "head")
+    return engine
+
+
+@pytest.fixture
+def db(migrated_engine: Engine) -> Iterator[Session]:
+    """Session inside a transaction that is rolled back after the test."""
+    with migrated_engine.connect() as conn:
+        trans = conn.begin()
+        session = Session(bind=conn, join_transaction_mode="create_savepoint")
+        try:
+            yield session
+        finally:
+            session.close()
+            trans.rollback()
