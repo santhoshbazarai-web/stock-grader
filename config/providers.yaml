@@ -33,5 +33,32 @@ providers:
   token_daily_expiry_ist:  # brokers whose access tokens expire at a fixed IST time (Fyers: JWT exp)
     kite: "06:00"
   instruments_cache_hours: 20   # Kite instruments dump is republished daily; refresh after this
+  yfinance_index_tickers:   # canonical index code → Yahoo ticker
+    NIFTY50: "^NSEI"
+    NIFTY500: "^CRSLDX"
+    NIFTYBANK: "^NSEBANK"
+    NIFTYIT: "^CNXIT"
+    NIFTYPHARMA: "^CNXPHARMA"
+    NIFTYFMCG: "^CNXFMCG"
+    NIFTYAUTO: "^CNXAUTO"
+    NIFTYMETAL: "^CNXMETAL"
+    NIFTYREALTY: "^CNXREALTY"
+  nse:
+    base_url: "https://www.nseindia.com"            # homepage (cookie warm-up) + JSON APIs
+    archives_url: "https://nsearchives.nseindia.com" # bhavcopy, F&O ban list
+    niftyindices_url: "https://www.niftyindices.com" # index constituent CSVs
+    cookie_ttl_s: 300          # re-visit the homepage for fresh cookies after this
+    request_timeout_s: 20
+    corporate_actions_from_years: 12   # history requested for corporate actions
+    index_constituent_files:   # canonical index code → niftyindices CSV name
+      NIFTY50: ind_nifty50list.csv
+      NIFTY500: ind_nifty500list.csv
+      NIFTYBANK: ind_niftybanklist.csv
+      NIFTYIT: ind_niftyitlist.csv
+      NIFTYPHARMA: ind_niftypharmalist.csv
+      NIFTYFMCG: ind_niftyfmcglist.csv
+      NIFTYAUTO: ind_niftyautolist.csv
+      NIFTYMETAL: ind_niftymetallist.csv
+      NIFTYREALTY: ind_niftyrealtylist.csv
   oauth_state_ttl_s: 600  # broker login must complete within this many seconds
   history_years: 10

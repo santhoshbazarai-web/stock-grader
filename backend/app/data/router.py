@@ -36,11 +36,16 @@ from app.core.config import Dataset, Provider, ProvidersConfig
 from app.core.rate_limiter import Limiter, RateLimitTimeout
 from app.data.gaps import GapRecord, GapRecorder
 from app.data.providers.base import (
+    ConstituentsProvider,
+    CorporateActionsProvider,
+    DeliveryProvider,
     FundamentalsProvider,
     IndexPriceProvider,
     PriceProvider,
     ProviderError,
     ProviderUnavailable,
+    ShareholdingProvider,
+    SurveillanceProvider,
 )
 
 logger = logging.getLogger(__name__)
@@ -99,6 +104,8 @@ class RouteResult[T]:
             out.append(f"all providers stale; using freshest ({self.source}, as of {self.as_of})")
         else:
             out.append(f"served by {self.source}")
+        if isinstance(self.data, pd.DataFrame):
+            out += [f"{self.source}: {w}" for w in self.data.attrs.get("warnings", [])]
         return out
 
 
@@ -177,6 +184,40 @@ class DataRouter:
             Dataset.FIN_QUARTERLY,
             FundamentalsProvider,
             lambda p: p.quarterly(symbol),
+            symbol=symbol,
+        )
+
+    def delivery(self, day: date) -> RouteResult[pd.DataFrame]:
+        return self.fetch(
+            Dataset.DELIVERY, DeliveryProvider, lambda p: p.delivery(day), symbol=None
+        )
+
+    def index_constituents(self, index: str) -> RouteResult[pd.DataFrame]:
+        return self.fetch(
+            Dataset.INDEX_CONSTITUENTS,
+            ConstituentsProvider,
+            lambda p: p.index_constituents(index),
+            symbol=None,
+        )
+
+    def surveillance(self) -> RouteResult[pd.DataFrame]:
+        return self.fetch(
+            Dataset.SURVEILLANCE, SurveillanceProvider, lambda p: p.surveillance(), symbol=None
+        )
+
+    def corporate_actions(self, symbol: str, start: date, end: date) -> RouteResult[pd.DataFrame]:
+        return self.fetch(
+            Dataset.CORPORATE_ACTIONS,
+            CorporateActionsProvider,
+            lambda p: p.corporate_actions(symbol, start, end),
+            symbol=symbol,
+        )
+
+    def shareholding(self, symbol: str) -> RouteResult[pd.DataFrame]:
+        return self.fetch(
+            Dataset.SHAREHOLDING,
+            ShareholdingProvider,
+            lambda p: p.shareholding(symbol),
             symbol=symbol,
         )
 

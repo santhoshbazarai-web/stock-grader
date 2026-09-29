@@ -21,6 +21,8 @@ dependencies = [
     "fyers-apiv3>=3.1.18",
     "requests>=2.31.0",
     "kiteconnect>=5.2.2",
+    "yfinance>=1.7.0",
+    "openpyxl>=3.1.5",
 ]
 
 [dependency-groups]
@@ -34,6 +36,7 @@ dev = [
     "pandas-stubs>=2.2",
     "responses>=0.26.3",
     "types-requests>=2.33.0.20260906",
+    "types-openpyxl>=3.1.5.20260827",
 ]
 
 [tool.uv]
@@ -68,5 +71,5 @@ init_typed = true
 warn_required_dynamic_aliases = true
 
 [[tool.mypy.overrides]]
-module = ["apscheduler.*", "fyers_apiv3.*", "kiteconnect.*"]
+module = ["apscheduler.*", "fyers_apiv3.*", "kiteconnect.*", "yfinance.*"]
 ignore_missing_imports = true

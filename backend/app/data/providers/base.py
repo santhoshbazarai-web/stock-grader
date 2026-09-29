@@ -63,3 +63,49 @@ class FundamentalsProvider(Protocol):
     def annual(self, symbol: str) -> pd.DataFrame: ...  # rows = fiscal years
 
     def quarterly(self, symbol: str) -> pd.DataFrame: ...
+
+
+# ───────────────────────── NSE-style datasets ─────────────────────────
+# Column contracts (all frames may carry attrs["as_of"] and attrs["warnings"]: list[str]):
+# - delivery:           symbol, series, date, traded_qty, deliverable_qty, delivery_pct,
+#                       traded_value_cr
+# - index_constituents: symbol, name, industry, series, isin
+# - surveillance:       symbol, list_name (SurveillanceList value), stage
+# - corporate_actions:  ex_date, action_type (CorporateActionType value), ratio_old, ratio_new,
+#                       dividend_per_share, record_date, description
+# - shareholding:       index = period end; canonical shareholding fields + filing_date
+
+
+@runtime_checkable
+class DeliveryProvider(Protocol):
+    name: Provider
+
+    def delivery(self, day: date) -> pd.DataFrame: ...
+
+
+@runtime_checkable
+class ConstituentsProvider(Protocol):
+    name: Provider
+
+    def index_constituents(self, index: str) -> pd.DataFrame: ...
+
+
+@runtime_checkable
+class SurveillanceProvider(Protocol):
+    name: Provider
+
+    def surveillance(self) -> pd.DataFrame: ...
+
+
+@runtime_checkable
+class CorporateActionsProvider(Protocol):
+    name: Provider
+
+    def corporate_actions(self, symbol: str, start: date, end: date) -> pd.DataFrame: ...
+
+
+@runtime_checkable
+class ShareholdingProvider(Protocol):
+    name: Provider
+
+    def shareholding(self, symbol: str) -> pd.DataFrame: ...

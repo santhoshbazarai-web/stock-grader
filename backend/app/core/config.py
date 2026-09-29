@@ -125,6 +125,16 @@ class ApiLimits(_Strict):
     quotes_max_symbols: PositiveInt
 
 
+class NseConfig(_Strict):
+    base_url: str
+    archives_url: str
+    niftyindices_url: str
+    cookie_ttl_s: PositiveFloat
+    request_timeout_s: PositiveFloat
+    corporate_actions_from_years: PositiveInt
+    index_constituent_files: dict[str, str]
+
+
 class ProvidersConfig(_Strict):
     priority: dict[Dataset, list[Provider]]
     rate_limits: dict[Provider, RateLimit]
@@ -133,6 +143,8 @@ class ProvidersConfig(_Strict):
     api_limits: dict[Provider, ApiLimits]
     token_daily_expiry_ist: dict[Provider, time]
     instruments_cache_hours: PositiveFloat
+    yfinance_index_tickers: dict[str, str]
+    nse: NseConfig
     oauth_state_ttl_s: PositiveInt
     history_years: PositiveInt
 

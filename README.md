@@ -81,3 +81,19 @@ at 06:00 IST (`token_daily_expiry_ist`). Historical candles need Kite's paid his
 add-on; without it the provider reports `unavailable` and the router uses the next provider.
 The NSE instruments dump (symbol → instrument token) is cached in Redis for
 `instruments_cache_hours`.
+
+## Other data sources
+
+- **yfinance** (`data/providers/yf.py`): price fallback (`TCS.NS`, index tickers from
+  `yfinance_index_tickers`), corporate actions, and fundamentals. Yahoo's prices are
+  split-adjusted even unadjusted, so the provider reverses that to return raw prices. Annual
+  statements cover only ~4 years; results carry a `limited history` warning in `reasons`.
+- **NSE** (`data/providers/nse.py`): delivery % from `sec_bhavdata_full`, index constituents
+  (niftyindices CSV), ASM/GSM + F&O ban lists, corporate actions, shareholding. Browser headers,
+  homepage cookie warm-up (refreshed after `nse.cookie_ttl_s` or on 401/403), `rate_limits.nse`.
+- **Screener** (`data/providers/screener_import.py`): parses the Excel export's "Data Sheet"
+  into `fin_annual` / `fin_quarterly` / `shareholding` (you state consolidated vs standalone at
+  upload) and records data gaps for what the export lacks.
+
+Every source's labels map onto one canonical schema in `backend/app/data/canonical.py`;
+the generated table is in [`docs/CANONICAL_FIELDS.md`](docs/CANONICAL_FIELDS.md).
