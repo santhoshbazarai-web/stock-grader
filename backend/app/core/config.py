@@ -501,6 +501,13 @@ class ScoringConfig(_Strict):
 # ───────────────────────── technical.yaml ─────────────────────────
 
 
+class VcpConfig(_Strict):
+    lookback_weeks: PositiveInt
+    min_contractions: Annotated[int, Field(ge=2)]
+    max_final_depth: Fraction
+    max_distance_from_pivot: Fraction
+
+
 class TechnicalConfig(_Strict):
     swing_fractal_n: PositiveInt
     zone_impulse_atr_mult: PositiveFloat
@@ -514,6 +521,37 @@ class TechnicalConfig(_Strict):
     avwap_anchors: list[Literal["low_52w", "last_results_date", "last_major_swing_low"]] = Field(
         min_length=1
     )
+    stage_slope_weeks: PositiveInt
+    stage_flat_slope_pct: NonNegativeFloat
+    stage_prior_weeks: PositiveInt
+    stage_volume_avg_weeks: PositiveInt
+    stage_breakout_volume_mult: PositiveFloat
+    major_swing_fractal_n: PositiveInt
+    zone_base_max_atr_mult: PositiveFloat
+    zone_lookback_weeks: PositiveInt
+    ote_retracement: tuple[Fraction, Fraction]
+    volume_profile_bins: Annotated[int, Field(ge=5)]
+    value_area_pct: Fraction
+    rs_sma_weeks: PositiveInt
+    dma_days: PositiveInt
+    high_52w_weeks: PositiveInt
+    delivery_avg_days: PositiveInt
+    delivery_recent_days: PositiveInt
+    updown_volume_weeks: PositiveInt
+    vcp: VcpConfig
+    buy_zone_point_band_atr: NonNegativeFloat
+    min_weekly_bars: PositiveInt
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        lo, hi = self.ote_retracement
+        if lo >= hi:
+            raise ValueError("ote_retracement must be [low, high]")
+        if self.major_swing_fractal_n < self.swing_fractal_n:
+            raise ValueError("major_swing_fractal_n must be >= swing_fractal_n")
+        if self.delivery_recent_days > self.delivery_avg_days:
+            raise ValueError("delivery_recent_days must be <= delivery_avg_days")
+        return self
 
 
 # ───────────────────────── jobs.yaml ─────────────────────────

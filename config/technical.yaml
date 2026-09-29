@@ -12,3 +12,33 @@ technical:
   invalidation_atr_buffer: 0.5
   volume_profile_lookback_weeks: 52
   avwap_anchors: [low_52w, last_results_date, last_major_swing_low]
+  # Weinstein stage (stage.py)
+  stage_slope_weeks: 4          # SMA slope measured over this many weeks
+  stage_flat_slope_pct: 0.01    # |SMA change| over stage_slope_weeks at or below this = flat
+  stage_prior_weeks: 13         # earlier slope window: basing (after decline) vs topping
+  stage_volume_avg_weeks: 10
+  stage_breakout_volume_mult: 2.0   # stage-2 breakout week volume vs average = "confirmed"
+  # structure / zones (structure.py, zones.py)
+  major_swing_fractal_n: 5      # wider fractal for "major" swing lows (AVWAP anchor, dealing range)
+  zone_base_max_atr_mult: 1.0   # base candles: range at most this x ATR
+  zone_lookback_weeks: 156
+  ote_retracement: [0.618, 0.79]
+  # volume profile (volume_profile.py)
+  volume_profile_bins: 50
+  value_area_pct: 0.70
+  # relative strength / momentum (rs.py, momentum.py)
+  rs_sma_weeks: 52              # Mansfield RS baseline
+  dma_days: 200
+  high_52w_weeks: 52
+  # participation (participation.py)
+  delivery_avg_days: 50
+  delivery_recent_days: 5
+  updown_volume_weeks: 10
+  vcp:
+    lookback_weeks: 26
+    min_contractions: 2
+    max_final_depth: 0.12        # last pullback no deeper than this
+    max_distance_from_pivot: 0.05   # close within this of the last swing high
+  # buy zone (buy_zone.py)
+  buy_zone_point_band_atr: 0.5   # AVWAP / POC / swing-low supports become [level - this x ATR, level]
+  min_weekly_bars: 60            # below this the engine reports "insufficient history"

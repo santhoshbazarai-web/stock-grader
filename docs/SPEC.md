@@ -184,6 +184,49 @@ Module	Output
 `participation.py`	Delivery % vs its own 50-day average; up-week vs down-week volume ratio; VCP detector (contracting pullbacks)
 `risk.py`	ATR(14) weekly, invalidation = below demand-zone low − 0.5·ATR, R:R to FV and to the Top band
 Buy zone = intersection of `[Baseline, FV·(1−MoS)]` (or `[FV·(1−MoS), FV]` for A-grade stocks) with the nearest fresh demand zone, AVWAP or POC below CMP. If they don't intersect, the buy zone is the nearest technical support within the valuation range. If there is none, the output is "No technical buy zone yet". Stage 4 means the buy zone is suppressed.
+Implementation notes (`technical/`, pure functions; every parameter is in `technical.yaml`):
+- Weekly bars are Monday–Friday weeks built from adjusted daily bars. Each week is labelled with its last trading day. ATR and RSI use Wilder smoothing seeded with a simple mean. The engine needs `min_weekly_bars` weeks.
+- Stage uses slope = SMA30_t / SMA30_{t−`stage_slope_weeks`} − 1, which counts as flat when |slope| ≤ `stage_flat_slope_pct`, and the prior slope over `stage_prior_weeks` before that. The stages are:
+  - Stage 2: rising SMA and close above it.
+  - Stage 4: falling SMA and close below it.
+  - Stage 1 (after a decline, or a falling SMA with price above it) or Stage 3 (after an advance, or a rising SMA with price below it) otherwise.
+  - A breakout week whose volume is at least `stage_breakout_volume_mult` × the `stage_volume_avg_weeks` average is flagged as volume-confirmed.
+- Swings are fractal: a swing high is above the N highs before it and at least as high as the N highs after (N = `swing_fractal_n`; the major swings use `major_swing_fractal_n`). A swing is confirmed only N bars later, so there is no look-ahead.
+- BOS and CHoCH are the first close beyond the latest confirmed swing level. It is a BOS if in the direction of the previous break, otherwise a CHoCH.
+- The trend is up when the latest swings are HH and HL, down when they are LH and LL, and range otherwise.
+- Zones:
+  - Impulse bar: range > `zone_impulse_atr_mult` × the previous bar's ATR.
+  - Base: the ≤ `zone_max_base_candles` consecutive bars before the impulse with range ≤ `zone_base_max_atr_mult` × ATR. The zone spans the base's [min low, max high]. A bullish impulse makes a demand zone; a bearish one makes a supply zone.
+  - Order block: the last opposite-colour bar before the impulse.
+  - Retest: each new entry into the zone after the impulse. A close through the zone's far side breaks it.
+  - Fresh: not broken and retests ≤ `zone_max_retests_fresh`. Only impulses within `zone_lookback_weeks` are scanned.
+- An FVG is a three-bar gap (low_{i+1} > high_{i−1}, or the bearish mirror). It is filled once price trades through the whole gap.
+- The dealing range runs from the last major swing low to the last major swing high. EQ is the midpoint. OTE is the `ote_retracement` retracement of that leg.
+- AVWAP = Σ typical × volume / Σ volume from the anchor bar, where typical = (H + L + C) / 3. The anchors are:
+  - the 52-week-low bar;
+  - the first bar on or after the latest results announcement;
+  - the last major swing low.
+- Volume profile:
+  - The last `volume_profile_lookback_weeks` bars are split into `volume_profile_bins` equal bins. Each bar's volume is spread evenly over the bins its range touches.
+  - POC is the midpoint of the fullest bin.
+  - The value area grows from the POC bin toward the larger neighbour (on a tie, the upper one) until it holds `value_area_pct` of the volume.
+- Mansfield RS = (RS / SMA(RS, `rs_sma_weeks`) − 1) × 100, where RS = stock close / benchmark close (weekly). RS is computed against Nifty 500, and also against the sector index when one is supplied. The universe percentile counts ties as half.
+- Momentum:
+  - DMA z-score = (close − SMA`dma_days`) / σ of the same daily closes.
+  - 52-week proximity = close / max weekly high over `high_52w_weeks` − 1.
+- Participation:
+  - Delivery ratio = mean delivery % over the last `delivery_recent_days` / mean over the last `delivery_avg_days`.
+  - Up/down volume = up-week volume ÷ down-week volume over `updown_volume_weeks`.
+  - VCP: the last ≥ `vcp.min_contractions` pullbacks (swing high → next swing low, within `vcp.lookback_weeks`) each get shallower, the last is ≤ `vcp.max_final_depth`, and the close is within `vcp.max_distance_from_pivot` of the last swing high.
+- Buy zone:
+  - Primary supports: fresh demand zones, the AVWAPs and the POC. Secondary supports: unbroken non-fresh demand zones, VAL and the last three major swing lows.
+  - A point level becomes the band [level − `buy_zone_point_band_atr` × ATR, level]. Supports are clipped at CMP.
+  - Selection:
+    1. The nearest primary support is intersected with the valuation range.
+    2. Failing that, the nearest support of any kind that overlaps the range is used.
+    3. Failing that, the output is "No technical buy zone yet", with a reason added when CMP is already below the range.
+  - Invalidation = the chosen support's low − `invalidation_atr_buffer` × ATR. Entry = min(CMP, zone high). R:R = (target − entry) / (entry − invalidation), for FV and for the top band.
+  - The `technicals` job stores stage, RS percentile, trend and ATR. The buy-zone columns are filled by `valuation_scores`, which holds the valuation levels.
 ---
 7. Scoring (`scoring/`)
 7.1 Knock-outs (`knockouts.py`)

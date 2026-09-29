@@ -185,6 +185,9 @@ def _delete(path: list[str]) -> Mutator:
         ("jobs", _set(["universe_index"], "NIFTY9000"), "universe_index"),
         ("jobs", _set(["shareholding_season", "days"], [25, 1]), "first, last"),
         # technical
+        ("technical", _set(["ote_retracement"], [0.79, 0.618]), "ote_retracement"),
+        ("technical", _set(["major_swing_fractal_n"], 1), "major_swing_fractal_n"),
+        ("technical", _set(["vcp", "min_contractions"], 1), "min_contractions"),
         ("technical", _set(["atr_period"], 0), "greater than 0"),
         ("technical", _set(["avwap_anchors"], ["low_52w", "ipo_date"]), "avwap_anchors"),
         ("technical", _delete(["rsi_period"]), "rsi_period"),

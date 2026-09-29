@@ -115,5 +115,31 @@ python -m app.jobs verify-adjustment --symbol INFY       # raw vs adjusted aroun
 In Docker: `docker compose run --rm worker python -m app.jobs run eod_prices --symbols TCS`.
 
 Prices are stored raw and split/bonus-adjusted (`adj_*`, `data/adjust.py`); adjustment is
-recomputed whenever new bars or corporate actions arrive. `technicals`, `valuation_scores` and
+recomputed whenever new bars or corporate actions arrive. `valuation_scores` and
 `alerts_intraday` are registered but not scheduled until their engines exist.
+
+## Technical debug endpoint
+
+`GET /api/stocks/{symbol}/technical/debug` runs the weekly technical engine (SPEC §6) on
+stored adjusted prices. It returns everything as JSON so you can overlay it on a
+lightweight-charts chart and check it by eye:
+
+- bars and the 30-week SMA
+- swings, major swings and BOS/CHoCH events
+- demand/supply zones and order blocks, with retests and freshness
+- FVGs and the dealing range (EQ/OTE)
+- AVWAP series
+- volume profile, stage, RS, momentum and participation
+- supports
+
+Times are `YYYY-MM-DD`, the last trading day of each week.
+
+To test the buy-zone logic, pass valuation levels as query parameters:
+
+```bash
+curl 'localhost:8000/api/stocks/TCS/technical/debug?baseline=3100&fair_value=4000&top_band=4800&grade=B'
+```
+
+- `mos` defaults to `mos_by_grade[grade]`. `grade` is one of `A_plus`, `A`, `B`, `C` or `D`, and defaults to `B`.
+- Without `fair_value`, `buy_zone` is `null`.
+- A symbol with no prices returns 404. Prices that are not yet adjusted return 409.
