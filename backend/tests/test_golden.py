@@ -15,6 +15,7 @@ from app.data.canonical import fields_for
 from app.fundamentals.banking import BANK_FIELDS, bank_summary
 from app.fundamentals.forensic import altman_z2, beneish, piotroski
 from app.fundamentals.metrics import summary_metrics
+from app.valuation.dcf import DcfInputs, run_dcf
 from tests.conftest import REPO_CONFIG_DIR
 
 GOLDEN = Path(__file__).parent / "fixtures" / "golden"
@@ -165,9 +166,17 @@ def test_runner_reports_uncomputable_metrics() -> None:
 
 @pytest.mark.parametrize("path", FILES, ids=ids(FILES))
 def test_valuation_matches(path: Path) -> None:
-    if not load(path)["expected"].get("valuation"):
+    valuation = load(path)["expected"].get("valuation")
+    if not valuation:
         pytest.skip("no valuation expectations in this file")
-    pytest.skip(f"valuation engine not built yet (P8); will check within {VALUATION_TOL:.0%}")
+    if dcf := valuation.get("dcf"):
+        result = run_dcf(DcfInputs(**dcf["inputs"]))
+        assert result.value_per_share is not None, result.reasons
+        assert close(result.value_per_share, dcf["value_per_share"], VALUATION_TOL), (
+            f"DCF: got {result.value_per_share:.2f}, expected {dcf['value_per_share']}"
+        )
+    if "pe_band" in valuation:
+        pytest.skip("PE band check needs stored price history (runs once prices are loaded)")
 
 
 def test_golden_set_complete() -> None:

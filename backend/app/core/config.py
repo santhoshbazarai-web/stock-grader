@@ -214,6 +214,8 @@ class DcfConfig(_Strict):
     terminal_growth: Fraction
     terminal_growth_bounds: tuple[Fraction, Fraction]
     g1_cap_by_default: Fraction
+    margin_years: PositiveInt
+    reverse_growth_bracket: tuple[float, float]
     sensitivity: SensitivityConfig
     scenarios: Scenarios
 
@@ -224,12 +226,24 @@ class DcfConfig(_Strict):
             raise ValueError("terminal_growth_bounds must be [low, high]")
         if not lo <= self.terminal_growth <= hi:
             raise ValueError("terminal_growth must lie within terminal_growth_bounds")
+        if self.reverse_growth_bracket[0] >= self.reverse_growth_bracket[1]:
+            raise ValueError("reverse_growth_bracket must be [low, high]")
         return self
 
 
 class BandsConfig(_Strict):
     lookback_years: list[PositiveInt] = Field(min_length=1)
     multiples: list[Literal["pe", "ev_ebitda", "pb"]] = Field(min_length=1)
+    min_observations: PositiveInt
+
+
+class EpvConfig(_Strict):
+    normalise_years: PositiveInt
+
+
+class BlendConfig(_Strict):
+    min_weight_coverage: Fraction
+    asset_heavy_book_multiple: NonNegativeFloat
 
 
 class RelativeConfig(_Strict):
@@ -254,6 +268,13 @@ class ZonesConfig(_Strict):
 
 class ConfidenceConfig(_Strict):
     low_if_method_cv_above: PositiveFloat
+    medium_if_method_cv_above: PositiveFloat
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        if self.medium_if_method_cv_above >= self.low_if_method_cv_above:
+            raise ValueError("medium_if_method_cv_above must be < low_if_method_cv_above")
+        return self
 
 
 class ValuationConfig(_Strict):
@@ -264,6 +285,9 @@ class ValuationConfig(_Strict):
     tax_rate_default: Fraction
     dcf: DcfConfig
     bands: BandsConfig
+    epv: EpvConfig
+    graham_multiplier: PositiveFloat
+    blend: BlendConfig
     relative: RelativeConfig
     mos_by_grade: GradeFractions
     zones: ZonesConfig
@@ -321,6 +345,7 @@ class SectorConfig(_Strict):
     manual_inputs: list[str] | None = None
     nav_discount: Fraction | None = None
     holding_discount: Fraction | None = None
+    g1_cap: Fraction | None = None  # overrides valuation.dcf.g1_cap_by_default
 
     @model_validator(mode="after")
     def _check(self) -> Self:
@@ -336,6 +361,8 @@ class SectorConfig(_Strict):
                 raise ValueError(f"weights must sum to 1.0, got {total:.6f}")
         if m in _NO_DCF_MODELS and self.weights and ValuationMethod.DCF_BASE in self.weights:
             raise ValueError(f"model {m} must not use FCFF DCF (dcf_base)")
+        if m is SectorModel.BANK and self.long_run_growth is None:
+            raise ValueError("bank model requires long_run_growth (justified P/B)")
         if m is SectorModel.CYCLICAL and self.normalise_years is None:
             raise ValueError("cyclical model requires normalise_years")
         if m is SectorModel.NAV and self.nav_discount is None:

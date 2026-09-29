@@ -543,7 +543,7 @@
         "valuation": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Checked once the valuation engine exists (P8).",
+          "description": "DCF checked within 2%; PE band checked once stored price history is available.",
           "properties": {
             "dcf": {
               "type": "object",
@@ -555,7 +555,72 @@
               "properties": {
                 "inputs": {
                   "type": "object",
-                  "description": "fixed assumptions: g1, g_terminal, wacc, tax_rate, base FCFF, net debt, shares ..."
+                  "additionalProperties": false,
+                  "description": "Fixed DCF assumptions (app.valuation.dcf.DcfInputs): rates as fractions, amounts in ₹ crore, shares in crore.",
+                  "required": [
+                    "revenue",
+                    "ebit_margin",
+                    "tax_rate",
+                    "da_pct",
+                    "capex_pct",
+                    "nwc_pct",
+                    "g1",
+                    "g_terminal",
+                    "wacc",
+                    "net_debt",
+                    "minority_interest",
+                    "non_op_investments",
+                    "shares_cr"
+                  ],
+                  "properties": {
+                    "revenue": {
+                      "type": "number"
+                    },
+                    "ebit_margin": {
+                      "type": "number"
+                    },
+                    "tax_rate": {
+                      "type": "number"
+                    },
+                    "da_pct": {
+                      "type": "number"
+                    },
+                    "capex_pct": {
+                      "type": "number"
+                    },
+                    "nwc_pct": {
+                      "type": "number"
+                    },
+                    "g1": {
+                      "type": "number"
+                    },
+                    "g_terminal": {
+                      "type": "number"
+                    },
+                    "wacc": {
+                      "type": "number"
+                    },
+                    "net_debt": {
+                      "type": "number"
+                    },
+                    "minority_interest": {
+                      "type": "number"
+                    },
+                    "non_op_investments": {
+                      "type": "number"
+                    },
+                    "shares_cr": {
+                      "type": "number"
+                    },
+                    "stage1_years": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "stage2_years": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  }
                 },
                 "value_per_share": {
                   "type": "number"

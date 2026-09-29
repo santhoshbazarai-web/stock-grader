@@ -15,6 +15,7 @@ sectors:
     long_run_growth: 0.10
   nbfc:
     model: bank
+    long_run_growth: 0.10
     weights: {justified_pb: 0.40, band_pb: 0.35, relative_pb: 0.25}
   insurance:          {model: insurance, weights: {band_p_ev: 0.60, relative_p_ev: 0.40}, manual_inputs: [embedded_value, vnb]}
   metals:             {model: cyclical, normalise_years: 10, weights: {normalised_ev_ebitda: 0.60, band_ev_ebitda: 0.25, band_pb: 0.15}, asset_heavy: true}

@@ -224,6 +224,26 @@
       "piotroski": 8,
       "beneish_m": -2.3687,
       "altman_z2": 6.252
+    },
+    "valuation": {
+      "dcf": {
+        "inputs": {
+          "revenue": 1000.0,
+          "ebit_margin": 0.2,
+          "tax_rate": 0.25,
+          "da_pct": 0.05,
+          "capex_pct": 0.05,
+          "nwc_pct": 0.0,
+          "g1": 0.1,
+          "g_terminal": 0.05,
+          "wacc": 0.12,
+          "net_debt": 100.0,
+          "minority_interest": 0.0,
+          "non_op_investments": 50.0,
+          "shares_cr": 10.0
+        },
+        "value_per_share": 290.6735
+      }
     }
   }
 }

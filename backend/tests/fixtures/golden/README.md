@@ -36,8 +36,10 @@ section fails validation; an expected metric the code doesn't produce fails the 
   fractions: 18% → `0.18`.
 - `expected.bank_metrics` (banks/NBFCs): required `gnpa_pct`, `nim_pct`, `roa_pct`, in percent.
 - `expected.forensic` (optional): `piotroski` (0-9), `beneish_m`, `altman_z2`.
-- `expected.valuation` (optional until the valuation engine lands in P8): one DCF run with its
-  fixed inputs and the per-share value, plus the PE band median and sigma.
+- `expected.valuation`: one DCF run with its fixed inputs (the `DcfInputs` fields listed in the
+  schema) and the per-share value you calculated by hand. This is checked within 2%. The PE band
+  median and sigma are also recorded. Checking them needs stored price history, so that check
+  runs once prices are loaded.
 - `verified`: who checked the numbers, when, and against what (annual report pages, Screener).
 
 The definitions the numbers must follow are in SPEC §4, including its "Implementation notes"

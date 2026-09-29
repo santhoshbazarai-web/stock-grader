@@ -156,6 +156,20 @@ Fair: FV·(1−MoS) ≤ CMP ≤ FV·1.10
 Premium: FV·1.10 < CMP ≤ Top band
 Extreme Premium: CMP > Top band
 Report dispersion across methods. If the coefficient of variation exceeds 35%, raise a "low valuation confidence" flag.
+
+Implementation notes (`valuation/`, pure functions; parameters in `valuation.yaml` and `sectors.yaml`):
+- DCF projection is revenue-driven: revenue grows at g_t, FCFF_t = revenue_t × EBIT margin × (1 − t) + revenue_t × (D&A% − capex%) − NWC% × Δrevenue. The base margin, D&A% and capex% are averages over `dcf.margin_years` (every year required); NWC% is from the latest year. A scenario's `margin_delta` shifts the EBIT margin. Cash flows are discounted at year end.
+- Where filings omit working capital, minority interest or non-operating investments, the DCF takes them as nil so a value is possible. Each one is returned in `assumed_nil` for the caller to record as a data gap and show in the report.
+- WACC uses market-value weights with book debt as the proxy for debt's market value. If there is debt but no interest cost, the cost of debt is unknown and there is no WACC.
+- Beta = weekly-return slope over `beta.lookback_years`, Blume-adjusted (0.67β + 0.33), clamped to [floor, cap]. It needs at least half the expected weeks.
+- Sector g1 cap: `sectors.<name>.g1_cap`, else `dcf.g1_cap_by_default`.
+- Reverse DCF searches `dcf.reverse_growth_bracket` with brentq. If the price lies outside the values at the ends, there is no implied growth.
+- Bands use the median and sample σ of daily multiples whose denominator is positive, over the lookback. Fundamentals are carried forward from their announcement date. A band needs `bands.min_observations` valid days. EV/EBITDA per share = price + net debt per share.
+- Relative valuation uses ROCE as quality for PE and EV/EBITDA, and ROE for P/B and P/EV. It needs positive quality and growth on both sides.
+- EPV: normalised EBIT = mean EBIT margin over `epv.normalise_years` × latest revenue. Graham multiplier: `graham_multiplier`.
+- Banks: justified P/B uses `sectors.<bank>.long_run_growth` (required for the bank model). The residual-income model grows book value by ROE × (1 − payout).
+- Blend: methods without a value are dropped and the remaining weights are renormalised (reported). If the available methods carry less than `blend.min_weight_coverage` of the weight, there is no fair value. The baseline book floor is `blend.asset_heavy_book_multiple`. The top band is capped at band +`zones.top_band_cap_sigma`σ. The primary band is the sector's highest-weighted band method.
+- Confidence: CV (population σ / mean of the method values used) above `confidence.low_if_method_cv_above` → low; above `medium_if_method_cv_above` → medium; otherwise high. Fewer than two methods → low. Zone boundaries: FV(1 − MoS) is Fair; FV × `fair_upper_mult` is Fair; the top band itself is Premium.
 ---
 6. Technical engine (`technical/`)
 All calculations run on adjusted prices. The primary timeframe is weekly, with daily used for entry refinement.

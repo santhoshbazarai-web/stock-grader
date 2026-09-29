@@ -22,7 +22,7 @@ from typing import Any
 
 import pandas as pd
 
-from app.fundamentals.metrics import Metric, _col, average, by_year, ratio
+from app.fundamentals.metrics import Metric, average, by_year, column, ratio
 
 BANK_FIELDS: dict[str, str] = {
     "interest_earned": "Interest earned (₹ Cr)",
@@ -69,22 +69,22 @@ def bank_metrics(annual: pd.DataFrame) -> pd.DataFrame:
     """Per-fiscal-year bank metrics (percent), from a frame prepared by :func:`bank_frame`."""
     df = by_year(bank_frame(annual))
     out = pd.DataFrame(index=df.index)
-    reported_nii = _col(df, "net_interest_income")
-    nii = reported_nii.fillna(_col(df, "interest_earned") - _col(df, "interest_expended"))
-    advances, gross_npa = _col(df, "advances"), _col(df, "gross_npa")
-    earning = advances + _col(df, "investments")
+    reported_nii = column(df, "net_interest_income")
+    nii = reported_nii.fillna(column(df, "interest_earned") - column(df, "interest_expended"))
+    advances, gross_npa = column(df, "advances"), column(df, "gross_npa")
+    earning = advances + column(df, "investments")
     out["nii"] = nii
     out["nim_pct"] = ratio(nii, average(earning)) * 100
-    out["casa_pct"] = ratio(_col(df, "casa_deposits"), _col(df, "deposits")) * 100
-    out["gnpa_pct"] = ratio(gross_npa, _col(df, "gross_advances")) * 100
-    out["nnpa_pct"] = ratio(_col(df, "net_npa"), advances) * 100
-    out["pcr_pct"] = ratio(gross_npa - _col(df, "net_npa"), gross_npa) * 100
-    out["credit_cost_pct"] = ratio(_col(df, "loan_loss_provisions"), average(advances)) * 100
-    out["car_pct"] = _col(df, "crar_pct")
-    income = nii + _col(df, "other_income")
-    out["cost_to_income_pct"] = ratio(_col(df, "operating_expenses"), income) * 100
-    out["roa_pct"] = ratio(_col(df, "pat"), average(_col(df, "total_assets"))) * 100
-    out["roe_pct"] = ratio(_col(df, "pat"), average(_col(df, "total_equity"))) * 100
+    out["casa_pct"] = ratio(column(df, "casa_deposits"), column(df, "deposits")) * 100
+    out["gnpa_pct"] = ratio(gross_npa, column(df, "gross_advances")) * 100
+    out["nnpa_pct"] = ratio(column(df, "net_npa"), advances) * 100
+    out["pcr_pct"] = ratio(gross_npa - column(df, "net_npa"), gross_npa) * 100
+    out["credit_cost_pct"] = ratio(column(df, "loan_loss_provisions"), average(advances)) * 100
+    out["car_pct"] = column(df, "crar_pct")
+    income = nii + column(df, "other_income")
+    out["cost_to_income_pct"] = ratio(column(df, "operating_expenses"), income) * 100
+    out["roa_pct"] = ratio(column(df, "pat"), average(column(df, "total_assets"))) * 100
+    out["roe_pct"] = ratio(column(df, "pat"), average(column(df, "total_equity"))) * 100
     out["loan_growth_pct"] = (ratio(advances, advances.shift(1)) - 1) * 100
     return out
 

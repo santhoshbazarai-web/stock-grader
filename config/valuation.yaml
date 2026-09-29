@@ -15,7 +15,9 @@ valuation:
     stage2_years: 5
     terminal_growth: 0.05
     terminal_growth_bounds: [0.04, 0.06]
-    g1_cap_by_default: 0.25
+    g1_cap_by_default: 0.25      # sectors.yaml may set a sector-specific g1_cap
+    margin_years: 3              # base EBIT margin / D&A / capex ratios = average of last N years
+    reverse_growth_bracket: [-0.5, 1.0]   # brentq search range for implied g1
     sensitivity: {wacc_step: 0.005, wacc_range: 0.02, tg_values: [0.04, 0.05, 0.06, 0.07]}
     scenarios:
       bear: {g1_delta: -0.05, margin_delta: -0.02, wacc_delta: 0.01}
@@ -24,6 +26,13 @@ valuation:
   bands:
     lookback_years: [5, 10]
     multiples: [pe, ev_ebitda, pb]
+    min_observations: 250        # trading days with a valid multiple needed to trust a band
+  epv:
+    normalise_years: 5           # normalised EBIT = mean EBIT margin over N years x latest revenue
+  graham_multiplier: 22.5        # Graham number = sqrt(multiplier x EPS x BVPS)
+  blend:
+    min_weight_coverage: 0.5     # fair value needs methods carrying >= this share of the weights
+    asset_heavy_book_multiple: 0.8   # baseline floor = this x book value (asset-heavy sectors)
   relative:
     roce_exponent: 0.5
     growth_exponent: 0.5
@@ -33,3 +42,4 @@ valuation:
     top_band_cap_sigma: 2
   confidence:
     low_if_method_cv_above: 0.35
+    medium_if_method_cv_above: 0.20

@@ -50,7 +50,7 @@ def by_year(frame: pd.DataFrame) -> pd.DataFrame:
     return df.reindex(range(int(df.index.min()), int(df.index.max()) + 1))
 
 
-def _col(df: pd.DataFrame, name: str) -> pd.Series:
+def column(df: pd.DataFrame, name: str) -> pd.Series:
     if name in df.columns:
         return pd.to_numeric(df[name], errors="coerce").astype(float)
     return pd.Series(np.nan, index=df.index, dtype=float)
@@ -79,12 +79,12 @@ def cagr(end: float | None, start: float | None, years: int) -> float | None:
 
 def capex(df: pd.DataFrame) -> pd.Series:
     """Capex = purchase of fixed assets - sale of fixed assets (SPEC §4)."""
-    return _col(df, "purchase_of_fixed_assets") - _col(df, "sale_of_fixed_assets")
+    return column(df, "purchase_of_fixed_assets") - column(df, "sale_of_fixed_assets")
 
 
 def effective_tax_rate(df: pd.DataFrame) -> pd.Series:
     """tax / PBT where PBT > 0 and the rate lies in [0, 1]; NaN otherwise."""
-    rate = ratio(_col(df, "tax"), _col(df, "pbt"))
+    rate = ratio(column(df, "tax"), column(df, "pbt"))
     return rate.where((rate >= 0) & (rate <= 1))
 
 
@@ -97,12 +97,12 @@ def annual_metrics(annual: pd.DataFrame, *, tax_rate_fallback: float, days: int)
     """
     df = by_year(annual)
     out = pd.DataFrame(index=df.index)
-    ta, cl = _col(df, "total_assets"), _col(df, "current_liabilities")
-    equity, debt = _col(df, "total_equity"), _col(df, "total_debt")
-    cash, inv_nonop = _col(df, "cash_and_equivalents"), _col(df, "non_operating_investments")
-    revenue, cogs = _col(df, "revenue"), _col(df, "cogs")
-    ebitda, ebit, pat = _col(df, "ebitda"), _col(df, "ebit"), _col(df, "pat")
-    cfo, interest = _col(df, "cfo"), _col(df, "interest")
+    ta, cl = column(df, "total_assets"), column(df, "current_liabilities")
+    equity, debt = column(df, "total_equity"), column(df, "total_debt")
+    cash, inv_nonop = column(df, "cash_and_equivalents"), column(df, "non_operating_investments")
+    revenue, cogs = column(df, "revenue"), column(df, "cogs")
+    ebitda, ebit, pat = column(df, "ebitda"), column(df, "ebit"), column(df, "pat")
+    cfo, interest = column(df, "cfo"), column(df, "interest")
 
     out["capital_employed"] = ta - cl
     out["roce"] = ratio(ebit, average(out["capital_employed"]))
@@ -120,16 +120,16 @@ def annual_metrics(annual: pd.DataFrame, *, tax_rate_fallback: float, days: int)
     out["cfo_to_pat"] = ratio(cfo, pat)
     out["capex"] = capex(df)
     out["fcf"] = cfo - out["capex"]
-    out["other_income_share"] = ratio(_col(df, "other_income"), _col(df, "pbt"))
+    out["other_income_share"] = ratio(column(df, "other_income"), column(df, "pbt"))
     out["debt_to_equity"] = ratio(debt, equity)
     out["net_debt"] = debt - cash
     out["net_debt_to_ebitda"] = ratio(out["net_debt"], ebitda)
     icr = ratio(ebit, interest)
     debt_free = (interest == 0) & (ebit > 0)
     out["interest_coverage"] = icr.mask(debt_free, np.inf)
-    out["debtor_days"] = ratio(_col(df, "receivables"), revenue) * days
-    out["inventory_days"] = ratio(_col(df, "inventory"), cogs) * days
-    out["payable_days"] = ratio(_col(df, "payables"), cogs) * days
+    out["debtor_days"] = ratio(column(df, "receivables"), revenue) * days
+    out["inventory_days"] = ratio(column(df, "inventory"), cogs) * days
+    out["payable_days"] = ratio(column(df, "payables"), cogs) * days
     out["ccc_days"] = out["debtor_days"] + out["inventory_days"] - out["payable_days"]
     out["capex_intensity"] = ratio(out["capex"], cfo)
     out["accruals_ratio"] = ratio(pat - cfo, average(ta))
@@ -187,7 +187,7 @@ _INPUTS: dict[str, tuple[str, ...]] = {
 def _missing(df: pd.DataFrame, fields: Iterable[str], years: Iterable[int]) -> str:
     gaps = []
     for f in fields:
-        col = _col(df, f)
+        col = column(df, f)
         absent = [y for y in years if y not in col.index or pd.isna(col.get(y))]
         if absent:
             gaps.append(f"{f} ({', '.join(f'FY{y}' for y in absent)})")
@@ -227,7 +227,7 @@ def _cumulative(df: pd.DataFrame, num: pd.Series, den: pd.Series, fields: tuple[
 
 
 def _cagr(df: pd.DataFrame, field: str, year: int, n: int) -> Metric:
-    s = _col(df, field)
+    s = column(df, field)
     end, start = s.get(year), s.get(year - n)
     v = cagr(end, start, n)
     if v is None:
@@ -263,7 +263,7 @@ def summary_metrics(
     for name in ("roce", "roe", "opm"):
         out[f"{name}_{n}y_avg"] = _window_mean(df, m, name, y, n)
 
-    cfo, ebitda, pat = _col(df, "cfo"), _col(df, "ebitda"), _col(df, "pat")
+    cfo, ebitda, pat = column(df, "cfo"), column(df, "ebitda"), column(df, "pat")
     out[f"cfo_to_ebitda_{n}y"] = _cumulative(df, cfo, ebitda, ("cfo", "ebitda"), y, n)
     out[f"cfo_to_pat_{n}y"] = _cumulative(df, cfo, pat, ("cfo", "pat"), y, n)
     out[f"fcf_conversion_{n}y"] = _cumulative(
