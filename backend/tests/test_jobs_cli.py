@@ -24,7 +24,7 @@ def test_list(env: Env, capsys: pytest.CaptureFixture[str]) -> None:
     assert cli(env, "list") == 0
     out = capsys.readouterr().out
     assert "eod_prices" in out and "15 18 * * mon-fri" in out
-    assert "pending P10/P11" in out
+    assert "pending P11" in out
 
 
 def test_run_with_symbols(env: Env, capsys: pytest.CaptureFixture[str]) -> None:
@@ -44,7 +44,7 @@ def test_run_failed_job_exit_code(env: Env, capsys: pytest.CaptureFixture[str]) 
     assert "no delivery data" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize(("job", "message"), [("nope", "unknown job"), ("valuation_scores", "P10")])
+@pytest.mark.parametrize(("job", "message"), [("nope", "unknown job"), ("valuation_scores", "P11")])
 def test_unknown_or_pending_job(
     env: Env, capsys: pytest.CaptureFixture[str], job: str, message: str
 ) -> None:

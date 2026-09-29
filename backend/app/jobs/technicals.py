@@ -2,7 +2,7 @@
 
 Two passes: analyse every symbol, then rank the latest Mansfield RS across the universe for
 ``rs_percentile``. Buy-zone columns stay NULL here: the buy zone needs valuation levels and is
-written by ``valuation_scores`` (P10/P11) using the same engine.
+written by ``valuation_scores`` (P11) using the same engine.
 """
 
 import logging

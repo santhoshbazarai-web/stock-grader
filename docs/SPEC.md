@@ -267,6 +267,56 @@ C	Value-trap check	Watch	Avoid	Avoid	Avoid
 D	Avoid	Avoid	Avoid	Avoid	Avoid
 *Deep Discount on an A-grade stock always attaches a "Why is it cheap?" checklist (news, governance, regulatory action, one-off losses).
 Stage 4 overrides any Buy into Wait, with the reason "downtrend — wait for Stage 1 base".
+
+Implementation notes (`scoring/`, pure functions; every threshold, map and the matrix itself live in `scoring.yaml`):
+
+Knock-outs
+- A check with missing input is reported as *unknown* (a data gap). It never passes or fails silently.
+- The CFO check looks at the last `negative_cfo_window_years` years. It is decided from partial data only when the known years settle it: enough negatives already, or too few even if every missing year were negative.
+- An auditor resignation counts if it falls on or after `as_of` minus `auditor_resignation_years`.
+
+Pillars
+- A pillar is the equal-weighted mean of its available sub-metric scores. It needs at least `pillar_min_coverage` of its sub-metrics. Otherwise it has no score and the missing sub-metrics are listed.
+- Sub-metrics that the table above leaves without a named map use these maps:
+  - `roce_trend`: ROCE now − ROCE `trend_years` ago.
+  - `eps_acceleration`: the latest quarter's YoY EPS growth − the previous quarter's.
+  - `ccc_trend_days`: CCC now − CCC `trend_years` ago.
+  - `altman_z2`.
+  - `promoter_change_qoq_pp` and `institutional_change_qoq_pp` (MF+FII+DII).
+  - `other_income_share`: other income / PBT.
+  - `delivery_ratio`.
+  - `trend_score` (up/range/down) and `rpt_score` (clean/flagged).
+- Banks: Quality = ROA and NIM; Health = GNPA and CAR (`bank_maps`).
+- Valuation pillar = (FV − CMP)/FV and the reverse-DCF gap (implied − historical growth).
+
+Total and grade
+- Pillar weights are renormalised over the pillars that have a score. That coverage must be at least `total_min_weight_coverage`, or there is no total, no grade and no action.
+- Knock-out caps only lower a grade.
+
+Provisional grade
+1. The total over the other five pillars (weights renormalised), capped by knock-outs, gives the provisional grade.
+2. The provisional grade picks the MoS for the valuation. That gives FV and the zone, and so the Valuation pillar.
+3. The final grade uses all six pillars, capped by knock-outs.
+- The MoS stays the provisional grade's. There is no second pass; when the final grade differs from the provisional one, a reason says so.
+
+Earned premium
+- Each condition is met, not met, or unknown. Unknown conditions earn no point and are listed, so `max_possible` = score + unknowns.
+- Operating leverage needs sales growth above `operating_leverage_min_sales_growth`.
+- "No new pledge" means pledge % is not above the previous quarter's.
+
+Decision rules
+- Cell rules:
+  - A-grade Discount: Buy when CMP is inside the technical buy zone, otherwise Accumulate.
+  - A-grade Fair: Buy on Pullback, with the buy zone as the target.
+  - A-grade Premium: Momentum Entry if EP ≥ `momentum_entry_min`, otherwise Wait.
+  - A-grade Extreme Premium: Hold.
+  - B Deep Discount: Buy when the stage or trend is in `decision.confirmation`, otherwise Wait.
+  - C Deep Discount: Wait with the value-trap checklist.
+  - C Discount: Wait (watch).
+- Checklist text is in `decision.checklists`.
+- The Stage 4 override turns any buying action (Strong Buy, Buy, Accumulate, Buy on Pullback, Momentum Entry) into Wait. Checklists are kept.
+- Missing inputs: no grade gives no action. No zone gives an action only when the grade's whole row is one rule (D → Avoid).
+- Every result carries `reasons`.
 ---
 8. API (FastAPI)
 Method	Path	Purpose

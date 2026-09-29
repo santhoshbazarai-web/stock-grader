@@ -15,7 +15,7 @@ from enum import StrEnum
 from functools import lru_cache
 from itertools import pairwise
 from pathlib import Path
-from typing import Annotated, Any, Literal, Self
+from typing import Annotated, Any, Literal, Self, get_args
 
 import yaml
 from pydantic import (
@@ -34,6 +34,8 @@ from app.core.settings import get_settings
 
 Fraction = Annotated[float, Field(ge=0.0, le=1.0)]
 Score = Annotated[float, Field(ge=0.0, le=100.0)]
+GradeKey = Literal["A_plus", "A", "B", "C", "D"]
+ZoneKey = Literal["deep_discount", "discount", "fair", "premium", "extreme_premium"]
 _SUM_TOLERANCE = 1e-6
 
 
@@ -422,13 +424,20 @@ class GradeCutoffs(_Strict):
 
 class KnockoutsConfig(_Strict):
     max_pledge_pct: Annotated[float, Field(ge=0.0, le=100.0)]
-    negative_cfo_years_in_5: Annotated[int, Field(ge=1, le=5)]
+    negative_cfo_years_in_5: PositiveInt
+    negative_cfo_window_years: PositiveInt
     min_mcap_cr: NonNegativeFloat
     min_avg_traded_value_cr_20d: NonNegativeFloat
     beneish_m_max: float
     auditor_resignation_years: PositiveInt
     on_asm_gsm: bool
-    cap_grade: Literal["A_plus", "A", "B", "C", "D"]
+    cap_grade: GradeKey
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        if self.negative_cfo_years_in_5 > self.negative_cfo_window_years:
+            raise ValueError("negative_cfo_years_in_5 must be <= negative_cfo_window_years")
+        return self
 
 
 class ScoringMaps(_Strict):
@@ -446,12 +455,26 @@ class ScoringMaps(_Strict):
     net_debt_ebitda: PiecewiseLinearMap
     pledge_pct: PiecewiseLinearMap
     rs_percentile: PiecewiseLinearMap
+    roce_trend: PiecewiseLinearMap
+    eps_acceleration: PiecewiseLinearMap
+    ccc_trend_days: PiecewiseLinearMap
+    altman_z2: PiecewiseLinearMap
+    promoter_change_qoq_pp: PiecewiseLinearMap
+    institutional_change_qoq_pp: PiecewiseLinearMap
+    other_income_share: PiecewiseLinearMap
+    delivery_ratio: PiecewiseLinearMap
     stage_score: dict[Literal[1, 2, 3, 4], Score]
+    trend_score: dict[Literal["up", "range", "down"], Score]
+    rpt_score: dict[Literal["clean", "flagged"], Score]
 
     @model_validator(mode="after")
     def _check(self) -> Self:
         if set(self.stage_score) != {1, 2, 3, 4}:
             raise ValueError("stage_score must define stages 1, 2, 3 and 4")
+        if set(self.trend_score) != {"up", "range", "down"}:
+            raise ValueError("trend_score must define up, range and down")
+        if set(self.rpt_score) != {"clean", "flagged"}:
+            raise ValueError("rpt_score must define clean and flagged")
         return self
 
 
@@ -459,6 +482,58 @@ class EarnedPremiumConfig(_Strict):
     momentum_entry_min: Annotated[int, Field(ge=0, le=8)]
     rs_percentile_min: Score
     near_52w_high_pct: Fraction
+    operating_leverage_min_sales_growth: float
+
+
+class DecisionRule(StrEnum):
+    """Decision-matrix cell rules (SPEC §7.5); semantics in ``scoring/decision.py``."""
+
+    STRONG_BUY = "strong_buy"
+    BUY_OR_ACCUMULATE = "buy_or_accumulate"
+    BUY_ON_PULLBACK = "buy_on_pullback"
+    MOMENTUM_OR_WAIT = "momentum_or_wait"
+    HOLD_IF_OWNED = "hold_if_owned"
+    BUY_WITH_CONFIRMATION = "buy_with_confirmation"
+    ACCUMULATE_SLOWLY = "accumulate_slowly"
+    VALUE_TRAP_CHECK = "value_trap_check"
+    WATCH = "watch"
+    WAIT = "wait"
+    AVOID = "avoid"
+    BOOK_PROFITS = "book_profits"
+
+
+class ConfirmationConfig(_Strict):
+    stages: list[Literal[1, 2, 3, 4]]
+    trends: list[Literal["up", "range", "down"]]
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        if not self.stages and not self.trends:
+            raise ValueError("confirmation needs at least one stage or trend")
+        return self
+
+
+class ChecklistsConfig(_Strict):
+    why_cheap: list[str] = Field(min_length=1)
+    value_trap: list[str] = Field(min_length=1)
+
+
+class DecisionConfig(_Strict):
+    matrix: dict[GradeKey, dict[ZoneKey, DecisionRule]]
+    confirmation: ConfirmationConfig
+    checklists: ChecklistsConfig
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        grades, zones = set(get_args(GradeKey)), set(get_args(ZoneKey))
+        if set(self.matrix) != grades:
+            raise ValueError(f"decision matrix must have a row for every grade {sorted(grades)}")
+        for grade, row in self.matrix.items():
+            if set(row) != zones:
+                raise ValueError(
+                    f"decision matrix row {grade} must have a cell for every zone {sorted(zones)}"
+                )
+        return self
 
 
 class BankMaps(_Strict):
@@ -492,7 +567,11 @@ class ScoringConfig(_Strict):
     grade_cutoffs: GradeCutoffs
     knockouts: KnockoutsConfig
     maps: ScoringMaps
+    pillar_min_coverage: Fraction
+    total_min_weight_coverage: Fraction
+    trend_years: PositiveInt
     earned_premium: EarnedPremiumConfig
+    decision: DecisionConfig
     bank_maps: BankMaps
     fundamentals: FundamentalsConfig
     forensic: ForensicConfig
