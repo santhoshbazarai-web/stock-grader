@@ -1,0 +1,25 @@
+# providers.yaml — validated at startup by app.core.config (fail fast on invalid values).
+# All values are starting points — tune after backtests.
+
+providers:
+  priority:
+    daily_ohlcv:        [fyers, kite, yfinance]
+    index_ohlcv:        [fyers, kite, yfinance]
+    ltp:                [fyers, kite]
+    delivery:           [nse]
+    corporate_actions:  [nse, yfinance]
+    shareholding:       [nse, screener]
+    fin_annual:         [screener, yfinance]
+    fin_quarterly:      [screener, yfinance]
+    index_constituents: [nse]
+    surveillance:       [nse]
+  rate_limits:            # requests per second / per minute (verify against current broker docs)
+    fyers:    {per_sec: 8,  per_min: 180}
+    kite:     {per_sec: 3,  per_min: 150}
+    yfinance: {per_sec: 2,  per_min: 60}
+    nse:      {per_sec: 1,  per_min: 30}
+  staleness_hours:
+    daily_ohlcv: 30
+    ltp: 0.1
+    fin_annual: 2400
+  history_years: 10

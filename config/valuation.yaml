@@ -1,0 +1,35 @@
+# valuation.yaml — validated at startup by app.core.config (fail fast on invalid values).
+# All values are starting points — tune after backtests.
+
+valuation:
+  risk_free_rate: 0.065          # update weekly from 10-yr G-sec
+  equity_risk_premium: 0.07
+  size_premium:                  # by market cap (₹ Cr)
+    - {max_mcap: 5000,   premium: 0.02}
+    - {max_mcap: 20000,  premium: 0.01}
+    - {max_mcap: null,   premium: 0.0}
+  beta: {lookback_years: 2, frequency: weekly, benchmark: NIFTY500, blume_adjust: true, floor: 0.6, cap: 1.8}
+  tax_rate_default: 0.252
+  dcf:
+    stage1_years: 5
+    stage2_years: 5
+    terminal_growth: 0.05
+    terminal_growth_bounds: [0.04, 0.06]
+    g1_cap_by_default: 0.25
+    sensitivity: {wacc_step: 0.005, wacc_range: 0.02, tg_values: [0.04, 0.05, 0.06, 0.07]}
+    scenarios:
+      bear: {g1_delta: -0.05, margin_delta: -0.02, wacc_delta: 0.01}
+      base: {g1_delta: 0.0,   margin_delta: 0.0,   wacc_delta: 0.0}
+      bull: {g1_delta: 0.04,  margin_delta: 0.015, wacc_delta: -0.005}
+  bands:
+    lookback_years: [5, 10]
+    multiples: [pe, ev_ebitda, pb]
+  relative:
+    roce_exponent: 0.5
+    growth_exponent: 0.5
+  mos_by_grade: {A_plus: 0.15, A: 0.15, B: 0.275, C: 0.40, D: 0.40}
+  zones:
+    fair_upper_mult: 1.10
+    top_band_cap_sigma: 2
+  confidence:
+    low_if_method_cv_above: 0.35

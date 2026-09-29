@@ -1,0 +1,42 @@
+# Stock Grader (Indian Equities)
+
+Personal research tool that grades NSE stocks — Baseline / Fair value / Top band, zone, buy zone,
+grade and action. See [`AGENTS.md`](AGENTS.md) and [`docs/SPEC.md`](docs/SPEC.md).
+
+## Layout
+
+| Path | What |
+| --- | --- |
+| `backend/` | FastAPI api + APScheduler worker (Python 3.12, uv) |
+| `frontend/` | Next.js 15 + Tailwind + shadcn/ui |
+| `config/` | `providers.yaml`, `valuation.yaml`, `sectors.yaml`, `scoring.yaml`, `technical.yaml` — every threshold and weight, validated at startup |
+| `docs/` | Spec and build prompts |
+
+## Quick start
+
+```bash
+cp .env.example .env
+# set FERNET_KEY and APP_PASSWORD (required — the api and worker refuse to start without them)
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
+make up        # db, redis, api (:8000), worker, web (:3000)
+make migrate   # alembic upgrade head
+```
+
+Health check: `curl localhost:8000/api/health`.
+
+## Development
+
+```bash
+make install   # uv sync (backend) + npm ci (frontend)
+make test      # pytest
+make check     # ruff + mypy --strict + eslint + tsc
+```
+
+## Config
+
+`app.core.config` loads every `config/*.yaml` into Pydantic models on api/worker startup and
+refuses to start on any problem: missing file or key, unknown key, out-of-range value,
+weights that do not sum to 1 (sectors) or 100 (pillars), non-monotonic score maps, a bank or
+insurance sector that uses FCFF DCF, etc. The config directory is `CONFIG_DIR` (defaults to
+`./config`; mounted read-only at `/config` in Docker).

@@ -1,0 +1,14 @@
+# technical.yaml — validated at startup by app.core.config (fail fast on invalid values).
+# All values are starting points — tune after backtests.
+
+technical:
+  swing_fractal_n: 3
+  zone_impulse_atr_mult: 2.0
+  zone_max_base_candles: 6
+  zone_max_retests_fresh: 1
+  stage_sma_weeks: 30
+  atr_period: 14
+  rsi_period: 14
+  invalidation_atr_buffer: 0.5
+  volume_profile_lookback_weeks: 52
+  avwap_anchors: [low_52w, last_results_date, last_major_swing_low]
