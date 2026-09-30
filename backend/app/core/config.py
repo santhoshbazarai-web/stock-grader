@@ -97,6 +97,7 @@ class Dataset(StrEnum):
     INDEX_CONSTITUENTS = "index_constituents"
     SURVEILLANCE = "surveillance"
     RESULTS_FILINGS = "results_filings"  # exchange results filings: index + XBRL documents
+    ANNUAL_REPORTS = "annual_reports"  # annual-report list + PDF documents (gap filler)
 
 
 class RateLimit(_Strict):
@@ -175,6 +176,46 @@ class NseResultsConfig(_Strict):
         return self
 
 
+class PdfExtractionConfig(_Strict):
+    """Reading statement tables from annual-report PDFs (SPEC §3.6 step 3). Lengths in PDF
+    points (1/72 inch)."""
+
+    max_pages: PositiveInt  # a larger PDF is refused
+    heading_lines: PositiveInt  # a statement title must be within a page's first N text lines
+    line_tolerance_pt: PositiveFloat  # words whose tops differ by less are on one line
+    column_gap_pt: PositiveFloat  # amounts whose right edges are this far apart: other columns
+    min_column_rows: PositiveInt  # a value column needs amounts on at least this many rows
+    min_label_score: Fraction  # fuzzy label similarity (0-1) below this: the row is not mapped
+    continuation_min_rows: PositiveInt  # mapped rows the next page needs to continue a statement
+    camelot_min_rows: PositiveInt  # pdfplumber mapped fewer rows on a page → try camelot
+
+
+class PdfConfidenceConfig(_Strict):
+    """Confidence of a PDF-derived value: label similarity x label weight x the factors below
+    (each applies when its condition holds). At or above ``auto_accept`` the value is stored
+    directly; below it waits in the review queue."""
+
+    auto_accept: Fraction
+    camelot_factor: Fraction  # read by the camelot fallback
+    ambiguous_factor: Fraction  # another item's label matched within ambiguity_margin
+    ambiguity_margin: Fraction
+    no_header_dates_factor: Fraction  # column dates not printed: taken from the report's year
+    check_failed_factor: Fraction  # the column fails its cross-check (see pdf_labels.yaml)
+    no_check_factor: Fraction  # the column has no cross-check rows
+    check_tolerance_rel: Fraction  # cross-check passes within this relative difference
+    fallback_sum_factor: Fraction  # item added up from other items (fallback_sum)
+
+
+class NseAnnualReportsConfig(_Strict):
+    """Annual reports (PDF, or a ZIP holding it) as the balance-sheet / cash-flow gap filler."""
+
+    index_path: str  # JSON list of a symbol's annual reports, relative to base_url
+    hosts: list[str] = Field(min_length=1)  # documents are fetched only from these hosts
+    max_bytes: PositiveInt  # download size cap, and the cap on a PDF unpacked from a ZIP
+    extraction: PdfExtractionConfig
+    confidence: PdfConfidenceConfig
+
+
 class NseConfig(_Strict):
     base_url: str
     archives_url: str
@@ -184,6 +225,7 @@ class NseConfig(_Strict):
     corporate_actions_from_years: PositiveInt
     index_constituent_files: dict[str, str]
     results: NseResultsConfig
+    annual_reports: NseAnnualReportsConfig
 
 
 class ProvidersConfig(_Strict):
@@ -708,6 +750,7 @@ class JobName(StrEnum):
     RESULTS_WATCH = "results_watch"
     REFRESH_QUEUE = "refresh_queue"
     BACKTESTS = "backtests"
+    ANNUAL_REPORTS = "annual_reports"
 
 
 class Season(_Strict):
@@ -756,6 +799,18 @@ class ResultsWatchJobConfig(_Strict):
     max_attempts: PositiveInt  # a filing that fails this many times stays failed
 
 
+class AnnualReportsJobConfig(_Strict):
+    """annual_reports: fill balance-sheet / cash-flow years the XBRL results lack from
+    annual-report PDFs (SPEC §3.6 step 3)."""
+
+    max_downloads_per_run: PositiveInt
+    max_attempts: PositiveInt  # a report that fails this many times stays failed
+    # A fiscal year needs a report when any of these items is missing for it (consolidated if
+    # the company files consolidated figures, else standalone).
+    required_items: dict[Literal["bs", "cf"], list[str]]
+    first_fiscal_year: PositiveInt  # NSE lists annual reports from about this year
+
+
 class BacktestConfig(_Strict):
     benchmark: str
     benchmark_tri: str | None = None
@@ -779,6 +834,7 @@ class JobsConfig(_Strict):
     alerts: AlertsJobConfig
     backtest: BacktestConfig
     results_watch: ResultsWatchJobConfig
+    annual_reports: AnnualReportsJobConfig
     shareholding_season: Season
     results_season: Season
 

@@ -10,7 +10,7 @@ help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-13s %s\n", $$1, $$2}'
 
 install: ## Install backend (uv) and frontend (npm) dependencies locally
-	$(BACKEND) uv sync
+	$(BACKEND) uv sync --extra camelot
 	$(FRONTEND) npm ci
 
 up: ## Build and start db, redis, api, worker, web

@@ -12,7 +12,8 @@ COPY --from=ghcr.io/astral-sh/uv:0.5 /uv /usr/local/bin/uv
 WORKDIR /app
 
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev
+# camelot: the PDF table fallback for annual reports (SPEC §3.6 step 3)
+RUN uv sync --frozen --no-dev --extra camelot
 
 COPY . .
 

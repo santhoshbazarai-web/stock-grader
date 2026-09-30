@@ -25,6 +25,13 @@ dependencies = [
     "openpyxl>=3.1.5",
     "python-multipart>=0.0.9",
     "defusedxml>=0.7.1",
+    "pdfplumber>=0.11.10",
+    "rapidfuzz>=3.14.6",
+]
+
+[project.optional-dependencies]
+camelot = [
+    "camelot-py>=1.0",
 ]
 
 [dependency-groups]
@@ -43,6 +50,7 @@ dev = [
     "types-jsonschema>=4.26.0.20260518",
     "scipy-stubs>=1.18.1.1",
     "types-defusedxml>=0.7.0.20260504",
+    "reportlab>=5.0.1",
 ]
 
 [tool.uv]
@@ -77,5 +85,6 @@ init_typed = true
 warn_required_dynamic_aliases = true
 
 [[tool.mypy.overrides]]
-module = ["apscheduler.*", "fyers_apiv3.*", "kiteconnect.*", "yfinance.*"]
+module = ["apscheduler.*", "fyers_apiv3.*", "kiteconnect.*", "yfinance.*", "pypdfium2.*",
+          "camelot.*"]
 ignore_missing_imports = true

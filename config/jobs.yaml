@@ -18,6 +18,7 @@ jobs:
     results_watch: "0 21 * * *"              # XBRL results filings (all year; see results_watch)
     refresh_queue: "* * * * *"               # drains POST /api/stocks/{symbol}/refresh requests
     backtests: "* * * * *"                   # runs queued POST /api/backtests requests
+    annual_reports: "30 22 * * 6"            # annual-report PDFs for BS/CF gaps (Saturdays)
   universe_index: NIFTY500    # symbols = current members of this index + watchlist
   constituent_indices: [NIFTY500, NIFTY50, NIFTYBANK, NIFTYIT, NIFTYPHARMA, NIFTYFMCG,
                         NIFTYAUTO, NIFTYMETAL, NIFTYREALTY]
@@ -48,6 +49,13 @@ jobs:
     max_downloads_per_run: 300  # XBRL documents per run; a 10-year backfill spreads over nights
     index_recheck_days: 7       # outside results_season, re-read each symbol's filing list weekly
     max_attempts: 3             # a filing that fails to download/parse this often stays failed
+  annual_reports:             # annual-report PDF gap filler (SPEC §3.6 step 3)
+    max_downloads_per_run: 25   # PDFs are large; a backfill spreads over weeks
+    max_attempts: 3
+    required_items:             # a fiscal year missing any of these needs its annual report
+      bs: [total_assets, total_equity]
+      cf: [cfo]
+    first_fiscal_year: 2010     # NSE's annual-report list starts around FY2009-10
   results_season:             # quarterly results: within 45 days (60 for Q4) of quarter end
     months: [1, 2, 4, 5, 7, 8, 10, 11]
     days: [1, 31]

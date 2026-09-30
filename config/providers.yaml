@@ -12,6 +12,7 @@ providers:
     fin_annual:         [screener, yfinance]
     fin_quarterly:      [screener, yfinance]
     results_filings:    [nse]       # results filing list + XBRL documents (results_watch)
+    annual_reports:     [nse]       # annual-report list + PDFs: balance sheet / cash flow gap filler
     index_constituents: [nse]
     surveillance:       [nse]
   rate_limits:            # requests per second / per minute (verify against current broker docs)
@@ -81,5 +82,28 @@ providers:
       restatement_tolerance_rel: 0.0005
       restatement_tolerance_inr: 5000000
       default_fy_end_month: 3   # April-March; a company's own filed years override it
+    annual_reports:            # annual-report PDFs: gap filler for BS / CF years (SPEC §3.6 step 3)
+      index_path: "/api/annual-reports"   # ?index=equities&symbol=..
+      hosts: [nsearchives.nseindia.com, archives.nseindia.com, www.nseindia.com]
+      max_bytes: 100000000     # download cap; also the cap on a PDF unpacked from a ZIP
+      extraction:              # lengths in PDF points (1/72 inch)
+        max_pages: 800
+        heading_lines: 8       # a statement's title must be in the page's first 8 text lines
+        line_tolerance_pt: 3   # words whose tops are within 3 pt form one row
+        column_gap_pt: 28      # amounts right-aligned more than 28 pt apart are other columns
+        min_column_rows: 3     # a value column has amounts on at least 3 rows
+        min_label_score: 0.80  # fuzzy label similarity below 80% → row not mapped
+        continuation_min_rows: 2  # a statement continues on the next page if it maps 2+ rows
+        camelot_min_rows: 4    # pdfplumber mapped < 4 rows on a statement page → try camelot
+      confidence:              # label similarity × weight × factors; >= auto_accept is stored
+        auto_accept: 0.9       # below: the review queue
+        camelot_factor: 0.9
+        ambiguous_factor: 0.8
+        ambiguity_margin: 0.05 # another item's label within 5 points → ambiguous
+        no_header_dates_factor: 0.8
+        check_failed_factor: 0.5
+        no_check_factor: 0.9
+        check_tolerance_rel: 0.002   # total assets = equity + liabilities within 0.2%
+        fallback_sum_factor: 0.9
   oauth_state_ttl_s: 600  # broker login must complete within this many seconds
   history_years: 10

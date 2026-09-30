@@ -1,0 +1,192 @@
+# pdf_labels.yaml — annual-report statement row label → canonical item_code
+# (SPEC v0.2 §3.6 step 3: the fuzzy label dictionary for the annual-report PDF gap filler).
+#
+# Loaded and validated by app.fundamentals.pdf_labels. Every PDF-derived line item records the
+# `version` below; bump it whenever you change a mapping. Check a real report with
+#   python -m app.jobs pdf-inspect <report.pdf> [--fy 2014]
+# which prints the statement pages found, every row read, its best match and its confidence.
+#
+# Labels are compared after normalisation (lower case; "&" → "and"; ₹/Rs./note references,
+# roman numerals and list markers like "(i)", "a)" removed; punctuation and hyphens → spaces).
+# Write them normalised. Matching is fuzzy (rapidfuzz ratio of the whole label), so near
+# spellings match ("Borrowing", "Trade Payable") but "Total current assets" does not match
+# "Total non-current assets" better than its own entry: list look-alike rows under `ignore`
+# so that they win instead.
+#
+# headings   words that identify the statement pages (searched in the first lines of a page)
+#   bs / cf         statement titles
+#   consolidated    in the title → consolidated; a title without it → standalone
+#   exclude         a title line containing one of these is not a statement page (notes, index)
+# sections   row headings (no amounts) that open a section of a statement; matched exactly
+#            after normalisation. An item restricted to `sections` is read only there.
+# items      per item_code (must be a bs / cf amount item of xbrl_map.yaml):
+#   labels     list of labels; an entry may be {text, weight} to trust it less (weight < 1)
+#   sections   optional: only rows in these sections
+#   sum        true → every matching row (in its sections) is added up, e.g. non-current +
+#              current borrowings; otherwise the best-matching row is taken
+#   fallback_sum  item_codes whose values add up to this item when no row matched (e.g. old
+#              "Shareholders' funds" layouts have no total row)
+# checks     rows read only to cross-check a column (not stored):
+#   total_equity_and_liabilities   must equal total_assets
+#   net_cash_*                     operating + investing + financing = net change in cash
+
+version: 1
+
+headings:
+  bs: [balance sheet]
+  cf: [statement of cash flows, statement of cash flow, cash flow statement,
+       statement of cashflows, cashflow statement]
+  consolidated: [consolidated]
+  exclude: [notes to, notes forming part, note no, significant accounting policies, contents,
+            index, auditor, auditors report, independent auditor, schedule, schedules to]
+
+sections:
+  equity: [equity, equity and liabilities, shareholders funds, shareholders funds and liabilities]
+  non_current_liabilities: [non current liabilities]
+  current_liabilities: [current liabilities]
+  non_current_assets: [non current assets, fixed assets]
+  current_assets: [current assets, current assets loans and advances]
+  operating: [cash flow from operating activities, cash flows from operating activities,
+              operating activities]
+  investing: [cash flow from investing activities, cash flows from investing activities,
+              investing activities]
+  financing: [cash flow from financing activities, cash flows from financing activities,
+              financing activities]
+
+items:
+  # ───────── balance sheet ─────────
+  total_assets:
+    statement: bs
+    labels: [total assets, {text: total, weight: 0.85}]
+  current_assets:
+    statement: bs
+    labels: [total current assets]
+  current_liabilities:
+    statement: bs
+    labels: [total current liabilities]
+  total_equity:
+    statement: bs
+    labels: [equity attributable to owners of the company, equity attributable to owners of the
+             parent, equity attributable to equity holders of the company, equity attributable to
+             shareholders of the company, {text: total equity, weight: 0.95},
+             {text: total shareholders funds, weight: 0.95}]
+    fallback_sum: [equity_share_capital, retained_earnings]
+  equity_share_capital:
+    statement: bs
+    labels: [equity share capital, share capital]
+    sections: [equity]
+  retained_earnings:
+    statement: bs
+    labels: [other equity, reserves and surplus]
+    sections: [equity]
+  minority_interest_bs:
+    statement: bs
+    labels: [non controlling interests, non controlling interest, minority interest]
+  total_debt:
+    statement: bs
+    sum: true
+    labels: [borrowings, long term borrowings, short term borrowings]
+    sections: [non_current_liabilities, current_liabilities]
+  cash_and_equivalents:
+    statement: bs
+    sum: true
+    labels: [cash and cash equivalents, bank balances other than cash and cash equivalents,
+             bank balances other than above, other bank balances, cash and bank balances]
+    sections: [current_assets]
+  non_operating_investments:
+    statement: bs
+    sum: true
+    labels: [investments, non current investments, current investments]
+    sections: [non_current_assets, current_assets]
+  receivables:
+    statement: bs
+    sum: true
+    labels: [trade receivables]
+    sections: [non_current_assets, current_assets]
+  inventory:
+    statement: bs
+    labels: [inventories]
+    sections: [current_assets]
+  payables:
+    statement: bs
+    sum: true
+    labels: [trade payables,
+             total outstanding dues of micro enterprises and small enterprises,
+             total outstanding dues of creditors other than micro enterprises and small
+             enterprises]
+    sections: [current_liabilities]
+  net_block:
+    statement: bs
+    sum: true
+    labels: [property plant and equipment, other intangible assets, intangible assets,
+             tangible assets]
+    sections: [non_current_assets]
+  capital_work_in_progress:
+    statement: bs
+    labels: [capital work in progress]
+    sections: [non_current_assets]
+
+  # ───────── cash flow ─────────
+  cfo:
+    statement: cf
+    labels: [net cash from operating activities, net cash generated from operating activities,
+             net cash flow from operating activities, net cash generated by operating activities,
+             net cash from used in operating activities, net cash generated from used in
+             operating activities, net cash flow generated from operating activities,
+             net cash inflow from operating activities]
+  purchase_of_fixed_assets:
+    statement: cf
+    labels: [purchase of property plant and equipment, purchase of fixed assets,
+             purchase of property plant and equipment and intangible assets,
+             acquisition of property plant and equipment, capital expenditure on fixed assets,
+             purchase of tangible and intangible assets]
+    sections: [investing]
+  sale_of_fixed_assets:
+    statement: cf
+    labels: [proceeds from sale of property plant and equipment, sale of fixed assets,
+             proceeds from sale of fixed assets, proceeds from disposal of property plant and
+             equipment]
+    sections: [investing]
+  dividends_paid:
+    statement: cf
+    labels: [dividends paid, dividend paid, dividends paid including dividend distribution tax,
+             dividend paid on equity shares]
+    sections: [financing]
+
+checks:
+  total_equity_and_liabilities:
+    statement: bs
+    labels: [total equity and liabilities, {text: total, weight: 0.85}]
+  net_cash_investing:
+    statement: cf
+    labels: [net cash used in investing activities, net cash from investing activities,
+             net cash flow from investing activities, net cash from used in investing activities,
+             net cash used in from investing activities, net cash generated from used in
+             investing activities]
+  net_cash_financing:
+    statement: cf
+    labels: [net cash used in financing activities, net cash from financing activities,
+             net cash flow from financing activities, net cash from used in financing activities,
+             net cash used in from financing activities, net cash generated from used in
+             financing activities]
+  net_change_in_cash:
+    statement: cf
+    labels: [net increase in cash and cash equivalents, net decrease in cash and cash
+             equivalents, net increase decrease in cash and cash equivalents,
+             net change in cash and cash equivalents]
+
+# Rows that look like an item's label but are something else: when one of these is the best
+# match, the row is not mapped.
+ignore:
+  bs: [total non current assets, total non current liabilities, total liabilities,
+       other current assets, other non current assets, other current liabilities,
+       other non current liabilities, other financial assets, other financial liabilities,
+       current tax assets net, current tax liabilities net, deferred tax assets net,
+       deferred tax liabilities net, lease liabilities, loans, provisions,
+       right of use assets, goodwill, investment property, total equity attributable]
+  cf: [profit before tax, net profit before tax, cash generated from operations,
+       income taxes paid, interest paid, interest received, dividend received,
+       purchase of investments, sale of investments, proceeds from borrowings,
+       repayment of borrowings, cash and cash equivalents at the beginning of the year,
+       cash and cash equivalents at the end of the year, operating profit before working
+       capital changes, depreciation and amortisation expense]
