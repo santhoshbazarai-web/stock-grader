@@ -313,3 +313,27 @@ def test_no_derivation_with_a_missing_quarter_or_a_filed_year(env: Env) -> None:
             .one()
             .is_derived
         )
+
+
+# ───────────── coverage (P17 audit item 8) ─────────────
+
+
+def test_coverage_reports_years_per_statement(
+    acme: Env, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from app.jobs.cli import main
+
+    run(acme)  # FY2024 filing (+ FY2023 comparatives) and FY2023's own filing
+    acme.nse.filings["ACME"] = []
+    quarterly_only(acme, QUARTERS_FY25)  # FY2025: quarters only → derived year
+    run(acme)
+    assert main(["xbrl-coverage", "--symbols", "ACME,NOPE"], context_factory=lambda: acme.ctx) == 0
+    lines = capsys.readouterr().out.splitlines()
+    table = {tuple(line.split()[:3]): line for line in lines[1:]}
+    # P&L: filed FY2023-FY2024 (quarters and years), FY2025 from quarters (+ its derived year)
+    assert "FY2023-FY2025" in table[("ACME", "consolidated", "P&L")]
+    assert table[("ACME", "consolidated", "P&L")].rstrip().endswith("3 yr")
+    assert "FY2023-FY2024" in table[("ACME", "consolidated", "BS")]  # 31 Mar 2024 and comparative
+    assert "FY2023-FY2024" in table[("ACME", "consolidated", "CF")]
+    assert ("ACME", "standalone", "P&L") not in table  # no standalone line items: left out
+    assert table[("NOPE", "consolidated", "P&L")].split()[3] == "—"

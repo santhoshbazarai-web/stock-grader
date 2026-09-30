@@ -127,6 +127,13 @@ a Screener export is an optional top-up.
   `RAW_DATA_DIR` (default `data/raw/`; the `rawdata` volume in Docker) as
   `<source>/<yyyy>/<mm>/<dd>/<file>` before parsing. After changing the tag map, run
   `python -m app.jobs xbrl-reparse` to rebuild from the cache instead of re-downloading.
+- **Versions and derived years:** every figure is also kept in long format (`fin_line_items`).
+  A later filing that restates a period adds a version instead of overwriting; reports use the
+  latest, backtests the one public at the time. A year with four stored quarters but no filed
+  annual figures gets its P&L summed from them, flagged as derived.
+- **Golden filings:** `backend/tests/fixtures/golden_xbrl/` has a hand-checked test set (a bank,
+  a manufacturer, an IT company; 3 years each). It still needs the real XBRL files and figures;
+  its README says how.
 - **Checking the mapping:** element names can change with new taxonomy years. Before relying
   on a new kind of filing, run
   `python -m app.jobs xbrl-inspect filing.xml`. It prints what was read and the numeric
@@ -167,6 +174,7 @@ python -m app.jobs verify-adjustment --symbol INFY       # raw vs adjusted aroun
 python -m app.jobs run results_watch --symbols TCS       # fetch a stock's results filings now
 python -m app.jobs xbrl-inspect filing.xml               # what the XBRL parser reads (no DB)
 python -m app.jobs xbrl-reparse --symbols TCS            # re-parse cached XBRL after a map change
+python -m app.jobs xbrl-coverage --symbols TCS,INFY      # fiscal years parsed per statement
 ```
 
 In Docker: `docker compose run --rm worker python -m app.jobs run eod_prices --symbols TCS`.

@@ -1,0 +1,115 @@
+# Golden XBRL values (P17): 3 companies x 3 fiscal years, one before 2017.
+#
+# Each entry names a results XBRL file (under this directory) and the fiscal-year figures it must
+# produce, hand-checked against the company's published results or annual report.
+#   expected_crore: ₹ crore (per-share in ₹); `null` = not yet checked (the entry is skipped);
+#                   `not_in_xbrl` = the filing does not carry it (the parser must give None,
+#                   e.g. cash flow before FY2020, when SEBI added it to results).
+#   checked_against: where the figure was verified (document and page), required with values.
+#
+# STATUS: files and values not filled in yet. NSE / BSE were unreachable from the environment
+# that built the parser, so no real filing has been downloaded or checked. See README.md.
+
+companies:
+  HDFCBANK:
+    kind: bank
+    basis: standalone
+    # Banks report in the banking format under Indian GAAP (banks did not move to Ind AS).
+    filings:
+      - fiscal_year: 2016   # pre-2017
+        file: HDFCBANK/FY2016_Q4_standalone.xml   # results for the quarter ended 31-Mar-2016
+        checked_against: null
+        expected_crore:
+          revenue: null   # interest earned
+          interest: null   # interest expended
+          pat: null   # net profit for the period
+        expected_extra_crore:   # fin_annual.extra (bank inputs)
+          gross_npa: null   # gross NPAs
+          net_npa: null   # net NPAs
+      - fiscal_year: 2020
+        file: HDFCBANK/FY2020_Q4_standalone.xml   # results for the quarter ended 31-Mar-2020
+        checked_against: null
+        expected_crore:
+          revenue: null   # interest earned
+          interest: null   # interest expended
+          pat: null   # net profit for the period
+        expected_extra_crore:   # fin_annual.extra (bank inputs)
+          gross_npa: null   # gross NPAs
+          net_npa: null   # net NPAs
+      - fiscal_year: 2024
+        file: HDFCBANK/FY2024_Q4_standalone.xml   # results for the quarter ended 31-Mar-2024
+        checked_against: null
+        expected_crore:
+          revenue: null   # interest earned
+          interest: null   # interest expended
+          pat: null   # net profit for the period
+        expected_extra_crore:   # fin_annual.extra (bank inputs)
+          gross_npa: null   # gross NPAs
+          net_npa: null   # net NPAs
+  MARUTI:
+    kind: manufacturer
+    basis: consolidated
+    # Auto manufacturer; Ind AS from FY2017.
+    filings:
+      - fiscal_year: 2016   # pre-Ind-AS year
+        file: MARUTI/FY2016_Q4_consolidated.xml   # results for the quarter ended 31-Mar-2016
+        checked_against: null
+        expected_crore:
+          revenue: null   # revenue from operations
+          pbt: null   # profit before tax
+          pat: null   # profit attributable to owners
+          eps_diluted: null   # diluted EPS (₹)
+          total_assets: null   # total assets (31 Mar)
+          cfo: not_in_xbrl   # cash from operations
+      - fiscal_year: 2020
+        file: MARUTI/FY2020_Q4_consolidated.xml   # results for the quarter ended 31-Mar-2020
+        checked_against: null
+        expected_crore:
+          revenue: null   # revenue from operations
+          pbt: null   # profit before tax
+          pat: null   # profit attributable to owners
+          eps_diluted: null   # diluted EPS (₹)
+          total_assets: null   # total assets (31 Mar)
+          cfo: null   # cash from operations
+      - fiscal_year: 2024
+        file: MARUTI/FY2024_Q4_consolidated.xml   # results for the quarter ended 31-Mar-2024
+        checked_against: null
+        expected_crore:
+          revenue: null   # revenue from operations
+          pbt: null   # profit before tax
+          pat: null   # profit attributable to owners
+          eps_diluted: null   # diluted EPS (₹)
+          total_assets: null   # total assets (31 Mar)
+          cfo: null   # cash from operations
+  TCS:
+    kind: it
+    basis: consolidated
+    # IT services; Ind AS from FY2017.
+    filings:
+      - fiscal_year: 2016   # pre-Ind-AS year
+        file: TCS/FY2016_Q4_consolidated.xml   # results for the quarter ended 31-Mar-2016
+        checked_against: null
+        expected_crore:
+          revenue: null   # revenue from operations
+          pbt: null   # profit before tax
+          pat: null   # profit attributable to owners
+          eps_diluted: null   # diluted EPS (₹)
+          total_assets: null   # total assets (31 Mar)
+      - fiscal_year: 2020
+        file: TCS/FY2020_Q4_consolidated.xml   # results for the quarter ended 31-Mar-2020
+        checked_against: null
+        expected_crore:
+          revenue: null   # revenue from operations
+          pbt: null   # profit before tax
+          pat: null   # profit attributable to owners
+          eps_diluted: null   # diluted EPS (₹)
+          total_assets: null   # total assets (31 Mar)
+      - fiscal_year: 2024
+        file: TCS/FY2024_Q4_consolidated.xml   # results for the quarter ended 31-Mar-2024
+        checked_against: null
+        expected_crore:
+          revenue: null   # revenue from operations
+          pbt: null   # profit before tax
+          pat: null   # profit attributable to owners
+          eps_diluted: null   # diluted EPS (₹)
+          total_assets: null   # total assets (31 Mar)

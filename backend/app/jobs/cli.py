@@ -7,6 +7,7 @@
     python -m app.jobs verify-adjustment --symbol INFY
     python -m app.jobs xbrl-inspect path/to/results.xml   # check the XBRL element mapping
     python -m app.jobs xbrl-reparse [--symbols TCS]       # re-apply xbrl_map.yaml to cached files
+    python -m app.jobs xbrl-coverage --symbols TCS,INFY   # years parsed per statement
 
 Exit codes: 0 success/skipped, 1 failed, 2 unknown or not-yet-implemented job.
 """
@@ -64,7 +65,27 @@ def _parser() -> argparse.ArgumentParser:
         help="re-parse cached results XBRL documents with the current xbrl_map.yaml (no network)",
     )
     reparse.add_argument("--symbols", action="append", default=None, help="comma-separated")
+    cov = sub.add_parser(
+        "xbrl-coverage", help="earliest / latest fiscal year parsed per statement (P&L, BS, CF)"
+    )
+    cov.add_argument("--symbols", action="append", required=True, help="comma-separated")
     return p
+
+
+def xbrl_coverage(ctx: JobContext, symbols: Sequence[str]) -> int:
+    from app.data.coverage import coverage
+    from app.jobs.common import normalise_symbols
+
+    session = ctx.session_factory()
+    try:
+        rows = coverage(session, normalise_symbols(symbols),
+                        ctx.config.providers.nse.results.default_fy_end_month)  # fmt: skip
+    finally:
+        session.close()
+    print(f"{'symbol':<14} {'basis':<13} {'stmt':<4} {'years':<14} count")
+    for r in rows:
+        print(r.row())
+    return 0
 
 
 def xbrl_reparse(ctx: JobContext, symbols: Sequence[str] | None) -> int:
@@ -219,4 +240,6 @@ def main(argv: Sequence[str] | None = None, context_factory: ContextFactory | No
         return _run(ctx, args)
     if args.command == "xbrl-reparse":
         return xbrl_reparse(ctx, args.symbols)
+    if args.command == "xbrl-coverage":
+        return xbrl_coverage(ctx, args.symbols)
     return verify_adjustment(ctx, args.symbol)
