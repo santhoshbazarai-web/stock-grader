@@ -267,6 +267,7 @@ export type SearchHit = {
 // ── P13 pages (app/api/schemas.py, app/api/brokers.py) ──
 export type BrokerStatus = {
   broker: "fyers" | "kite";
+  enabled: boolean; // providers.yaml brokers.<name>.enabled (Kite is off by default)
   configured: boolean;
   connected: boolean;
   expires_at: string | null;

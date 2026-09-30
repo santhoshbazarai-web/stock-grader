@@ -23,6 +23,8 @@ jobs:
     results_watch: "*/15 7-22 * * *"         # results filings in the feeds → pipelines (§3.8)
     events: "7,37 7-22 * * *"                # announcements, pledge, SAST, PIT, deals (§10)
     reconcile: "0 23 * * *"                  # cross-source checks for the universe (§3.9)
+    bhavcopy_history: "30 1 * * *"           # backfill NSE bhavcopy OHLCV history (budgeted)
+    broker_token_check: "45 8 * * mon-fri"   # morning reminder when a broker token expired
   universe_index: NIFTY500    # symbols = current members of this index + watchlist
   constituent_indices: [NIFTY500, NIFTY50, NIFTYBANK, NIFTYIT, NIFTYPHARMA, NIFTYFMCG,
                         NIFTYAUTO, NIFTYMETAL, NIFTYREALTY]

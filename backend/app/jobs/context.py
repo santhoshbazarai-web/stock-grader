@@ -43,11 +43,16 @@ def build_context(settings: Settings, config: AppConfig) -> JobContext:
             limiter,
         ),
         Provider.YFINANCE: build_yfinance_provider(pc, limiter),
-        Provider.NSE: build_nse_provider(pc, limiter, raw_store),
+        Provider.NSE: build_nse_provider(pc, limiter, raw_store, session_factory),
         Provider.SCREENER: ScreenerProvider(session_factory),
         Provider.BSE: build_bse_provider(pc, limiter, raw_store),
         Provider.MARKET_LENS: build_market_lens_provider(pc, limiter, raw_store),
     }
+    # SPEC §3.3: a broker disabled in providers.yaml is never built (the router reports it as
+    # not configured and falls through).
+    for broker in Broker:
+        if not pc.brokers[broker].enabled:
+            candidates[Provider(broker.value)] = None
     providers = {k: v for k, v in candidates.items() if v is not None}
     gaps = DbGapRecorder(session_factory)
     router = DataRouter(providers, pc, limiter=limiter, gaps=gaps)

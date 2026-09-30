@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
 import { NotificationBell } from "@/components/notification-bell";
+import { ReconnectBanner } from "@/components/pages/brokers";
 import { SymbolSearch } from "@/components/report/symbol-search";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,33 +30,36 @@ export function AppNav() {
     router.replace("/login");
   }
   return (
-    <nav className="flex flex-wrap items-center justify-between gap-3 border-b pb-3" aria-label="Main">
-      <div className="flex flex-wrap items-center gap-1">
-        <Link href="/" className="mr-3 text-sm font-semibold">
-          Stock Grader
-        </Link>
-        {LINKS.map((l) => {
-          const active = l.href === "/" ? path === "/" : path.startsWith(l.href);
-          return (
-            <Link
-              key={l.href}
-              href={l.href}
-              aria-current={active ? "page" : undefined}
-              className={`rounded-md px-2.5 py-1.5 text-sm ${active ? "bg-secondary font-medium" : "text-muted-foreground hover:text-foreground"}`}
-            >
-              {l.label}
-            </Link>
-          );
-        })}
-      </div>
-      <div className="flex items-center gap-2">
-        <SymbolSearch />
-        <NotificationBell />
-        <Button size="sm" variant="ghost" onClick={logout} aria-label="Sign out">
-          <LogOut />
-        </Button>
-      </div>
-    </nav>
+    <>
+      <nav className="flex flex-wrap items-center justify-between gap-3 border-b pb-3" aria-label="Main">
+        <div className="flex flex-wrap items-center gap-1">
+          <Link href="/" className="mr-3 text-sm font-semibold">
+            Stock Grader
+          </Link>
+          {LINKS.map((l) => {
+            const active = l.href === "/" ? path === "/" : path.startsWith(l.href);
+            return (
+              <Link
+                key={l.href}
+                href={l.href}
+                aria-current={active ? "page" : undefined}
+                className={`rounded-md px-2.5 py-1.5 text-sm ${active ? "bg-secondary font-medium" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                {l.label}
+              </Link>
+            );
+          })}
+        </div>
+        <div className="flex items-center gap-2">
+          <SymbolSearch />
+          <NotificationBell />
+          <Button size="sm" variant="ghost" onClick={logout} aria-label="Sign out">
+            <LogOut />
+          </Button>
+        </div>
+      </nav>
+      <ReconnectBanner />
+    </>
   );
 }
 

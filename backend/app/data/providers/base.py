@@ -190,3 +190,12 @@ class ReferenceFinancialsProvider(Protocol):
     name: Provider
 
     def reference_financials(self, symbol: str) -> pd.DataFrame: ...
+
+
+@runtime_checkable
+class BhavcopyHistoryProvider(Protocol):
+    """Backfills the NSE bhavcopy history day by day (the ``bhavcopy_history`` job)."""
+
+    name: Provider
+
+    def load_bhavcopy_days(self, days: list[date]) -> dict[str, list[str]]: ...

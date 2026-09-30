@@ -37,6 +37,7 @@ from app.core.rate_limiter import Limiter, RateLimitTimeout
 from app.data.gaps import GapRecord, GapRecorder
 from app.data.providers.base import (
     AnnualReportsProvider,
+    BhavcopyHistoryProvider,
     ConstituentsProvider,
     CorporateActionsProvider,
     DeliveryProvider,
@@ -273,6 +274,17 @@ class DataRouter:
             lambda p: p.events(kind, start, end),
             symbol=None,
             providers=[provider],
+            record_gap=False,
+        )
+
+    def bhavcopy_backfill(self, days: list[date]) -> RouteResult[dict[str, list[str]]]:
+        """Fetch NSE bhavcopy files for ``days`` into the history (bhavcopy_history job)."""
+        return self.fetch(
+            Dataset.DAILY_OHLCV,
+            BhavcopyHistoryProvider,
+            lambda p: p.load_bhavcopy_days(days),
+            symbol=None,
+            providers=[Provider.NSE],
             record_gap=False,
         )
 

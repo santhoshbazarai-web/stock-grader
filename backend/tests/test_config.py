@@ -44,7 +44,8 @@ def test_repo_config_loads() -> None:
     assert isinstance(cfg, AppConfig)
     assert cfg.providers.priority[Dataset.DAILY_OHLCV] == [
         Provider.FYERS,
-        Provider.KITE,
+        Provider.KITE,  # built only when brokers.kite.enabled
+        Provider.NSE,  # the bhavcopy history builder
         Provider.YFINANCE,
     ]
     assert cfg.valuation.mos_by_grade.B == pytest.approx(0.275)

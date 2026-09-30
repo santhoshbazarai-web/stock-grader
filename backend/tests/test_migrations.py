@@ -76,4 +76,6 @@ def test_spec_tables_present() -> None:
         "pipeline_runs",  # SPEC v0.2 §3.4, §3.7: on-demand pipeline progress
         "events",  # SPEC v0.2 §3.4, §3.8: exchange event feeds
         "reconciliation_issues",  # SPEC v0.2 §3.9: cross-source differences
+        "bhavcopy_days",  # SPEC v0.2 §3.2: NSE bhavcopy OHLCV history (price fallback)
+        "bhavcopy_prices",
     } == MODEL_TABLES

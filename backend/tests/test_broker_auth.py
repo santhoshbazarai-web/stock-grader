@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_fyers_auth, get_token_store
+from app.core.config import AppConfig, get_config
 from app.core.security import InvalidStateError, StateSigner, TokenCipher, get_state_signer
 from app.core.settings import get_settings
 from app.data.broker_tokens import BrokerTokenStore
@@ -234,13 +235,35 @@ def test_status(client: TestClient, store: BrokerTokenStore) -> None:
     body = res.json()
     by_broker = {b["broker"]: b for b in body}
     assert by_broker["fyers"]["connected"] is True
+    assert by_broker["fyers"]["enabled"] is True
     assert by_broker["kite"] == {
         "broker": "kite",
+        "enabled": False,  # providers.yaml: Kite is off unless enabled (SPEC §0)
         "configured": False,  # no KITE_* env in tests
         "connected": False,
         "expires_at": None,
-        "reason": "not connected",
+        "reason": "disabled in providers.yaml",
     }
+
+
+def _with_kite_enabled() -> AppConfig:
+    cfg = get_config()
+    brokers = {
+        **cfg.providers.brokers,
+        Broker.KITE: cfg.providers.brokers[Broker.KITE].model_copy(update={"enabled": True}),
+    }
+    return cfg.model_copy(update={"providers": cfg.providers.model_copy(
+        update={"brokers": brokers})})  # fmt: skip
+
+
+def test_status_kite_enabled_not_connected(store: BrokerTokenStore) -> None:
+    app = create_app()
+    app.dependency_overrides[get_token_store] = lambda: store
+    app.dependency_overrides[get_config] = _with_kite_enabled
+    with TestClient(app) as c:
+        login(c)
+        kite = {b["broker"]: b for b in c.get("/api/brokers/status").json()}["kite"]
+    assert kite["enabled"] is True and kite["reason"] == "not connected"
 
 
 def test_login_when_not_configured(store: BrokerTokenStore) -> None:
@@ -337,11 +360,15 @@ def test_kite_callback_declined(kite_client: TestClient, http: responses.Request
     assert len(http.calls) == 0
 
 
-def test_kite_login_when_not_configured(store: BrokerTokenStore) -> None:
+def test_kite_login_disabled_or_not_configured(store: BrokerTokenStore) -> None:
     app = create_app()
     app.dependency_overrides[get_token_store] = lambda: store
     with TestClient(app, follow_redirects=False) as c:
         login(c)
+        res = c.get("/api/brokers/kite/login")
+        assert res.status_code == 409  # disabled in providers.yaml: no login at all
+        assert "brokers.kite.enabled" in res.json()["detail"]
+        app.dependency_overrides[get_config] = _with_kite_enabled
         res = c.get("/api/brokers/kite/login")
     assert res.status_code == 503
     assert "KITE_API_KEY" in res.json()["detail"]

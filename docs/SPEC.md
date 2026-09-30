@@ -116,6 +116,25 @@ NSE endpoints need a browser-like session (cookies from the homepage + headers) 
 - **Settings → Brokers page:** one card per broker showing Connected (expires at HH:MM) / Expired / Disabled status and a **Connect** button that starts the OAuth flow in the same tab and returns to Settings. A morning Telegram reminder is sent at 08:45 if the Fyers token is expired.
 - No broker scopes beyond market data and profile are used, and nothing reads holdings, positions or funds.
 
+Implementation notes (`api/brokers.py`, `jobs/brokers.py`, `data/bhavcopy_store.py`; `providers.yaml` → `brokers`, `bhavcopy`):
+- **Switches:** `brokers.<name>.enabled`. Fyers is on; Kite is off by default (paid historical data), with its code complete.
+  - A disabled broker's provider is not built, so the router reports it as not configured.
+  - Its login returns 409.
+  - `GET /api/brokers/status` reports `enabled`, `configured`, `connected`, `expires_at` and `reason`.
+- **Price order:** `daily_ohlcv: [fyers, kite, nse, yfinance]`.
+  - `nse` is the bhavcopy history builder: `sec_bhavdata_full` files stored per day for every EQ/BE symbol in `bhavcopy_prices`, with `bhavcopy_days` tracking loaded days and holidays.
+  - A request fetches at most `on_demand_max_days` missing days. When more are missing, NSE is unavailable and the router moves on; a partial series is never returned.
+  - A 404 at least `holiday_after_days` old is recorded as a holiday; a newer one means the file is not out yet.
+  - `bhavcopy_history` (nightly) backfills `history_years`, newest first, `backfill_days_per_run` files per run.
+  - `nse_bhavcopy` reads delivery % from the same stored file.
+  - Bars recorded under a former symbol (symbol-change aliases) are included.
+- **UI:** Settings → Brokers shows one card per broker (Connected (expires HH:MM) / Expired / Not connected / Not configured / Disabled). A "Reconnect" banner appears on every page while an enabled, configured broker lacks a valid token.
+- **Morning reminder:** `broker_token_check` (08:45 weekdays, `morning_reminder`) notifies in-app and on Telegram when an enabled, configured broker's token has expired or is missing. Nothing is sent to the broker.
+- **Read-only guarantee:** `tests/test_read_only_brokers.py` runs every broker code path through the real SDKs.
+  - Every other SDK method is a tripwire.
+  - Every HTTP path must be on the market-data / session allowlist.
+  - A source scan forbids order, GTT, holdings, positions and funds calls anywhere in `app/`.
+
 ### 3.4 Database tables (core)
 `instruments`, `prices_daily` (adjusted + raw), `corporate_actions`, `delivery_daily`, `fin_annual`, `fin_quarterly`, `shareholding`, `index_membership`, `surveillance_flags`, `valuation_snapshots`, `technical_snapshots`, `scores`, `reports`, `watchlist`, `alerts`, `broker_tokens` (encrypted), `job_runs`, `data_gaps`, `user_overrides` (per-stock assumption overrides, e.g. custom growth rate).
 v0.2 adds `symbols` (ISIN master), `symbol_aliases`, `filings` (raw filing index), `fin_line_items` (long format: isin, period_end, period_type, statement, basis [consolidated/standalone], item_code, value_inr, source, filing_id, announced_at, version), `events`, `reconciliation_issues`, `pipeline_runs` (per-symbol progress), `notifications`.
@@ -758,7 +777,8 @@ Auth: a single user with a password login (NextAuth credentials or FastAPI sessi
 | `results_watch` | Every 15 min, 07:00–23:00 (implemented: 07:00–22:45) | New results filings → per-stock pipeline → change notifications (§3.8) |
 | `events` | Every 30 min, 07:00–23:00 (implemented: :07 and :37) | Announcements, pledge/SAST, insider trades, bulk/block deals, ratings |
 | `reconcile` | After each pipeline (a pipeline step) + nightly 23:00 for stocks with new filings | Cross-source checks (§3.9) |
-| `broker_token_check` | 08:45 weekdays | Telegram reminder if the Fyers token is expired |
+| `broker_token_check` | 08:45 weekdays | In-app + Telegram reminder if an enabled broker's token is expired (§3.3) |
+| `bhavcopy_history` | Nightly 01:30 (implementation addition) | Backfill the NSE bhavcopy OHLCV history, the price fallback after the brokers (§3.2) |
 | `backup` | Daily 02:00 | pg_dump |
 | `catch_up` | On worker start | Run jobs missed while the machine was off |
 

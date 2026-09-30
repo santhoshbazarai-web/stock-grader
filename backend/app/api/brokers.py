@@ -21,7 +21,7 @@ from app.api.deps import (
 from app.core.config import AppConfig
 from app.core.security import InvalidStateError, StateSigner
 from app.core.settings import Settings
-from app.data.broker_tokens import BrokerTokenStore
+from app.data.broker_tokens import BrokerTokenStore, broker_configured
 from app.data.providers.base import IssuedToken, ProviderError
 from app.db.enums import Broker
 
@@ -34,16 +34,11 @@ router = APIRouter(prefix="/brokers", tags=["brokers"])
 
 class BrokerStatus(BaseModel):
     broker: Broker
+    enabled: bool  # providers.yaml brokers.<name>.enabled (Kite is off by default)
     configured: bool  # API credentials present in the environment (Connect is possible)
     connected: bool
     expires_at: datetime | None
     reason: str
-
-
-def broker_configured(broker: Broker, settings: Settings) -> bool:
-    if broker is Broker.FYERS:
-        return bool(settings.fyers_app_id and settings.fyers_secret and settings.fyers_redirect_uri)
-    return bool(settings.kite_api_key and settings.kite_api_secret)
 
 
 def _state_purpose(broker: Broker) -> str:
@@ -88,18 +83,20 @@ def _complete_login(
 
 
 @router.get("/status", dependencies=[Depends(require_user)])
-def broker_status(store: TokenStoreDep, settings: SettingsDep) -> list[BrokerStatus]:
-    """Token validity per broker, and whether its API credentials are configured."""
-    return [
-        BrokerStatus(
-            broker=s.broker,
+def broker_status(
+    store: TokenStoreDep, settings: SettingsDep, config: ConfigDep
+) -> list[BrokerStatus]:
+    """Per broker: enabled in config, API credentials configured, token validity."""
+    out = []
+    for s in store.all_statuses():
+        enabled = config.providers.brokers[s.broker].enabled
+        out.append(BrokerStatus(
+            broker=s.broker, enabled=enabled,
             configured=broker_configured(s.broker, settings),
-            connected=s.connected,
-            expires_at=s.expires_at,
-            reason=s.reason,
-        )
-        for s in store.all_statuses()
-    ]
+            connected=s.connected and enabled, expires_at=s.expires_at,
+            reason=s.reason if enabled else "disabled in providers.yaml",
+        ))  # fmt: skip
+    return out
 
 
 # ───────────────────────── Fyers ─────────────────────────

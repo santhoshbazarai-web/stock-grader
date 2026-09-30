@@ -284,7 +284,9 @@ def test_all_stale_returns_freshest_flagged(make_router: Callable[..., Harness])
 
     assert res.stale and res.source is Provider.KITE
     assert res.as_of == datetime.combine(TODAY - timedelta(days=2), NSE_CLOSE, tzinfo=IST)
-    assert all(o is Outcome.STALE for _, o in outcomes(res))
+    assert outcomes(res) == [(Provider.FYERS, Outcome.STALE), (Provider.KITE, Outcome.STALE),
+                             (Provider.NSE, Outcome.NOT_CONFIGURED),
+                             (Provider.YFINANCE, Outcome.STALE)]  # fmt: skip
     assert not h.gaps.open  # stale data is not missing data
     assert "all providers stale" in res.reasons[-1]
 
@@ -346,7 +348,7 @@ def test_all_fail_records_gap(make_router: Callable[..., Harness]) -> None:
 
     assert res.data is None and res.source is None and not res.ok
     gap = h.gaps.open[(Dataset.DAILY_OHLCV, "TCS")]
-    assert gap.providers_tried == ["fyers", "kite", "yfinance"]
+    assert gap.providers_tried == ["fyers", "kite", "nse", "yfinance"]
     assert "no token" in gap.reason and "429" in gap.reason
     assert "recorded as a data gap" in res.reasons[-1]
 

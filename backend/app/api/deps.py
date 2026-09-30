@@ -17,6 +17,7 @@ from app.core.settings import Settings, get_settings
 from app.data.broker_tokens import BrokerTokenStore
 from app.data.providers.fyers import FyersAuth
 from app.data.providers.kite import KiteAuth
+from app.db.enums import Broker
 from app.db.session import get_session, get_session_factory
 
 _cookie_scheme = APIKeyCookie(
@@ -60,7 +61,19 @@ def get_token_store() -> BrokerTokenStore:
     return BrokerTokenStore(get_session_factory(), get_cipher())
 
 
-def get_fyers_auth(settings: Annotated[Settings, Depends(get_settings)]) -> FyersAuth:
+def _require_enabled(config: AppConfig, broker: Broker) -> None:
+    if not config.providers.brokers[broker].enabled:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"{broker.value} is disabled in providers.yaml (brokers.{broker.value}.enabled)",
+        )
+
+
+def get_fyers_auth(
+    settings: Annotated[Settings, Depends(get_settings)],
+    config: Annotated[AppConfig, Depends(get_config)],
+) -> FyersAuth:
+    _require_enabled(config, Broker.FYERS)
     if not (settings.fyers_app_id and settings.fyers_secret and settings.fyers_redirect_uri):
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -78,6 +91,7 @@ def get_kite_auth(
     config: Annotated[AppConfig, Depends(get_config)],
 ) -> KiteAuth:
     # KITE_REDIRECT_URI is registered in the Kite developer console, not sent by the client.
+    _require_enabled(config, Broker.KITE)
     if not (settings.kite_api_key and settings.kite_api_secret):
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,

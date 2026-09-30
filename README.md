@@ -86,7 +86,39 @@ rate-limit timeout. If nothing usable comes back it returns `data=None` and reco
 `data_gaps` row; if only stale data came back it returns the freshest copy flagged `stale`.
 Every result carries `source`, `fetched_at` and `reasons`.
 
+**Daily prices:** Fyers → Kite (only when enabled) → NSE bhavcopy history → yfinance.
+- **NSE bhavcopy history:** built from NSE's `sec_bhavdata_full` archive files. Each file holds
+  every stock's bar and delivery % for one day, and is stored in `bhavcopy_prices` (raw prices;
+  split/bonus adjustment happens as for any source).
+  - The nightly `bhavcopy_history` job (01:30) backfills newest first,
+    `providers.yaml` → `bhavcopy.backfill_days_per_run` files per run (1 request/s), so 10 years
+    build over about 9 nights. `python -m app.jobs run bhavcopy_history --full` does it in one
+    go (about 45 minutes).
+  - A price request may fetch up to `on_demand_max_days` missing recent days itself. If the
+    history does not reach back far enough, NSE declines and the router moves on to yfinance
+    instead of returning a partial series.
+  - The daily `nse_bhavcopy` job reads the same file, so delivery % and the day's bars come from
+    one download. A stock's bars under a former symbol are included via the symbol master.
+
 ## Brokers (read-only)
+
+- **Settings → Brokers** has one card per broker: Connected (expires HH:MM) / Expired / Not
+  connected / Not configured / Disabled, with a Connect / Reconnect button. The OAuth login runs
+  in the same tab and comes back to Settings.
+- **Reconnect banner:** while an enabled, configured broker has no valid token, every page shows
+  a banner linking to Settings.
+- **Morning reminder:** `broker_token_check` (08:45, weekdays) sends an in-app notification,
+  plus Telegram when configured, for an expired or missing token.
+- **Switches:** `providers.yaml` → `brokers.<name>.enabled` and `morning_reminder`. **Kite is
+  disabled by default** (SPEC §0: its historical data is a paid add-on). Its code is complete;
+  set `enabled: true` to use it. A disabled broker is not built, its login returns 409, and the
+  router skips it.
+- **Read-only:** only market-data and login endpoints are used. `tests/test_read_only_brokers.py`
+  enforces this three ways:
+  - it runs every broker code path through the real SDKs with all other SDK methods replaced by
+    tripwires;
+  - it records and checks every HTTP path;
+  - it scans `app/` for order, GTT, holdings, positions or funds calls.
 
 Fyers: set `FYERS_APP_ID`, `FYERS_SECRET`, `FYERS_REDIRECT_URI` (register the same redirect URI,
 `http://localhost:8000/api/brokers/fyers/callback` locally, in the Fyers developer console), then
@@ -303,6 +335,8 @@ python -m app.jobs run symbol_master                     # NSE/BSE/Fyers symbol 
 python -m app.jobs run results_watch                     # results filings in the feeds → pipelines
 python -m app.jobs run events                            # announcements, pledge, SAST, PIT, deals
 python -m app.jobs run reconcile --symbols TCS           # cross-source checks for one stock
+python -m app.jobs run bhavcopy_history [--full]         # build the NSE bhavcopy price history
+python -m app.jobs run broker_token_check                # remind if a broker token expired
 python -m app.jobs pipeline-worker                       # only the on-demand pipeline loop (dev)
 python -m app.jobs run annual_reports --symbols TCS      # annual-report PDFs for BS/CF gap years
 python -m app.jobs pdf-inspect report.pdf --fy 2014      # what the PDF reader finds (no DB)

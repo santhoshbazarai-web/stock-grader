@@ -3,7 +3,7 @@
 
 providers:
   priority:
-    daily_ohlcv:        [fyers, kite, yfinance]
+    daily_ohlcv:        [fyers, kite, nse, yfinance]  # nse = bhavcopy history (below); kite only if enabled
     index_ohlcv:        [fyers, kite, yfinance]
     ltp:                [fyers, kite]
     delivery:           [nse]
@@ -160,5 +160,13 @@ providers:
       cfo: cashFromOperatingActivities
       total_assets: totalAssets
       total_equity: totalEquity
+  brokers:                     # SPEC §0, §3.3: read-only market data; never orders
+    fyers: {enabled: true, morning_reminder: true}
+    kite:  {enabled: false, morning_reminder: true}   # code complete; needs a paid subscription
+  bhavcopy:                    # daily OHLCV from NSE sec_bhavdata_full archive files
+    series: [EQ, BE]
+    on_demand_max_days: 10     # a price request fetches up to 10 missing recent days itself
+    backfill_days_per_run: 300 # bhavcopy_history job: ~5 min at 1 req/s; 10 years in ~9 nights
+    holiday_after_days: 3      # no file 3+ days later = market holiday (not "not yet out")
   oauth_state_ttl_s: 600  # broker login must complete within this many seconds
   history_years: 10

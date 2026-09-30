@@ -31,7 +31,7 @@ from pydantic import (
 )
 
 from app.core.settings import get_settings
-from app.db.enums import EventKind
+from app.db.enums import Broker, EventKind
 
 Fraction = Annotated[float, Field(ge=0.0, le=1.0)]
 Score = Annotated[float, Field(ge=0.0, le=100.0)]
@@ -274,6 +274,17 @@ class BseConfig(_Strict):
     attachment_url: str  # announcement PDFs: attachment_url + ATTACHMENTNAME
 
 
+class BhavcopyHistoryConfig(_Strict):
+    """Daily OHLCV built from NSE's ``sec_bhavdata_full`` archive files (SPEC §3.2: the price
+    fallback after the brokers). Every file read is stored for all symbols, so one download
+    serves every stock (and the day's delivery %)."""
+
+    series: list[str] = Field(min_length=1)  # equity series kept (EQ, BE)
+    on_demand_max_days: PositiveInt  # a price request may fetch this many missing days itself
+    backfill_days_per_run: PositiveInt  # bhavcopy_history job: files per run (1 req/s)
+    holiday_after_days: Annotated[int, Field(ge=0)]  # a 404 this many days old = no trading
+
+
 class MarketLensConfig(_Strict):
     """NSE Market Lens (beta): the JSON its page loads, read only by the reconciliation and only
     when ``enabled`` (SPEC v0.2 §0, §3.2a). The shape is undocumented: every field name used is
@@ -305,6 +316,14 @@ class SymbolsConfig(_Strict):
     search: SearchConfig
 
 
+class BrokerConfig(_Strict):
+    """SPEC §0/§3.3: Fyers is the price broker; Kite is complete but off unless enabled (paid
+    data subscription). A disabled broker is never built, logged in to or reminded about."""
+
+    enabled: bool
+    morning_reminder: bool  # broker_token_check notifies when its token has expired
+
+
 class ProvidersConfig(_Strict):
     priority: dict[Dataset, list[Provider]]
     rate_limits: dict[Provider, RateLimit]
@@ -318,11 +337,15 @@ class ProvidersConfig(_Strict):
     bse: BseConfig
     symbols: SymbolsConfig
     market_lens: MarketLensConfig
+    brokers: dict[Broker, BrokerConfig]
+    bhavcopy: BhavcopyHistoryConfig
     oauth_state_ttl_s: PositiveInt
     history_years: PositiveInt
 
     @model_validator(mode="after")
     def _check(self) -> Self:
+        if set(self.brokers) != set(Broker):
+            raise ValueError(f"brokers must configure exactly {sorted(b.value for b in Broker)}")
         missing = set(Dataset) - set(self.priority)
         if missing:
             raise ValueError(f"priority missing datasets: {sorted(missing)}")
@@ -837,6 +860,8 @@ class JobName(StrEnum):
     RESULTS_WATCH = "results_watch"
     EVENTS = "events"
     RECONCILE = "reconcile"
+    BHAVCOPY_HISTORY = "bhavcopy_history"
+    BROKER_TOKEN_CHECK = "broker_token_check"
 
 
 class Season(_Strict):

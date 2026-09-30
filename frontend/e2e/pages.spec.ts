@@ -100,12 +100,30 @@ test("broker Connect goes through the OAuth login; callbacks show a banner", asy
   await page.goto("/settings?broker=kite&status=error&reason=login_declined");
   await expect(page.getByText("Zerodha Kite not connected: the login was cancelled at the broker.")).toBeVisible();
 
-  await expect(page.getByLabel("Broker connections")).toContainText("Zerodha Kite");
-  const connect = page.getByRole("button", { name: "Connect Zerodha Kite" });
-  test.skip(!(await connect.isVisible()), "Kite API credentials not configured on this stack");
-  await page.route("https://kite.zerodha.com/**", (r) => r.fulfill({ status: 200, body: "kite login stub" }));
+  // Kite is code-complete but disabled in providers.yaml (SPEC §0): a Disabled card, no Connect
+  const cards = page.getByRole("list", { name: "Broker connections" });
+  await expect(cards.getByRole("listitem", { name: "Zerodha Kite: Disabled" })).toContainText(
+    "brokers.kite.enabled",
+  );
+  await expect(page.getByRole("button", { name: /Zerodha Kite/ })).toHaveCount(0);
+
+  const connect = page.getByRole("button", { name: /^(Connect Fyers|Reconnect)$/ });
+  test.skip(!(await connect.isVisible()), "Fyers API credentials not configured on this stack");
+  await page.route("https://api-t1.fyers.in/**", (r) => r.fulfill({ status: 200, body: "fyers login stub" }));
   await connect.click();
-  await expect(page).toHaveURL(/^https:\/\/kite\.zerodha\.com\/connect\/login\?.*api_key=/);
+  await expect(page).toHaveURL(/^https:\/\/api-t1\.fyers\.in\/api\/v3\/generate-authcode\?.*client_id=/);
+});
+
+test("reconnect banner while Fyers has no valid token", async ({ page }) => {
+  await login(page, "/");
+  const status = await (await page.request.get("/api/brokers/status")).json();
+  const fyers = status.find((b: { broker: string }) => b.broker === "fyers");
+  test.skip(!fyers.configured || fyers.connected, "needs Fyers configured and not connected");
+  const banner = page.getByRole("complementary", { name: "Broker token" });
+  await expect(banner).toContainText("Fyers is not connected");
+  await banner.getByRole("link", { name: "Reconnect" }).click();
+  await expect(page).toHaveURL(/\/settings$/);
+  await expect(page.getByRole("complementary", { name: "Broker token" })).toHaveCount(0);
 });
 
 test("uploads list shows stored Screener datasets", async ({ page }) => {

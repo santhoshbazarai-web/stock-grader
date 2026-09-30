@@ -27,9 +27,11 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 import requests
+from sqlalchemy.orm import Session
 
-from app.core.config import NseConfig, Provider, ProvidersConfig
+from app.core.config import BhavcopyHistoryConfig, NseConfig, Provider, ProvidersConfig
 from app.core.rate_limiter import Limiter
+from app.data.bhavcopy_store import BhavcopyStore
 from app.data.canonical import labels_for, pick
 from app.data.events import (
     EVENT_COLUMNS,
@@ -235,6 +237,43 @@ def parse_bhavcopy(text: str) -> pd.DataFrame:
         )
     df = pd.DataFrame(rows, columns=DELIVERY_COLUMNS)
     return df.astype({"traded_qty": "Int64", "deliverable_qty": "Int64"})
+
+
+BHAVCOPY_COLUMNS = [
+    "symbol", "series", "date", "open", "high", "low", "close", "prev_close", "volume",
+    "traded_value_cr", "deliverable_qty", "delivery_pct",
+]  # fmt: skip
+
+
+def parse_bhavcopy_ohlcv(text: str, series: list[str]) -> pd.DataFrame:
+    """``sec_bhavdata_full`` → every ``series`` row with its raw OHLC, volume and delivery
+    (the bhavcopy history builder). A row without a close is skipped (never 0)."""
+    reader = csv.DictReader(io.StringIO(text.strip()))
+    header = {(f or "").strip() for f in reader.fieldnames or []}
+    need = {"SYMBOL", "SERIES", "DATE1", "OPEN_PRICE", "HIGH_PRICE", "LOW_PRICE", "CLOSE_PRICE",
+            "TTL_TRD_QNTY"}  # fmt: skip
+    if missing := need - header:
+        raise ProviderError(f"unexpected bhavcopy header; missing {sorted(missing)}")
+    rows, keep = [], set(series)
+    for raw in reader:
+        rec = {(k or "").strip(): (v or "").strip() for k, v in raw.items()}
+        if rec.get("SERIES") not in keep or _num(rec.get("CLOSE_PRICE")) is None:
+            continue
+        vol, deliv, value = (_num(rec.get(k)) for k in ("TTL_TRD_QNTY", "DELIV_QTY",
+                                                        "TURNOVER_LACS"))  # fmt: skip
+        rows.append({
+            "symbol": rec["SYMBOL"], "series": rec["SERIES"], "date": _parse_date(rec["DATE1"]),
+            "open": _num(rec.get("OPEN_PRICE")), "high": _num(rec.get("HIGH_PRICE")),
+            "low": _num(rec.get("LOW_PRICE")), "close": _num(rec.get("CLOSE_PRICE")),
+            "prev_close": _num(rec.get("PREV_CLOSE")),
+            "volume": int(vol) if vol is not None else None,
+            "traded_value_cr": value / 100 if value is not None else None,
+            "deliverable_qty": int(deliv) if deliv is not None else None,
+            "delivery_pct": _num(rec.get("DELIV_PER")),
+        })  # fmt: skip
+    df = pd.DataFrame(rows, columns=BHAVCOPY_COLUMNS).astype(object)
+    # a symbol listed in two kept series on one day: the first (EQ before BE in the file order)
+    return df.where(df.notna(), None).drop_duplicates("symbol", keep="first", ignore_index=True)
 
 
 def parse_constituents(text: str) -> pd.DataFrame:
@@ -502,26 +541,103 @@ def _int(value: Any) -> int | None:
 class NseProvider:
     """Implements DeliveryProvider, ConstituentsProvider, SurveillanceProvider,
     CorporateActionsProvider, ShareholdingProvider, ResultsFilingsProvider,
-    AnnualReportsProvider, NseSymbolFilesProvider and EventsProvider."""
+    AnnualReportsProvider, NseSymbolFilesProvider, EventsProvider, and PriceProvider /
+    BhavcopyHistoryProvider through the bhavcopy history (only when built with a store)."""
 
     name = Provider.NSE
 
     def __init__(
-        self, config: NseConfig, session: NseSession, raw_store: RawStore | None = None
+        self,
+        config: NseConfig,
+        session: NseSession,
+        raw_store: RawStore | None = None,
+        *,
+        history: BhavcopyStore | None = None,
+        bhavcopy: BhavcopyHistoryConfig | None = None,
+        today: Callable[[], date] = lambda: datetime.now(IST).date(),
     ) -> None:
         self._cfg = config
         self._http = session
         self._raw = raw_store
+        self._history = history if bhavcopy is not None else None
+        self._bhav = bhavcopy
+        self._today = today
+
+    # ───────────── bhavcopy: delivery + the OHLCV history builder ─────────────
+
+    def _bhavcopy_url(self, day: date) -> str:
+        return f"{self._cfg.archives_url}/products/content/sec_bhavdata_full_{day:%d%m%Y}.csv"
+
+    def _load_day(self, day: date) -> str:
+        """Fetch one archive file into the history. → loaded | holiday | not_out."""
+        assert self._history is not None and self._bhav is not None
+        resp = self._http.get(self._bhavcopy_url(day))
+        now = datetime.now(IST)
+        if resp is None:
+            if (self._today() - day).days >= self._bhav.holiday_after_days:
+                self._history.mark_holiday(day, now)
+                return "holiday"
+            return "not_out"
+        raw = self._cache(f"sec_bhavdata_full_{day:%d%m%Y}.csv", resp.content)
+        df = parse_bhavcopy_ohlcv(resp.content.decode("utf-8", errors="replace"),
+                                  self._bhav.series)  # fmt: skip
+        self._history.save_day(day, df, raw, now)
+        return "loaded"
 
     def delivery(self, day: date) -> pd.DataFrame:
         self._http.begin_call()
-        url = f"{self._cfg.archives_url}/products/content/sec_bhavdata_full_{day:%d%m%Y}.csv"
-        resp = self._http.get(url)
+        if self._history is not None:  # one file serves every symbol's bar and delivery
+            status = self._history.days(day, day).get(day) or self._load_day(day)
+            if status == "loaded":
+                return self._history.delivery(day, DELIVERY_COLUMNS)
+            df = pd.DataFrame(columns=DELIVERY_COLUMNS)
+            df.attrs["warnings"] = [f"no bhavcopy for {day.isoformat()} ({status})"]
+            return df
+        resp = self._http.get(self._bhavcopy_url(day))
         if resp is None:
             df = pd.DataFrame(columns=DELIVERY_COLUMNS)
             df.attrs["warnings"] = [f"no bhavcopy for {day.isoformat()} (holiday or not yet out)"]
             return df
         return parse_bhavcopy(resp.text)
+
+    def daily_ohlcv(self, symbol: str, start: date, end: date) -> pd.DataFrame:
+        """Raw daily bars from the bhavcopy history (the price fallback after the brokers).
+        Up to ``bhavcopy.on_demand_max_days`` missing days are fetched now; a longer gap means
+        the history is not built that far back yet (``bhavcopy_history`` job), so the router
+        moves on rather than get a partial series."""
+        if self._history is None or self._bhav is None:
+            raise ProviderUnavailable("NSE bhavcopy history is not set up")
+        self._http.begin_call()
+        end = min(end, self._today())
+        missing = self._history.missing(start, end)
+        if len(missing) > self._bhav.on_demand_max_days:
+            raise ProviderUnavailable(
+                f"bhavcopy history lacks {len(missing)} trading days from {missing[0]} "
+                "(built nightly by bhavcopy_history)")  # fmt: skip
+        not_out = [d for d in missing if self._load_day(d) == "not_out"]
+        df = self._history.ohlcv(symbol, start, end)
+        if not_out:
+            df.attrs["warnings"] = [f"no bhavcopy yet for {', '.join(map(str, not_out))}"]
+        return df
+
+    def index_ohlcv(self, index: str, start: date, end: date) -> pd.DataFrame:
+        raise ProviderUnavailable("NSE bhavcopy has no index bars")
+
+    def ltp(self, symbols: list[str]) -> dict[str, float]:
+        raise ProviderUnavailable("NSE archives have no live prices")
+
+    def load_bhavcopy_days(self, days: list[date]) -> dict[str, list[str]]:
+        """Backfill: fetch each day not yet stored (newest first as given). Returns the days
+        per outcome: loaded / holiday / not_out."""
+        if self._history is None:
+            raise ProviderUnavailable("NSE bhavcopy history is not set up")
+        self._http.begin_call()
+        out: dict[str, list[str]] = {"loaded": [], "holiday": [], "not_out": []}
+        known = self._history.days(min(days), max(days)) if days else {}
+        for d in days:
+            if d not in known:
+                out[self._load_day(d)].append(d.isoformat())
+        return out
 
     def index_constituents(self, index: str) -> pd.DataFrame:
         self._http.begin_call()
@@ -766,9 +882,13 @@ def _parse_feed(kind: EventKind, payload: Any, hosts: list[str]) -> pd.DataFrame
 
 
 def build_nse_provider(
-    config: ProvidersConfig, limiter: Limiter | None, raw_store: RawStore | None = None
+    config: ProvidersConfig,
+    limiter: Limiter | None,
+    raw_store: RawStore | None = None,
+    session_factory: Callable[[], Session] | None = None,
 ) -> NseProvider:
     session = NseSession(
         config.nse, limiter=limiter, rate_limit_timeout_s=config.retry.rate_limit_timeout_s
     )
-    return NseProvider(config.nse, session, raw_store)
+    history = BhavcopyStore(session_factory) if session_factory is not None else None
+    return NseProvider(config.nse, session, raw_store, history=history, bhavcopy=config.bhavcopy)

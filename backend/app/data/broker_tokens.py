@@ -13,6 +13,7 @@ from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from app.core.security import DecryptionError, TokenCipher
+from app.core.settings import Settings
 from app.db.enums import Broker
 from app.db.models import BrokerToken
 from app.db.upsert import upsert
@@ -99,4 +100,10 @@ class BrokerTokenStore:
         return [self.status(b) for b in Broker]
 
 
-__all__ = ["BrokerTokenStore", "TokenStatus"]
+def broker_configured(broker: Broker, settings: Settings) -> bool:
+    if broker is Broker.FYERS:
+        return bool(settings.fyers_app_id and settings.fyers_secret and settings.fyers_redirect_uri)
+    return bool(settings.kite_api_key and settings.kite_api_secret)
+
+
+__all__ = ["BrokerTokenStore", "TokenStatus", "broker_configured"]

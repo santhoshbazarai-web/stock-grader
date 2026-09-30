@@ -56,6 +56,8 @@ __all__ = [
     "AnnualReport",
     "Backtest",
     "Base",
+    "BhavcopyDay",
+    "BhavcopyPrice",
     "BrokerToken",
     "CorporateAction",
     "DataGap",
@@ -206,6 +208,42 @@ class PriceDaily(SourcedMixin, Base):
     adj_low: Mapped[float | None]
     adj_close: Mapped[float | None]
     adj_volume: Mapped[int | None] = mapped_column(BigInteger)
+
+
+class BhavcopyDay(Base):
+    """One NSE ``sec_bhavdata_full`` archive file read into ``bhavcopy_prices`` (SPEC §3.2:
+    the bhavcopy history builder), or a weekday without one (a market holiday)."""
+
+    __tablename__ = "bhavcopy_days"
+    __upsert_key__ = ("trade_date",)
+
+    trade_date: Mapped[date] = mapped_column(primary_key=True)
+    status: Mapped[str] = mapped_column(String(16))  # loaded | holiday
+    rows: Mapped[int] = mapped_column(Integer, server_default="0")
+    raw_path: Mapped[str | None] = mapped_column(String(512))  # the cached file (SPEC §3.2a)
+    fetched_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class BhavcopyPrice(Base):
+    """A symbol's raw (unadjusted) daily bar and delivery from the NSE bhavcopy, keyed by the
+    symbol traded that day (history under a former symbol is found through symbol_aliases)."""
+
+    __tablename__ = "bhavcopy_prices"
+    __upsert_key__ = ("symbol", "trade_date")
+    __table_args__ = (Index("ix_bhavcopy_prices_date", "trade_date"),)
+
+    symbol: Mapped[str] = mapped_column(String(32), primary_key=True)
+    trade_date: Mapped[date] = mapped_column(primary_key=True)
+    series: Mapped[str] = mapped_column(String(4))
+    open: Mapped[float | None]
+    high: Mapped[float | None]
+    low: Mapped[float | None]
+    close: Mapped[float | None]
+    prev_close: Mapped[float | None]
+    volume: Mapped[int | None] = mapped_column(BigInteger)
+    traded_value_cr: Mapped[float | None]
+    deliverable_qty: Mapped[int | None] = mapped_column(BigInteger)
+    delivery_pct: Mapped[float | None]
 
 
 class CorporateAction(SourcedMixin, Base):
