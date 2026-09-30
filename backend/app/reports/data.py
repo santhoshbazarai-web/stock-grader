@@ -15,9 +15,11 @@ from sqlalchemy.orm import Session
 from app.core.config import AppConfig
 from app.data import prices
 from app.data.canonical import fields_for
-from app.db.enums import StatementType, SurveillanceList, Timeframe
+from app.data.reconcile_store import issue_text, open_issues
+from app.db.enums import EventKind, StatementType, SurveillanceList, Timeframe
 from app.db.models import (
     DeliveryDaily,
+    Event,
     FinAnnual,
     FinQuarterly,
     Instrument,
@@ -55,6 +57,11 @@ class StockData:
     peers: list[PeerStats] = field(default_factory=list)
     sources: dict[str, str | None] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
+    # SPEC v0.2 §3.8-3.9: open cross-source differences (lower the valuation confidence),
+    # recent red-flag events, and auditor resignations on file (None: feed coverage too short).
+    reconciliation_issues: list[str] = field(default_factory=list)
+    event_red_flags: list[str] = field(default_factory=list)
+    auditor_resignations: list[date] | None = None
 
 
 def load_financials(
@@ -128,6 +135,33 @@ def load_peers(session: Session, sector: str, exclude: str) -> list[PeerStats]:
         if stats and stats.get("sector") == sector and stats.get("symbol") != exclude:
             out.append(PeerStats.model_validate(stats))
     return out
+
+
+def load_events(
+    session: Session, iid: int, as_of: date, config: AppConfig
+) -> tuple[list[date] | None, list[str]]:
+    """(auditor resignation dates, recent red-flag events). Resignations are known ([] when
+    none) only when the stored announcement feeds reach back over the whole knock-out window
+    (``knockouts.auditor_resignation_years``); otherwise None, so the knock-out stays unknown."""
+    ec = config.jobs.event_classification
+    rows = session.execute(
+        select(Event.event_date, Event.title, Event.category, Event.red_flag)
+        .where(Event.instrument_id == iid,
+               (Event.category == ec.auditor_resignation) | Event.red_flag.is_(True))
+        .order_by(Event.event_date.desc())
+    ).all()  # fmt: skip
+    since = as_of - timedelta(days=ec.red_flag_days)
+    flags = [f"{title} ({day:%d %b %Y})" for day, title, _, red in rows
+             if red and day is not None and since <= day <= as_of]  # fmt: skip
+    found = sorted({day for day, _, cat, _ in rows
+                    if cat == ec.auditor_resignation and day is not None})  # fmt: skip
+    if found:
+        return found, flags
+    first = session.scalar(select(func.min(Event.event_date)).where(
+        Event.kind == EventKind.ANNOUNCEMENT))  # fmt: skip
+    years = config.scoring.knockouts.auditor_resignation_years
+    window_start = date(as_of.year - years, as_of.month, min(as_of.day, 28))
+    return ([] if first is not None and first <= window_start else None), flags
 
 
 def _series(rows: list[Any]) -> pd.Series | None:
@@ -206,6 +240,8 @@ def load_stock_data(
             notes.append(f"RS percentile from {snap[0]} is stale (prices to {last_day})")
 
     overrides = load_overrides(session, inst.id)
+    resignations, flags = load_events(session, inst.id, last_day, config)
+    issues = [issue_text(i) for i in open_issues(session, inst.id)]
     sector_key = overrides.sector or inst.sector or "default"
     if benchmark_close is None:
         benchmark_close = prices.close_series(session, config.jobs.universe_index)
@@ -234,4 +270,7 @@ def load_stock_data(
             "shareholding": shp_source,
         },
         notes=notes,
+        reconciliation_issues=issues,
+        event_red_flags=flags,
+        auditor_resignations=resignations,
     )

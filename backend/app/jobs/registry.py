@@ -4,8 +4,10 @@ from app.core.config import JobName
 from app.jobs.alerts import alerts_intraday
 from app.jobs.annual_reports import annual_reports
 from app.jobs.backtests import backtests
-from app.jobs.fundamentals import results_watch, shareholding
+from app.jobs.events import events, results_watch
+from app.jobs.fundamentals import results_backfill, shareholding
 from app.jobs.market import corporate_actions, eod_prices, index_constituents, nse_bhavcopy
+from app.jobs.reconcile import reconcile_job
 from app.jobs.reports import refresh_queue, valuation_scores
 from app.jobs.runner import JobSpec
 from app.jobs.symbols import symbol_master
@@ -26,7 +28,11 @@ REGISTRY: dict[JobName, JobSpec] = {
         JobSpec(JobName.ALERTS_INTRADAY, "Evaluate price alerts (market hours)", alerts_intraday),
         JobSpec(JobName.SHAREHOLDING, "Shareholding filings (in season)", shareholding),
         JobSpec(JobName.INDEX_CONSTITUENTS, "Index membership + instruments", index_constituents),
-        JobSpec(JobName.RESULTS_WATCH, "Flag new quarterly results (in season)", results_watch),
+        JobSpec(
+            JobName.RESULTS_BACKFILL,
+            "Results XBRL filings: list + download (backfill)",
+            results_backfill,
+        ),
         JobSpec(JobName.REFRESH_QUEUE, "Queued on-demand pipeline runs (fallback)", refresh_queue),
         JobSpec(JobName.BACKTESTS, "Run queued backtests (SPEC §11)", backtests),
         JobSpec(
@@ -35,5 +41,18 @@ REGISTRY: dict[JobName, JobSpec] = {
             annual_reports,
         ),
         JobSpec(JobName.SYMBOL_MASTER, "NSE/BSE/Fyers symbol master + aliases", symbol_master),
+        JobSpec(
+            JobName.RESULTS_WATCH,
+            "Results filings in the NSE/BSE feeds → pipelines + change notifications (§3.8)",
+            results_watch,
+        ),
+        JobSpec(
+            JobName.EVENTS,
+            "Announcements, pledge, SAST, insider trades, bulk/block deals",
+            events,
+        ),
+        JobSpec(
+            JobName.RECONCILE, "Cross-source checks of the latest periods (§3.9)", reconcile_job
+        ),
     )
 }

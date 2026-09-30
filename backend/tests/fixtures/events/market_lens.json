@@ -1,0 +1,8 @@
+{"data": [
+  {"periodEnd": "2024-03-31", "periodType": "Annual", "consolidation": "Consolidated",
+   "revenueFromOperations": "1,000.0", "ebitda": 210.5, "netProfit": 120, "cashFromOperatingActivities": null,
+   "totalAssets": "1500", "totalEquity": "-"},
+  {"periodEnd": "31-Mar-2024", "periodType": "Quarterly", "consolidation": "Standalone", "revenueFromOperations": 250},
+  {"periodEnd": "2023-03-31", "periodType": "Half-yearly??", "revenueFromOperations": 900},
+  {"periodEnd": null, "revenueFromOperations": 1}
+]}

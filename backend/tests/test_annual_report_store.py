@@ -148,7 +148,7 @@ def test_unreadable_report_fails_and_is_retried_up_to_max_attempts(env: Env) -> 
 
 def test_xbrl_figures_win_and_pdf_fills_the_rest(env: Env) -> None:
     xbrl_fy2024(env)
-    run(env, JobName.RESULTS_WATCH)
+    run(env, JobName.RESULTS_BACKFILL)
     list_fy2024(env)
     _ingest(env)
     xbrl_assets = items(env, StatementType.CONSOLIDATED, FY24, "total_assets")
@@ -174,7 +174,7 @@ def test_xbrl_arriving_later_replaces_pdf_values(env: Env) -> None:
     assert [r.source for r in items(env, StatementType.CONSOLIDATED, FY24, "total_assets")] == [
         PDF_SOURCE]  # fmt: skip
     xbrl_fy2024(env)
-    run(env, JobName.RESULTS_WATCH)
+    run(env, JobName.RESULTS_BACKFILL)
     assert [(r.value_inr, r.source, r.version) for r in
             items(env, StatementType.CONSOLIDATED, FY24, "total_assets")] == [
         (4500 * CR, "nse_xbrl", 1)]  # fmt: skip

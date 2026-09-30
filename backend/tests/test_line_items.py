@@ -86,7 +86,7 @@ def acme(env: Env) -> Env:
 
 
 def run(env: Env) -> None:
-    run_job(REGISTRY[JobName.RESULTS_WATCH], env.ctx, JobOptions(symbols=("ACME",)))
+    run_job(REGISTRY[JobName.RESULTS_BACKFILL], env.ctx, JobOptions(symbols=("ACME",)))
 
 
 def versions(env: Env, end: date, ptype: PeriodType, code: str) -> list[tuple[Any, ...]]:

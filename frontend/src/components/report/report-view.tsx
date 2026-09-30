@@ -12,9 +12,11 @@ import type { PipelineRun, PipelineStart, StockReport } from "@/lib/types";
 
 import { CoverageGrid } from "./coverage-grid";
 import { FundamentalsCharts } from "./fundamentals-charts";
+import { EventsCard } from "./events-card";
 import { DecisionPanel, FlagsPanel, ReportHeader } from "./panels";
 import { PipelineProgress } from "./pipeline-progress";
 import { PriceChart } from "./price-chart";
+import { ReconciliationBanner } from "./reconciliation-banner";
 import { Scorecard } from "./scorecard";
 import { ValuationPanel } from "./valuation-panel";
 import { ZoneGauge } from "./zone-gauge";
@@ -126,6 +128,7 @@ export function ReportView({ symbol }: { symbol: string }) {
       {report && (
         <>
           <ReportHeader report={report} onRun={setRun} />
+          <ReconciliationBanner symbol={report.symbol} />
           <Section title="Valuation zone">
             <ZoneGauge report={report} />
           </Section>
@@ -152,6 +155,9 @@ export function ReportView({ symbol }: { symbol: string }) {
               <FlagsPanel report={report} />
             </Section>
           </div>
+          <Section title="Corporate events">
+            <EventsCard symbol={report.symbol} />
+          </Section>
           <Section title="Fundamentals (10 years)">
             <FundamentalsCharts symbol={report.symbol} />
           </Section>

@@ -1,6 +1,6 @@
 """One results filing → fin_quarterly / fin_annual, recorded in the ``result_filings`` ledger.
 
-Shared by the ``results_watch`` job (documents listed and downloaded from NSE) and
+Shared by the ``results_backfill`` job (documents listed and downloaded from NSE) and
 ``POST /api/uploads/xbrl`` (a document from NSE's or BSE's website, uploaded by hand).
 """
 
@@ -20,7 +20,7 @@ from app.db.models import DataGap, ResultFiling
 from app.db.upsert import upsert
 from app.fundamentals.xbrl_map import get_xbrl_map
 
-# data_gaps.field of the gap left by results_watch's fallback (a quarter stored from yfinance
+# data_gaps.field of the gap left by results_backfill's fallback (a quarter stored from yfinance
 # while the exchange filing was unavailable); resolved once a filing is stored.
 FALLBACK_GAP_FIELD = "results_filing"
 

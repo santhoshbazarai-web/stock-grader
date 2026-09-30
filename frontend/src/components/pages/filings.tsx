@@ -1,7 +1,7 @@
 "use client";
 
 // Exchange results filings (XBRL): the primary source of fundamentals. The worker's
-// results_watch job lists and downloads each company's NSE filings; this card shows that
+// results_backfill job lists and downloads each company's NSE filings; this card shows that
 // ledger, retries failures, and takes XBRL documents uploaded by hand (e.g. from BSE).
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -167,7 +167,7 @@ export function Filings() {
         <CardTitle className="text-base">Results filings (exchange XBRL)</CardTitle>
         <CardDescription>
           Quarterly and annual results come from the XBRL filings companies make to NSE and BSE. The nightly
-          results_watch job downloads new ones and backfills ten years, a few hundred documents a night. Each
+          results_backfill job downloads new ones and backfills ten years, a few hundred documents a night. Each
           filing is dated by when the exchange published it, so backtests only see results that were public at the
           time. For a company or period the job can’t fetch, upload its XBRL documents from the NSE or BSE
           website.
@@ -182,7 +182,7 @@ export function Filings() {
           {rows == null ? (
             <p className="text-muted-foreground text-sm">Loading…</p>
           ) : rows.length === 0 ? (
-            <Empty>{status.length ? "No filings with this status." : "No filings yet: the results_watch job lists them on its first run."}</Empty>
+            <Empty>{status.length ? "No filings with this status." : "No filings yet: the results_backfill job lists them on its first run."}</Empty>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm tabular-nums" aria-label="Results filings">

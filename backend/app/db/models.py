@@ -37,7 +37,9 @@ from app.db.enums import (
     BacktestStatus,
     Broker,
     CorporateActionType,
+    EventKind,
     FilingStatus,
+    IssueStatus,
     JobStatus,
     LineStatement,
     PeriodType,
@@ -58,6 +60,7 @@ __all__ = [
     "CorporateAction",
     "DataGap",
     "DeliveryDaily",
+    "Event",
     "FinAnnual",
     "FinLineItem",
     "FinQuarterly",
@@ -68,6 +71,7 @@ __all__ = [
     "PdfLineCandidate",
     "PipelineRun",
     "PriceDaily",
+    "ReconciliationIssue",
     "Report",
     "ResultFiling",
     "Score",
@@ -613,9 +617,89 @@ class PipelineRun(TimestampMixin, Base):
     attempts: Mapped[int] = mapped_column(Integer, server_default="0")
     error: Mapped[str | None] = mapped_column(Text)
     report_as_of: Mapped[date | None]
+    # Results-triggered runs (SPEC §3.8): the filing, the previous report's grade / zone /
+    # action / FV (``baseline``) and whether the change notification went out.
+    context: Mapped[dict[str, Any] | None]
     started_at: Mapped[datetime | None]
     heartbeat_at: Mapped[datetime | None]
     finished_at: Mapped[datetime | None]
+
+
+class Event(Base):
+    """A corporate event from an exchange feed (SPEC v0.2 §3.8, §10 ``events``): announcements,
+    the board-meeting calendar, results filings, pledge / SAST / insider-trading disclosures
+    and bulk / block deals. ``source_id`` is the feed's own id (or a key built from the row), so
+    re-reading a feed never duplicates. Linked to an instrument by NSE symbol, ISIN, BSE code
+    or company name; unlinked rows (companies outside the master) are kept."""
+
+    __tablename__ = "events"
+    __upsert_key__ = ("exchange", "kind", "source_id")
+    __table_args__ = (
+        UniqueConstraint("exchange", "kind", "source_id"),
+        Index("ix_events_instrument", "instrument_id", "event_date"),
+        Index("ix_events_kind_disseminated", "kind", "disseminated_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    exchange: Mapped[str] = mapped_column(String(16))  # nse | bse
+    kind: Mapped[EventKind] = mapped_column(str_enum(EventKind))
+    source_id: Mapped[str] = mapped_column(String(200))
+    instrument_id: Mapped[int | None] = mapped_column(
+        ForeignKey("instruments.id", ondelete="SET NULL")
+    )
+    symbol: Mapped[str | None] = mapped_column(String(32))  # as the feed gave it
+    isin: Mapped[str | None] = mapped_column(String(12))
+    bse_code: Mapped[str | None] = mapped_column(String(16))
+    company: Mapped[str | None] = mapped_column(String(200))
+    title: Mapped[str] = mapped_column(Text)
+    detail: Mapped[str | None] = mapped_column(Text)
+    category: Mapped[str | None] = mapped_column(String(64))  # jobs.event_classification
+    red_flag: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    # Meeting date, deal date, results period end, disclosure date ... (the event's own date).
+    event_date: Mapped[date | None]
+    disseminated_at: Mapped[datetime | None]  # when the exchange published it
+    url: Mapped[str | None] = mapped_column(String(1024))  # attachment / document
+    data: Mapped[dict[str, Any] | None]  # structured fields (quantities, prices, parties, ...)
+    raw_path: Mapped[str | None] = mapped_column(String(512))  # the cached feed file (§3.2a)
+    # Results filings: when results_watch handled it, and the pipeline run it started (if any).
+    handled_at: Mapped[datetime | None]
+    pipeline_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("pipeline_runs.id", ondelete="SET NULL")
+    )
+    fetched_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class ReconciliationIssue(TimestampMixin, Base):
+    """A period where two sources disagree by more than ``reconciliation.tolerance_rel`` (SPEC
+    v0.2 §3.9). ``values`` holds every source's figure (₹); ``cause`` is the best explanation
+    found (units, consolidated/standalone mix-up, restatement) or None. An open issue lowers
+    the stock's valuation confidence and shows a banner on its page."""
+
+    __tablename__ = "reconciliation_issues"
+    __upsert_key__ = ("instrument_id", "period_end", "period_type", "item_code", "source")
+    __table_args__ = (
+        UniqueConstraint(*__upsert_key__, name="uq_reconciliation_issues_key"),
+        Index("ix_reconciliation_issues_status", "instrument_id", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    instrument_id: Mapped[int] = _instrument_fk()
+    period_end: Mapped[date]
+    period_type: Mapped[PeriodType] = mapped_column(str_enum(PeriodType))
+    basis: Mapped[StatementType] = mapped_column(str_enum(StatementType))
+    item_code: Mapped[str] = mapped_column(String(64))
+    source: Mapped[str] = mapped_column(String(32))  # the source that differs
+    reference_source: Mapped[str] = mapped_column(String(32))
+    reference_value_inr: Mapped[float]
+    value_inr: Mapped[float]
+    diff_rel: Mapped[float]
+    values: Mapped[dict[str, Any]]  # every source's figure for the item and period (₹)
+    cause: Mapped[str | None] = mapped_column(String(32))  # units | basis | restatement
+    reasons: Mapped[list[str]]
+    status: Mapped[IssueStatus] = mapped_column(str_enum(IssueStatus))
+    detected_at: Mapped[datetime]
+    checked_at: Mapped[datetime]
+    resolved_at: Mapped[datetime | None]
 
 
 class Report(ComputedMixin, Base):

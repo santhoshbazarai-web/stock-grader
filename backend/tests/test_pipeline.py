@@ -82,7 +82,8 @@ def test_run_with_failing_optional_steps_still_stores_a_report(seeded: Env) -> N
     # the fake providers have no data for SYNTH: stored bars are used, sources are warnings
     assert st["prices"][0] == "warning" and "using stored bars" in (st["prices"][1] or "")
     assert st["filings_index"] == ("warning", "NSE results list unavailable")
-    assert st["reconcile"][0] == "skipped"
+    # no exchange-filed figures for SYNTH: nothing to reconcile
+    assert st["reconcile"] == ("ok", "no exchange-filed figures to check")
     assert all(st[n][0] == "ok" for n in ("valuation", "scoring", "report"))
     assert st["scoring"][1] and st["scoring"][1].startswith("grade ")
     with seeded.session() as s:

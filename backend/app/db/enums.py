@@ -76,7 +76,7 @@ class FilingStatus(StrEnum):
 
     PENDING = "pending"  # listed by the exchange, not yet downloaded
     PARSED = "parsed"  # stored into fin_quarterly / fin_annual
-    FAILED = "failed"  # download or parse failed (retried up to results_watch.max_attempts)
+    FAILED = "failed"  # download or parse failed (retried up to results_backfill.max_attempts)
 
 
 class ReviewStatus(StrEnum):
@@ -120,3 +120,24 @@ class StepStatus(StrEnum):
     WARNING = "warning"  # finished, with something missing (listed in the report's data gaps)
     FAILED = "failed"
     SKIPPED = "skipped"
+
+
+class EventKind(StrEnum):
+    """A corporate event from an exchange feed (SPEC v0.2 §3.8, §10 ``events``)."""
+
+    ANNOUNCEMENT = "announcement"
+    BOARD_MEETING = "board_meeting"  # the calendar: a meeting date and its purpose
+    RESULTS = "results"  # a financial-results filing (NSE results feed, BSE "Result")
+    PLEDGE = "pledge"  # promoter pledge disclosure (SEBI SAST reg. 31)
+    SAST = "sast"  # substantial acquisition disclosure (SAST reg. 29)
+    INSIDER_TRADE = "insider_trade"  # PIT disclosure (SEBI PIT reg. 7)
+    BULK_DEAL = "bulk_deal"
+    BLOCK_DEAL = "block_deal"
+
+
+class IssueStatus(StrEnum):
+    """A cross-source reconciliation difference (SPEC v0.2 §3.9)."""
+
+    OPEN = "open"  # the sources disagree: lowers valuation confidence, banner on the stock page
+    RESOLVED = "resolved"  # a later check found them in agreement
+    IGNORED = "ignored"  # the owner dismissed it (explained); not counted

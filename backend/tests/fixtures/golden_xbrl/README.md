@@ -21,7 +21,7 @@ To fill an entry:
    includes the full year) as `<SYMBOL>/FY<year>_Q4_<basis>.xml`.
    - NSE: company page → Corporate Filings → Financial Results → the period → the XBRL link.
    - BSE: Corp Filings → Results → XBRL.
-   - The results_watch job also caches it under `data/raw/nse/...` once network access works.
+   - The results_backfill job also caches it under `data/raw/nse/...` once network access works.
 2. **Inspect it.** Run `python -m app.jobs xbrl-inspect <file>` and check it reads the
    expected contexts. Pre-2017 filings use the `pre_ind_as` tags in
    `app/fundamentals/xbrl_map.yaml`, which are still unverified: fix any wrong names there and

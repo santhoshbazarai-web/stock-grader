@@ -15,11 +15,14 @@ jobs:
     alerts_intraday: "*/5 9-15 * * mon-fri"  # the job itself trims to market hours (P14)
     shareholding: "30 20 * * *"              # runs only inside shareholding_season
     index_constituents: "0 7 1 * *"
-    results_watch: "0 21 * * *"              # XBRL results filings (all year; see results_watch)
+    results_backfill: "0 21 * * *"              # XBRL results filings (all year; see results_backfill)
     refresh_queue: "* * * * *"               # queued pipeline runs, if the worker loop missed any
     backtests: "* * * * *"                   # runs queued POST /api/backtests requests
     annual_reports: "30 22 * * 6"            # annual-report PDFs for BS/CF gaps (Saturdays)
     symbol_master: "15 7 * * *"              # NSE/BSE/Fyers symbol masters + aliases (daily)
+    results_watch: "*/15 7-22 * * *"         # results filings in the feeds → pipelines (§3.8)
+    events: "7,37 7-22 * * *"                # announcements, pledge, SAST, PIT, deals (§10)
+    reconcile: "0 23 * * *"                  # cross-source checks for the universe (§3.9)
   universe_index: NIFTY500    # symbols = current members of this index + watchlist
   constituent_indices: [NIFTY500, NIFTY50, NIFTYBANK, NIFTYIT, NIFTYPHARMA, NIFTYFMCG,
                         NIFTYAUTO, NIFTYMETAL, NIFTYREALTY]
@@ -46,10 +49,54 @@ jobs:
     stt_sell: 0.001
     execution_lag_days: 1     # signals use data to the rebalance close; trade N sessions later
     equity_curve_points: weekly
-  results_watch:              # exchange results filings (XBRL) → fin_quarterly / fin_annual
+  results_backfill:              # exchange results filings (XBRL) → fin_quarterly / fin_annual
     max_downloads_per_run: 300  # XBRL documents per run; a 10-year backfill spreads over nights
     index_recheck_days: 7       # outside results_season, re-read each symbol's filing list weekly
     max_attempts: 3             # a filing that fails to download/parse this often stays failed
+  results_watch:              # SPEC §3.8
+    feeds:                      # read every run; a new results filing for a universe stock → pipeline
+      nse: [results, board_meeting]
+      bse: [announcement]       # BSE's "Result" announcements are results filings
+    lookback_days: 2            # each run re-reads two days (late entries; rows are deduplicated)
+    board_meeting_days_ahead: 14
+    results_purposes: [financial result, results]   # board-meeting purposes meaning results
+    rerun_after_hours: 6        # the same results filed again (other basis, BSE) → no second run
+    notify:
+      fv_change_rel: 0.05       # notify when grade, zone or action changes, or FV moves > 5%
+  events:                     # SPEC §10: exchange event feeds → events table
+    feeds:
+      nse: [announcement, pledge, sast, insider_trade, bulk_deal, block_deal]
+    lookback_days: 2
+    first_run_days: 30
+    lock_wait_s: 900            # results_watch and events never read the exchanges at once
+  event_classification:       # category from an event's title + text; first match wins
+    categories:                 # a rule matches when all its (lower-case) words appear
+      auditor_resignation: [[auditor, resign], [auditor, cessation], [statutory auditor, vacat]]
+      credit_rating_downgrade: [[rating, downgrad], [rating, revised, negative]]
+      credit_rating: [[credit rating], [rating]]
+      default: [[default, payment], [delay, payment, interest], [default, loan]]
+      pledge_invocation: [[invocation], [invoked]]
+      results: [[financial result]]
+      board_meeting: [[board meeting]]
+      dividend: [[dividend]]
+      fund_raising: [[preferential], [qualified institutions placement], [rights issue], [fund rais]]
+      merger_acquisition: [[acquisition], [amalgamation], [merger], [scheme of arrangement]]
+      kmp_change: [[resign], [appointment], [cessation]]
+      litigation: [[litigation], [penalty], [show cause], [search and seizure]]
+      promoter_sale: [[promoter, sell], [promoter, sale]]
+    red_flags: [auditor_resignation, credit_rating_downgrade, default, pledge_invocation]
+    auditor_resignation: auditor_resignation
+    red_flag_days: 365          # red-flag events of the last year are listed in the report
+  reconciliation:             # SPEC §3.9
+    tolerance_rel: 0.02         # sources more than 2% apart → an issue
+    min_diff_inr: 5000000       # ... and more than ₹50 lakh (lakh vs crore rounding)
+    years: 3                    # the latest three fiscal years
+    quarters: 4                 # and the latest four quarters (P&L items)
+    items: [revenue, ebitda, pat, cfo, total_assets, total_equity]
+    sources: [nse_xbrl, annual_report_pdf, market_lens, yfinance]   # first with a value = reference
+    unit_factors: [100, 1000, 100000, 10000000]   # a ratio near one of these → units mix-up
+    exclude:                    # defined differently at the source: not compared
+      yfinance: [ebitda]        # yfinance EBITDA includes other income
   pipeline:                   # on-demand per-symbol pipeline (SPEC §3.7)
     poll_interval_s: 1          # the worker picks up a queued run within a second
     stale_after_s: 300          # no heartbeat for 5 min: the worker died, another resumes it

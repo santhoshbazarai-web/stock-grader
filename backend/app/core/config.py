@@ -31,6 +31,7 @@ from pydantic import (
 )
 
 from app.core.settings import get_settings
+from app.db.enums import EventKind
 
 Fraction = Annotated[float, Field(ge=0.0, le=1.0)]
 Score = Annotated[float, Field(ge=0.0, le=100.0)]
@@ -84,6 +85,7 @@ class Provider(StrEnum):
     NSE = "nse"
     SCREENER = "screener"
     BSE = "bse"
+    MARKET_LENS = "market_lens"  # NSE Market Lens (beta): reconciliation only, off by default
 
 
 class Dataset(StrEnum):
@@ -100,6 +102,8 @@ class Dataset(StrEnum):
     RESULTS_FILINGS = "results_filings"  # exchange results filings: index + XBRL documents
     ANNUAL_REPORTS = "annual_reports"  # annual-report list + PDF documents (gap filler)
     SYMBOL_MASTER = "symbol_master"  # NSE / BSE / Fyers masters + NSE symbol and name changes
+    EVENTS = "events"  # exchange feeds: announcements, results, board meetings, pledge, deals ...
+    REFERENCE_FINANCIALS = "reference_financials"  # other sources the reconciliation checks
 
 
 class RateLimit(_Strict):
@@ -226,6 +230,23 @@ class NseSymbolFilesConfig(_Strict):
     name_changes_path: str
 
 
+class NseEventsConfig(_Strict):
+    """Market-wide event feeds (SPEC v0.2 §3.8, §10 ``events``). The JSON paths are on
+    ``base_url`` and take ``from_date`` / ``to_date``; the bulk and block deal files are on
+    ``archives_url`` and hold the latest trading day only."""
+
+    announcements_path: str
+    board_meetings_path: str
+    results_path: str  # the market-wide results filing list (the per-symbol one is `results`)
+    results_periods: list[str] = Field(min_length=1)
+    pledge_path: str
+    sast_path: str  # SAST regulation 29 disclosures
+    pit_path: str  # insider-trading (PIT) disclosures
+    bulk_deals_path: str
+    block_deals_path: str
+    max_days_per_request: PositiveInt  # a longer window is read in pieces
+
+
 class NseConfig(_Strict):
     base_url: str
     archives_url: str
@@ -237,6 +258,7 @@ class NseConfig(_Strict):
     results: NseResultsConfig
     annual_reports: NseAnnualReportsConfig
     symbol_files: NseSymbolFilesConfig
+    events: NseEventsConfig
 
 
 class BseConfig(_Strict):
@@ -246,6 +268,27 @@ class BseConfig(_Strict):
     referer: str
     request_timeout_s: PositiveFloat
     scrip_master_path: str  # active equity scrips, relative to api_url
+    announcements_path: str  # corporate announcements (all companies), relative to api_url
+    announcements_max_pages: PositiveInt  # pages read per window (newest first)
+    results_categories: list[str]  # announcement categories that are results filings
+    attachment_url: str  # announcement PDFs: attachment_url + ATTACHMENTNAME
+
+
+class MarketLensConfig(_Strict):
+    """NSE Market Lens (beta): the JSON its page loads, read only by the reconciliation and only
+    when ``enabled`` (SPEC v0.2 §0, §3.2a). The shape is undocumented: every field name used is
+    here, so a change needs no code."""
+
+    enabled: bool
+    base_url: str
+    financials_path: str  # relative to base_url; ``{symbol}`` is replaced
+    request_timeout_s: PositiveFloat
+    records_key: str | None  # the list of periods inside the JSON (None: the JSON is the list)
+    period_end_field: str
+    period_type_field: str | None  # "quarter" / "year" words in it; None: all are years
+    basis_field: str | None  # "consolidated" / "standalone" words in it; None: consolidated
+    amount_unit_inr: PositiveFloat  # rupees per unit of the amounts (1e7: ₹ crore)
+    field_map: dict[str, str] = Field(min_length=1)  # item_code → JSON field
 
 
 class SearchConfig(_Strict):
@@ -274,6 +317,7 @@ class ProvidersConfig(_Strict):
     nse: NseConfig
     bse: BseConfig
     symbols: SymbolsConfig
+    market_lens: MarketLensConfig
     oauth_state_ttl_s: PositiveInt
     history_years: PositiveInt
 
@@ -405,6 +449,8 @@ class ZonesConfig(_Strict):
 class ConfidenceConfig(_Strict):
     low_if_method_cv_above: PositiveFloat
     medium_if_method_cv_above: PositiveFloat
+    # Open reconciliation issues (SPEC v0.2 §3.9) lower the confidence this many levels.
+    reconciliation_steps_down: Annotated[int, Field(ge=0, le=2)]
 
     @model_validator(mode="after")
     def _check(self) -> Self:
@@ -783,11 +829,14 @@ class JobName(StrEnum):
     ALERTS_INTRADAY = "alerts_intraday"
     SHAREHOLDING = "shareholding"
     INDEX_CONSTITUENTS = "index_constituents"
-    RESULTS_WATCH = "results_watch"
+    RESULTS_BACKFILL = "results_backfill"
     REFRESH_QUEUE = "refresh_queue"
     BACKTESTS = "backtests"
     ANNUAL_REPORTS = "annual_reports"
     SYMBOL_MASTER = "symbol_master"
+    RESULTS_WATCH = "results_watch"
+    EVENTS = "events"
+    RECONCILE = "reconcile"
 
 
 class Season(_Strict):
@@ -828,8 +877,8 @@ class AlertsJobConfig(_Strict):
         return self
 
 
-class ResultsWatchJobConfig(_Strict):
-    """results_watch: ingest exchange results filings (XBRL) incrementally."""
+class ResultsBackfillJobConfig(_Strict):
+    """results_backfill: ingest exchange results filings (XBRL) incrementally."""
 
     max_downloads_per_run: PositiveInt  # XBRL documents per run; a backfill spreads over nights
     index_recheck_days: PositiveInt  # outside results season, re-read a symbol's list this often
@@ -846,6 +895,88 @@ class AnnualReportsJobConfig(_Strict):
     # the company files consolidated figures, else standalone).
     required_items: dict[Literal["bs", "cf"], list[str]]
     first_fiscal_year: PositiveInt  # NSE lists annual reports from about this year
+
+
+class EventClassificationConfig(_Strict):
+    """Event categories from an event's title and text (lower-cased). A category matches when
+    all words of any one of its rules appear; the first matching category (in file order) wins.
+    ``red_flags`` categories are shown as red flags; ``auditor_resignation`` events feed the
+    auditor knock-out."""
+
+    categories: dict[str, list[list[str]]] = Field(min_length=1)
+    red_flags: list[str]
+    auditor_resignation: str  # the category naming an auditor's resignation
+    red_flag_days: PositiveInt  # a red-flag event this recent is listed in the report
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        unknown = {*self.red_flags, self.auditor_resignation} - set(self.categories)
+        if unknown:
+            raise ValueError(f"categories not defined: {sorted(unknown)}")
+        for name, rules in self.categories.items():
+            if not rules or any(not r or any(not w.strip() for w in r) for r in rules):
+                raise ValueError(f"categories.{name}: every rule needs non-empty words")
+            if any(w != w.lower() for r in rules for w in r):
+                raise ValueError(f"categories.{name}: words must be lower case")
+        return self
+
+
+class EventsJobConfig(_Strict):
+    """events: market-wide exchange feeds → the events table (SPEC §10)."""
+
+    feeds: dict[Provider, list[EventKind]] = Field(min_length=1)
+    lookback_days: PositiveInt  # each run re-reads this many days (late and revised entries)
+    first_run_days: PositiveInt  # a feed never read before starts this far back
+    # events and results_watch never read the exchanges at the same time (SPEC §3.2a): one
+    # waits up to this long for the other to finish.
+    lock_wait_s: PositiveInt
+
+
+class ResultsNotifyConfig(_Strict):
+    fv_change_rel: Fraction  # fair value moved more than this (relative) → notify
+
+
+class ResultsWatchJobConfig(_Strict):
+    """results_watch: results filings in the exchange feeds → per-stock pipelines → change
+    notifications (SPEC v0.2 §3.8)."""
+
+    feeds: dict[Provider, list[EventKind]] = Field(min_length=1)
+    lookback_days: PositiveInt
+    board_meeting_days_ahead: Annotated[int, Field(ge=0)]  # the calendar window shown
+    results_purposes: list[str] = Field(min_length=1)  # board-meeting purposes meaning results
+    # Another filing of the same results (the other basis, BSE after NSE) within this many
+    # hours of a results run does not start another one.
+    rerun_after_hours: PositiveFloat
+    notify: ResultsNotifyConfig
+
+
+ReconSource = Literal["nse_xbrl", "annual_report_pdf", "yfinance", "market_lens"]
+
+
+class ReconciliationConfig(_Strict):
+    """Cross-source checks of each new period (SPEC v0.2 §3.9)."""
+
+    tolerance_rel: Fraction  # a difference above this (relative to the reference) is an issue
+    min_diff_inr: Annotated[float, Field(ge=0)]  # ... and above this many rupees (rounding)
+    years: PositiveInt  # the latest N fiscal years are checked
+    quarters: Annotated[int, Field(ge=0)]  # ... and the latest N quarters (P&L items)
+    items: list[str] = Field(min_length=1)
+    sources: list[ReconSource] = Field(min_length=2)  # the first with a value is the reference
+    unit_factors: list[Annotated[float, Field(gt=1)]]  # a ratio this close to one is "units"
+    # Items a source defines differently, so never compared (yfinance EBITDA includes other
+    # income; the canonical EBITDA excludes it).
+    exclude: dict[ReconSource, list[str]]
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        from app.data.canonical import fields_for
+
+        unknown = set(self.items) - set(fields_for("fin_annual"))
+        if unknown:
+            raise ValueError(f"items not in fin_annual: {sorted(unknown)}")
+        if len(set(self.sources)) != len(self.sources):
+            raise ValueError("sources lists a source twice")
+        return self
 
 
 class PipelineConfig(_Strict):
@@ -884,7 +1015,11 @@ class JobsConfig(_Strict):
     corporate_actions: CorporateActionsJobConfig
     alerts: AlertsJobConfig
     backtest: BacktestConfig
+    results_backfill: ResultsBackfillJobConfig
     results_watch: ResultsWatchJobConfig
+    events: EventsJobConfig
+    event_classification: EventClassificationConfig
+    reconciliation: ReconciliationConfig
     annual_reports: AnnualReportsJobConfig
     pipeline: PipelineConfig
     shareholding_season: Season

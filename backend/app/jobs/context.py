@@ -13,6 +13,7 @@ from app.data.providers.bse import build_bse_provider
 from app.data.providers.fyers import build_fyers_provider
 from app.data.providers.kite import build_kite_provider
 from app.data.providers.kite_instruments import RedisInstrumentStore
+from app.data.providers.market_lens import build_market_lens_provider
 from app.data.providers.nse import build_nse_provider
 from app.data.providers.screener_import import ScreenerProvider
 from app.data.providers.yf import build_yfinance_provider
@@ -45,6 +46,7 @@ def build_context(settings: Settings, config: AppConfig) -> JobContext:
         Provider.NSE: build_nse_provider(pc, limiter, raw_store),
         Provider.SCREENER: ScreenerProvider(session_factory),
         Provider.BSE: build_bse_provider(pc, limiter, raw_store),
+        Provider.MARKET_LENS: build_market_lens_provider(pc, limiter, raw_store),
     }
     providers = {k: v for k, v in candidates.items() if v is not None}
     gaps = DbGapRecorder(session_factory)

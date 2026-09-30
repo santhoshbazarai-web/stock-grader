@@ -104,6 +104,7 @@ export type StockReport = {
   red_flags: string[];
   data_gaps: string[];
   thesis: string | null;
+  reconciliation_issues?: string[]; // SPEC v0.2 §3.9 (absent in reports built before P21)
   provisional_grade: Grade | null;
   mos_grade: Grade | null;
   pillars: Pillar[];
@@ -631,4 +632,63 @@ export type PipelineStart = {
   reason: string;
   report_as_of: string | null;
   run: PipelineRun | null;
+};
+
+// ── corporate events + reconciliation (SPEC v0.2 §3.8-3.9; app/api/events.py) ──
+export type EventKind =
+  | "announcement"
+  | "board_meeting"
+  | "results"
+  | "pledge"
+  | "sast"
+  | "insider_trade"
+  | "bulk_deal"
+  | "block_deal";
+
+export type StockEvent = {
+  id: number;
+  exchange: string;
+  kind: EventKind;
+  category: string | null;
+  red_flag: boolean;
+  title: string;
+  detail: string | null;
+  event_date: string | null;
+  disseminated_at: string | null;
+  url: string | null;
+  data: Record<string, unknown> | null;
+};
+
+export type StockEvents = {
+  symbol: string;
+  upcoming: StockEvent[];
+  events: StockEvent[];
+};
+
+export type ReconciliationIssue = {
+  id: number;
+  period_end: string;
+  period_type: string;
+  basis: string;
+  item_code: string;
+  source: string;
+  reference_source: string;
+  value_inr: number;
+  reference_value_inr: number;
+  diff_rel: number;
+  values: Record<string, number>;
+  cause: "units" | "basis" | "restatement" | null;
+  reasons: string[];
+  status: "open" | "resolved" | "ignored";
+  detected_at: string;
+  checked_at: string;
+  resolved_at: string | null;
+};
+
+export type Reconciliation = {
+  symbol: string;
+  tolerance_rel: number;
+  checked_at: string | null;
+  open: ReconciliationIssue[];
+  closed: ReconciliationIssue[];
 };

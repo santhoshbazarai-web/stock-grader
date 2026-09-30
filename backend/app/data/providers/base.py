@@ -16,6 +16,7 @@ import pandas as pd
 
 from app.core.config import Provider
 from app.data.symbol_master import BseScrip, FyersSymbol, NameChange, NseListing, SymbolChange
+from app.db.enums import EventKind
 
 
 class ProviderError(Exception):
@@ -164,3 +165,28 @@ class FyersSymbolMasterProvider(Protocol):
     name: Provider
 
     def symbol_master(self) -> list[FyersSymbol]: ...
+
+
+# Corporate events and reconciliation (SPEC v0.2 §3.8, §3.9).
+
+
+@runtime_checkable
+class EventsProvider(Protocol):
+    """Market-wide exchange feeds. ``events`` returns the frame of ``app.data.events`` (with a
+    ``raw_path`` column: the cached file each row came from) for one feed and date window;
+    a feed the provider does not have raises :class:`ProviderUnavailable`."""
+
+    name: Provider
+
+    def events(self, kind: EventKind, start: date, end: date) -> pd.DataFrame: ...
+
+
+@runtime_checkable
+class ReferenceFinancialsProvider(Protocol):
+    """A source the reconciliation checks the filed figures against (never used for
+    analysis). Long frame: ``period_end`` (date), ``period_type`` (quarter | year),
+    ``basis`` (consolidated | standalone), ``item_code``, ``value_inr``."""
+
+    name: Provider
+
+    def reference_financials(self, symbol: str) -> pd.DataFrame: ...

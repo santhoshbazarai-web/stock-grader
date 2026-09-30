@@ -14,6 +14,7 @@ from sqlalchemy import Engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import Provider, load_config
+from app.data.events import EVENT_COLUMNS
 from app.data.gaps import DbGapRecorder
 from app.data.providers.base import ProviderUnavailable
 from app.data.providers.nse import ANNUAL_REPORT_COLUMNS, RESULTS_COLUMNS
@@ -29,6 +30,7 @@ from app.data.symbol_master import (
     parse_nse_name_changes,
     parse_nse_symbol_changes,
 )
+from app.db.enums import EventKind
 from app.db.models import Base
 from app.jobs.runner import JobContext
 from tests.conftest import REPO_CONFIG_DIR
@@ -93,6 +95,17 @@ class FakeNse:
     report_requests: list[str] = field(default_factory=list)
     # symbol master: file name (tests/fixtures/symbols) → text; a missing file is unavailable
     symbol_files: dict[str, str] = field(default_factory=dict)
+    # event feeds (SPEC §3.8): kind → frame (app.data.events columns); missing → no rows;
+    # a kind in feed_errors fails
+    feeds: dict[EventKind, pd.DataFrame] = field(default_factory=dict)
+    feed_errors: set[EventKind] = field(default_factory=set)
+    feed_requests: list[tuple[EventKind, date, date]] = field(default_factory=list)
+
+    def events(self, kind: EventKind, start: date, end: date) -> pd.DataFrame:
+        self.feed_requests.append((kind, start, end))
+        if kind in self.feed_errors:
+            raise ProviderUnavailable(f"{kind.value} feed blocked")
+        return self.feeds.get(kind, pd.DataFrame(columns=EVENT_COLUMNS))
 
     def results_filings(self, symbol: str) -> pd.DataFrame:
         self.filing_requests.append(symbol)
@@ -155,6 +168,13 @@ class FakeNse:
 class FakeBse:
     name: Provider = Provider.BSE
     scrips: list[BseScrip] | None = None
+    announcements: pd.DataFrame | None = None  # None: no rows
+
+    def events(self, kind: EventKind, start: date, end: date) -> pd.DataFrame:
+        if kind is not EventKind.ANNOUNCEMENT:
+            raise ProviderUnavailable("BSE: announcements only")
+        return self.announcements if self.announcements is not None else \
+            pd.DataFrame(columns=EVENT_COLUMNS)  # fmt: skip
 
     def scrip_master(self) -> list[BseScrip]:
         if self.scrips is None:
@@ -166,9 +186,10 @@ class FakeBse:
 class FakeQuarterly:
     name: Provider = Provider.YFINANCE
     frames: dict[str, pd.DataFrame] = field(default_factory=dict)
+    annual_frames: dict[str, pd.DataFrame] = field(default_factory=dict)
 
     def annual(self, symbol: str) -> pd.DataFrame:
-        return pd.DataFrame()
+        return self.annual_frames.get(symbol, pd.DataFrame())
 
     def quarterly(self, symbol: str) -> pd.DataFrame:
         return self.frames.get(symbol, pd.DataFrame())

@@ -23,7 +23,7 @@ Promoters / FIIs / DIIs / Public / No. of Shareholders) is parsed when present.
 The export does not say whether figures are consolidated or standalone, so the uploader must
 state it (rule 5: consolidated first; standalone is flagged when served).
 
-Exchange results filings (XBRL, ``results_watch``) are the primary source of fundamentals; an
+Exchange results filings (XBRL, ``results_backfill``) are the primary source of fundamentals; an
 upload never overwrites a period they stored, it only fills fields they lack (e.g. ``sga``) and
 periods they don't cover (history before XBRL filing began).
 """

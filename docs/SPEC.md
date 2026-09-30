@@ -195,7 +195,7 @@ Implementation notes (results XBRL, `data/xbrl.py`, `data/results_store.py`, `da
 - **Backtests:** `backtest/pit.py::versioned_frame` turns each period's line items into one row per date a figure became usable, carrying the latest version known by then, so a restatement is seen only from its own date (§3.6 step 2). Periods without line items keep their stored row.
 - **Announcement date (rule 4):** the exchange's dissemination time; at or after `available_after_ist` (the close) it counts from the next day. An uploaded document has no dissemination time, so its date is the board-meeting date + 1 day.
 - **Ingestion:** `result_filings` is the ledger (one row per document, pending → parsed / failed).
-  - `results_watch` re-reads every symbol's list in results season, or weekly (`index_recheck_days`) outside it.
+  - `results_backfill` re-reads every symbol's list in results season, or weekly (`index_recheck_days`) outside it.
   - It downloads at most `max_downloads_per_run` documents per run, newest period first, back to `providers.history_years`, and retries failures up to `max_attempts`.
   - Documents are fetched only over https from `xbrl_hosts`, capped at `max_xbrl_bytes`, and parsed with `defusedxml`.
   - A document naming another symbol, or with no stated basis, is refused (rule 5).
@@ -260,10 +260,11 @@ Implementation notes (`pipeline/runner.py`, `api/pipeline.py`, `pipeline_runs`; 
 - **Step 1 (fresh?):** the stored report is served without a run when it is at least as new as the stock's latest price bar, was built after the latest parsed filing (results XBRL or annual report), and is younger than `max_report_age_hours`. `force` (the "Refresh data" button) runs anyway. A symbol has at most one queued or running run; asking again joins it.
 - **Steps:** each step reuses the nightly job code for the one symbol.
   - Per-run budgets: `max_xbrl_downloads` and `max_annual_reports`; the nightly jobs fetch the rest.
-  - Filings index and XBRL parse are the two halves of `results_watch`.
+  - Filings index and XBRL parse are the two halves of `results_backfill`.
   - Technicals rank the stock's RS against the universe's latest stored snapshots, never against itself alone.
   - Metrics, valuation and scoring report from one report build, rebuilt after the technical step so the new RS percentile counts.
-  - Reconciliation is a skipped step until §3.9 is built.
+  - Shareholding & events stores the shareholding pattern. It reports the stock's events on file, which come from the market-wide feeds (§3.8), not a per-stock fetch.
+  - Reconciliation runs §3.9 for the stock. Open differences make it a warning.
   - Required steps: symbol (in the symbol master, once that is built), prices (stored bars suffice when the refresh fails), metrics, valuation, scoring, report.
 - **Optional-step failures:** a failed optional step is a warning. Its message is added to the report's `data_gaps` as "pipeline <step>: <message>", and the report is still built. A failed required step fails the run, and the steps after it are skipped.
 - **Resumable:** the worker claims a queued run with `FOR UPDATE SKIP LOCKED`.
@@ -281,9 +282,60 @@ Implementation notes (`pipeline/runner.py`, `api/pipeline.py`, `pipeline_runs`; 
   - When a new results filing appears for a universe stock, it enqueues that stock's pipeline.
 - Afterwards, the job compares the new report with the previous one. If the grade, zone, action or fair value changed by more than 5%, it creates a notification (in-app + Telegram), e.g. "XYZ Q2 results: Grade B→A, FV ₹1,240→₹1,390, zone Fair→Discount".
 
+Implementation notes (`jobs/events.py`, `data/events.py`, `data/event_store.py`, `reports/diff.py`; `jobs.yaml` → `results_watch`, `events`, `event_classification`):
+- **Feeds:** each job reads the `(provider, feed)` pairs in its `feeds` config.
+  - `results_watch` (every 15 min, 07:00–22:45) reads NSE's results-filing list (all companies), NSE board meetings and BSE announcements. BSE's `Result` category counts as a results filing.
+  - `events` (every 30 min, at :07 and :37) reads NSE announcements, pledges (SAST reg. 31), SAST reg. 29, PIT insider trades, and the bulk / block deal files on the archives host.
+  - Each run re-reads the last `lookback_days`; a feed never read starts `first_run_days` back.
+  - Rows are deduplicated on `(exchange, kind, source_id)`. The id is the feed's own id, else a hash of the fields that identify the row.
+- **§3.2a:** every raw response is cached before parsing.
+  - JSON feeds are read in windows of at most `max_days_per_request` days. BSE is paged, with a rate-limit token for each page after the first.
+  - The two jobs share a Redis lock (`job-lock:exchange-feeds`), so they never fetch from the exchanges at the same time. A job that waits more than `events.lock_wait_s` is recorded as skipped.
+  - A payload of an unknown shape is a provider error (after the raw file is cached), never partial data.
+- **Linking and classification:**
+  - Events are linked to an instrument by NSE symbol (including former symbols), ISIN, BSE code, then normalised company name. Unlinked events are kept.
+  - The category comes from keyword rules in `event_classification.categories`: the first category with a rule whose words all appear. `red_flags` lists the categories marked as red flags.
+  - Red-flag events of the last `red_flag_days` are listed in the report's `red_flags`.
+  - Auditor-resignation events feed the auditor knock-out. The owner's `auditor_resignations` override wins. "None on record" counts only once stored announcements reach back over the whole knock-out window; before that the check stays unknown.
+- **Triggering:** unhandled results events of the last `lookback_days` for universe stocks (Nifty 500 + watchlist) start a forced run with `trigger=results`.
+  - The run's `context` carries the previous report's summary (`baseline`) and a label such as "Q4 FY24 results".
+  - A second filing of the same results within `rerun_after_hours` (the other basis, or BSE after NSE) joins the recent run instead of starting another.
+  - Events are marked `handled_at` with the run they started or joined. Events of stocks outside the universe are marked handled without a run.
+- **Notification:** the pipeline's report step compares the new report with `baseline` (`reports/diff.py`) and notifies once per run, recording it in the run's `context`.
+  - It notifies when the grade, zone or action changed, or FV moved more than `results_watch.notify.fv_change_rel`.
+  - Title: "XYZ Q2 FY25 results: Grade B→A, FV ₹1,240→₹1,390, zone Fair→Discount". The FV is always shown.
+  - A stock's first report has nothing to compare against, so it never notifies.
+- **Calendar:** results board meetings from today to `board_meeting_days_ahead` are listed in the job's details and on the stock page's events card.
+- **API/UI:** `GET /api/stocks/{symbol}/events` returns upcoming board meetings plus the latest events. The stock page shows them in a "Corporate events" card.
+- **Unverified formats:** the field names follow NSE's and BSE's pages as of writing. The fixtures in `backend/tests/fixtures/events` are hand-written, not captured, because the build sandbox cannot reach the exchanges.
+
 ### 3.9 Reconciliation
 - For each new period, compare sales, EBITDA, PAT, CFO, total assets and equity across XBRL (NSE), XBRL (BSE), Market Lens (optional) and PDF (if present).
 - A difference above 2% creates a `reconciliation_issue`, lowers valuation confidence and shows a banner on the stock page. Common causes are a consolidated/standalone mix-up, units, or a restatement.
+
+Implementation notes (`fundamentals/reconcile.py` (pure), `data/reconcile_store.py`, `jobs/reconcile.py`; `jobs.yaml` → `reconciliation`):
+- **When:** as the pipeline's `reconcile` step, and nightly (`reconcile`, 23:00) for universe stocks with a results filing or annual report stored since the last successful run.
+- **Periods:** the latest `years` fiscal years and `quarters` quarters with exchange-filed figures, on the company's basis (consolidated when filed, rule 5). BS and CF items are compared for years only.
+- **Sources** (`sources`, in reference order; the first with a value is the reference):
+  - `nse_xbrl`: latest line-item versions, excluding summed quarters. EBITDA = PBT + interest + depreciation − other income, as in the canonical tables.
+  - `annual_report_pdf`: auto-accepted, accepted or corrected PDF values; values still in the review queue are not compared.
+  - `market_lens`: only when `providers.market_lens.enabled`.
+  - `yfinance`: its EBITDA includes other income, so it is not compared (`exclude`).
+  - BSE XBRL is not ingested yet, so it is not a source.
+- **Issue:** a source differing from the reference by more than `tolerance_rel` (2%) **and** `min_diff_inr` (₹50 lakh, the lakh-vs-crore rounding gap). Its cause is checked in this order:
+  - **units:** the ratio is within tolerance of 100, 1,000, 1 lakh or 1 crore, or their inverse.
+  - **basis:** the figure matches the reference source's other-basis figure.
+  - **restatement:** the figure matches a superseded version of the reference.
+  - otherwise **unexplained**.
+- **Lifecycle:** one row per (period, item, differing source).
+  - Re-checking updates an open issue.
+  - An issue the owner **ignored** stays ignored while both figures are unchanged, and reopens if they change.
+  - An open issue whose sources now agree is **resolved**.
+- **Effect:**
+  - Every open issue is listed in the report's `reconciliation_issues`.
+  - The valuation confidence drops `valuation.yaml` → `confidence.reconciliation_steps_down` levels (1, floored at low), with a reason in the valuation reasons.
+  - The stock page shows a banner with each difference, its likely cause and an Ignore button (`POST /api/stocks/{symbol}/reconciliation/{id}/ignore`, `/reopen`; `GET …/reconciliation`).
+- **Market Lens** (`data/providers/market_lens.py`): disabled by default. It reads the page's JSON with every field name in `providers.market_lens`. Periods whose type or basis is not recognised are skipped, and non-numeric values are left out (never 0).
 
 ### 3.10 Home deployment
 - Runs with Docker Desktop (WSL2 on Windows). `restart: unless-stopped` on all services, and Postgres data on a named volume with a nightly `pg_dump` to a separate drive.
@@ -703,9 +755,9 @@ Auth: a single user with a password login (NextAuth credentials or FastAPI sessi
 | `shareholding` | Daily 20:30 during filing season | New filings |
 | `index_constituents` | 1st of the month | Nifty 500 + sector index membership |
 | `symbol_master` | Daily 07:00 | Rebuild the ISIN-joined symbol master + aliases |
-| `results_watch` | Every 15 min, 07:00–23:00 | New results filings → per-stock pipeline → change notifications (§3.8) |
-| `events` | Every 30 min, 07:00–23:00 | Announcements, pledge/SAST, insider trades, bulk/block deals, ratings |
-| `reconcile` | After each pipeline | Cross-source checks (§3.9) |
+| `results_watch` | Every 15 min, 07:00–23:00 (implemented: 07:00–22:45) | New results filings → per-stock pipeline → change notifications (§3.8) |
+| `events` | Every 30 min, 07:00–23:00 (implemented: :07 and :37) | Announcements, pledge/SAST, insider trades, bulk/block deals, ratings |
+| `reconcile` | After each pipeline (a pipeline step) + nightly 23:00 for stocks with new filings | Cross-source checks (§3.9) |
 | `broker_token_check` | 08:45 weekdays | Telegram reminder if the Fyers token is expired |
 | `backup` | Daily 02:00 | pg_dump |
 | `catch_up` | On worker start | Run jobs missed while the machine was off |

@@ -29,11 +29,13 @@ from typing import Any
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
+from app.alerts.notify import notify
 from app.core.config import PipelineConfig
 from app.data import prices
 from app.db.enums import FilingStatus, PipelineStatus, StepStatus
 from app.db.models import (
     AnnualReport,
+    Event,
     Instrument,
     PipelineRun,
     PriceDaily,
@@ -45,6 +47,7 @@ from app.jobs.common import ensure_instruments
 from app.jobs.runner import JobContext, JobOptions, JobOutcome
 from app.reports.build import Built, build_report
 from app.reports.data import load_stock_data
+from app.reports.diff import change_message, report_changes, summary
 from app.reports.service import persist
 
 logger = logging.getLogger(__name__)
@@ -209,15 +212,44 @@ def _pdf_gap_fill(ctx: JobContext, st: State) -> StepResult:
 
 
 def _shareholding(ctx: JobContext, st: State) -> StepResult:
+    """Shareholding for the symbol. Corporate events come from market-wide feeds read by the
+    ``events`` / ``results_watch`` jobs (not per symbol): this step reports what is on file."""
     from app.jobs.fundamentals import shareholding
 
     outcome = shareholding(ctx, _opts(st.symbol))
     result = _job_result(outcome, st.symbol, "latest shareholding pattern stored")
-    return StepResult(result.status, result.message + "; corporate events arrive with P21")
+    since = ctx.today() - timedelta(days=ctx.config.jobs.event_classification.red_flag_days)
+    session = ctx.session_factory()
+    try:
+        n, flags = session.execute(
+            select(func.count(), func.count().filter(Event.red_flag.is_(True)))
+            .select_from(Event).join(Instrument, Instrument.id == Event.instrument_id)
+            .where(Instrument.symbol == st.symbol, Event.event_date >= since)
+        ).one()  # fmt: skip
+    finally:
+        session.close()
+    events = f"{n} corporate event(s) in the last year" + (f", {flags} red flag(s)" if flags
+                                                           else "")  # fmt: skip
+    return StepResult(result.status, f"{result.message}; {events}")
 
 
 def _reconcile(ctx: JobContext, st: State) -> StepResult:
-    return StepResult(StepStatus.SKIPPED, "cross-source reconciliation arrives with P21")
+    """SPEC §3.9: the latest periods across NSE XBRL, annual-report PDFs, yfinance and (when
+    enabled) Market Lens. Open issues lower the valuation confidence (in the report build)."""
+    from app.jobs.reconcile import reconcile_symbol
+
+    out = reconcile_symbol(ctx, st.symbol)
+    if not out["compared"]:
+        return StepResult(StepStatus.OK, out.get("note") or "only one source for the latest "
+                          "periods: nothing to compare")  # fmt: skip
+    msg = f"{out['compared']} figure(s) compared ({', '.join(out['sources'])})"
+    if out["unavailable"]:
+        msg += f"; unavailable: {', '.join(out['unavailable'])}"
+    if out["open"]:
+        return StepResult(StepStatus.WARNING, f"{msg}; {out['open']} difference(s) above "
+                          f"{ctx.config.jobs.reconciliation.tolerance_rel:.0%} (banner on the "
+                          "stock page)")  # fmt: skip
+    return StepResult(StepStatus.OK, f"{msg}; all agree")
 
 
 def _build(ctx: JobContext, st: State) -> Built:
@@ -278,17 +310,40 @@ def _scoring(ctx: JobContext, st: State) -> StepResult:
 
 
 def _report(ctx: JobContext, st: State) -> StepResult:
+    """Store the report. A results-triggered run (SPEC §3.8) then compares it with the report
+    before the run and notifies (in-app + Telegram) when grade, zone or action changed or FV
+    moved more than ``results_watch.notify.fv_change_rel``, once per run."""
     if st.built is None:
         st.built = _build(ctx, st)
+    report = st.built.report
+    msg = f"report stored (as of {report.as_of:%d %b %Y})"
     session = ctx.session_factory()
     try:
         persist(session, st.built)
-        session.execute(update(PipelineRun).where(PipelineRun.id == st.run_id)
-                        .values(report_as_of=st.built.report.as_of))  # fmt: skip
+        run = session.get(PipelineRun, st.run_id, with_for_update=True)
+        assert run is not None
+        run.report_as_of = report.as_of
+        context = dict(run.context or {})
+        if "baseline" in context and not context.get("notified"):
+            after = summary(report.model_dump(mode="json"))
+            before = context["baseline"]
+            changes = report_changes(
+                before, after, fv_change_rel=ctx.config.jobs.results_watch.notify.fv_change_rel
+            ) if before else []  # fmt: skip
+            if changes:
+                title, body = change_message(st.symbol, context.get("label"), changes, after)
+                notify(session, kind="results", title=title, body=body,
+                       notifier=ctx.notifier, symbol=st.symbol, price=report.cmp)  # fmt: skip
+                msg += f"; notified: {title}"
+            else:
+                msg += "; no grade, zone, action or FV change to notify" if before else \
+                    "; first report for the stock: nothing to compare"  # fmt: skip
+            context.update(notified=True, after=after, changes=[c.text for c in changes])
+            run.context = context
         session.commit()
     finally:
         session.close()
-    return StepResult(StepStatus.OK, f"report stored (as of {st.built.report.as_of:%d %b %Y})")
+    return StepResult(StepStatus.OK, msg)
 
 
 STEPS: tuple[StepDef, ...] = (

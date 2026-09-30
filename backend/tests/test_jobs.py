@@ -387,9 +387,9 @@ def test_shareholding_does_not_blank_other_sources(env: Env) -> None:
     assert row.filing_date == date(2024, 4, 19)
 
 
-def test_results_watch_falls_back_to_yfinance_with_first_seen_date(env: Env) -> None:
+def test_results_backfill_falls_back_to_yfinance_with_first_seen_date(env: Env) -> None:
     # No NSE results list for AAA (FakeNse raises) → the yfinance fallback (see
-    # test_results_watch.py for the XBRL path)
+    # test_results_backfill.py for the XBRL path)
     env.quarterly.frames["AAA"] = pd.DataFrame(
         {"revenue": [260.0, 270.0], "pat": [60.0, 64.0], "ebitda": [None, None]},
         index=pd.DatetimeIndex([pd.Timestamp("2023-12-31"), pd.Timestamp("2024-03-31")]),
@@ -402,7 +402,7 @@ def test_results_watch_falls_back_to_yfinance_with_first_seen_date(env: Env) -> 
                                   "source": "screener"}])  # fmt: skip
         s.commit()
 
-    record = run(env, JobName.RESULTS_WATCH, force=True, symbols=("AAA",))
+    record = run(env, JobName.RESULTS_BACKFILL, force=True, symbols=("AAA",))
 
     assert record.outcome.details["fallback_flagged"] == ["AAA"]
     with env.session() as s:
@@ -413,5 +413,5 @@ def test_results_watch_falls_back_to_yfinance_with_first_seen_date(env: Env) -> 
     assert (new.revenue, new.source, new.announcement_date) == (270.0, "yfinance", TODAY)
     assert "2024-03-31" in gap.reason
 
-    again = run(env, JobName.RESULTS_WATCH, force=True, symbols=("AAA",))
+    again = run(env, JobName.RESULTS_BACKFILL, force=True, symbols=("AAA",))
     assert again.outcome.details["fallback_flagged"] == []

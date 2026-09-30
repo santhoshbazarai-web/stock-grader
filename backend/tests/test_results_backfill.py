@@ -1,4 +1,4 @@
-"""results_watch: exchange results filings (XBRL) → fin tables, the ledger, merge precedence."""
+"""results_backfill: exchange results filings (XBRL) → fin tables, the ledger, merge precedence."""
 
 from datetime import date, datetime
 from pathlib import Path
@@ -70,7 +70,7 @@ def acme(env: Env) -> Env:
 
 
 def run(env: Env, **opts: Any):  # type: ignore[no-untyped-def]
-    return run_job(REGISTRY[JobName.RESULTS_WATCH], env.ctx, JobOptions(**opts))
+    return run_job(REGISTRY[JobName.RESULTS_BACKFILL], env.ctx, JobOptions(**opts))
 
 
 def ledger(env: Env) -> dict[str, ResultFiling]:
@@ -121,8 +121,8 @@ def test_reruns_are_incremental_and_failures_stop_after_max_attempts(acme: Env) 
 
 
 def test_download_budget_takes_the_newest_periods_first(acme: Env) -> None:
-    budget = acme.ctx.config.jobs.results_watch.model_copy(update={"max_downloads_per_run": 1})
-    jobs = acme.ctx.config.jobs.model_copy(update={"results_watch": budget})
+    budget = acme.ctx.config.jobs.results_backfill.model_copy(update={"max_downloads_per_run": 1})
+    jobs = acme.ctx.config.jobs.model_copy(update={"results_backfill": budget})
     acme.ctx.config = acme.ctx.config.model_copy(update={"jobs": jobs})
     rec = run(acme, symbols=("ACME",))
     assert acme.nse.document_requests == [Q2]  # Sep 2024 before Mar 2024 before Dec 2023

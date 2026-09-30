@@ -134,6 +134,14 @@ def confidence(values: list[float], config: ValuationConfig) -> tuple[Confidence
     return Confidence.HIGH, cv
 
 
+_LEVELS = (Confidence.HIGH, Confidence.MEDIUM, Confidence.LOW)
+
+
+def lower_confidence(conf: Confidence, steps: int) -> Confidence:
+    """``steps`` levels lower, never below low (reconciliation issues, SPEC v0.2 §3.9)."""
+    return _LEVELS[min(len(_LEVELS) - 1, _LEVELS.index(conf) + max(0, steps))]
+
+
 def blend(
     *,
     cmp: float,

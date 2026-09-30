@@ -12,14 +12,22 @@ is still the demo series. Intended for a local development database.
 import argparse
 import sys
 from collections import defaultdict
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import AppConfig, get_config
 from app.data import prices
-from app.db.enums import AliasKind, SymbolStatus
-from app.db.models import Instrument, PriceDaily, Symbol, SymbolAlias
+from app.db.enums import AliasKind, EventKind, IssueStatus, PeriodType, StatementType, SymbolStatus
+from app.db.models import (
+    Event,
+    Instrument,
+    PriceDaily,
+    ReconciliationIssue,
+    Symbol,
+    SymbolAlias,
+)
 from app.db.session import get_session_factory
 from app.db.upsert import upsert
 from app.devtools.synthetic import seed_company, seed_index
@@ -72,6 +80,7 @@ def seed(session: Session, config: AppConfig) -> list[str]:
         )
     session.commit()
     _seed_symbol_master(session)
+    _seed_events_and_issues(session)
     session.commit()
 
     # Two passes, as in the valuation_scores job, so relative valuation sees the peers.
@@ -123,7 +132,49 @@ def _seed_symbol_master(session: Session) -> None:
     upsert(session, SymbolAlias, aliases, update=[])
 
 
+def _seed_events_and_issues(session: Session) -> None:
+    """Synthetic corporate events (SPEC §3.8) for DEMOIT / DEMOCODE and one open
+    reconciliation issue (§3.9) for DEMOSOFT, so the events card and the banner can be seen."""
+    ids = dict(session.execute(select(Instrument.symbol, Instrument.id)
+                               .where(Instrument.symbol.like("DEMO%"))).all())  # fmt: skip
+    now = datetime.now(UTC)
+    today = now.date()
+    events = [  # (symbol, kind, days from today, title, category, red flag)
+        ("DEMOIT", EventKind.BOARD_MEETING, 6, "Board meeting: Financial Results", "board_meeting",
+         False),
+        ("DEMOIT", EventKind.BULK_DEAL, -2, "Bulk deal: DEMO FUND LLP bought 650,000 shares at "
+         "₹1,412.35", None, False),
+        ("DEMOIT", EventKind.ANNOUNCEMENT, -9, "Record date for final dividend", "dividend", False),
+        ("DEMOCODE", EventKind.ANNOUNCEMENT, -20, "Credit rating: long-term rating downgraded to "
+         "A- (Negative)", "credit_rating_downgrade", True),
+    ]  # fmt: skip
+    upsert(session, Event, [
+        {"exchange": "nse", "kind": kind, "source_id": f"demo:{sym}:{kind.value}:{i}",
+         "instrument_id": ids[sym], "symbol": sym, "isin": None, "bse_code": None,
+         "company": f"{sym.title()} Ltd (synthetic demo)",
+         "title": f"{title} (synthetic demo)", "detail": None, "category": category,
+         "red_flag": red, "event_date": today + timedelta(days=days),
+         "disseminated_at": now if days <= 0 else now - timedelta(days=5), "url": None,
+         "data": {"purpose": "Financial Results"} if kind is EventKind.BOARD_MEETING else None,
+         "raw_path": None, "fetched_at": now}
+        for i, (sym, kind, days, title, category, red) in enumerate(events)
+    ])  # fmt: skip
+    fy = date(today.year - (1 if today.month > 3 else 2), 3, 31)
+    upsert(session, ReconciliationIssue, [{
+        "instrument_id": ids["DEMOSOFT"], "period_end": fy, "period_type": PeriodType.YEAR,
+        "basis": StatementType.CONSOLIDATED, "item_code": "revenue", "source": "yfinance",
+        "reference_source": "nse_xbrl", "reference_value_inr": 1000e7, "value_inr": 820e7,
+        "diff_rel": 0.18, "values": {"nse_xbrl": 1000e7, "yfinance": 820e7}, "cause": "basis",
+        "reasons": [f"Sales (year to {fy:%d %b %Y}, consolidated): yfinance ₹820.00 cr vs NSE "
+                    "XBRL ₹1,000.00 cr, 18.0% apart (synthetic demo)",
+                    "yfinance matches the standalone figure (₹818.40 cr): consolidated / "
+                    "standalone mix-up"],
+        "status": IssueStatus.OPEN, "detected_at": now, "checked_at": now, "resolved_at": None,
+    }])  # fmt: skip
+
+
 def purge(session: Session, config: AppConfig) -> int:
+    session.execute(delete(Event).where(Event.source_id.like("demo:%")))
     session.execute(delete(Symbol).where(Symbol.isin.like("INE9DEMO%")))
     n = session.execute(delete(Instrument).where(Instrument.symbol.like("DEMO%"))).rowcount  # type: ignore[attr-defined]
     bench = config.jobs.universe_index

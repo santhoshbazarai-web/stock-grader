@@ -6,7 +6,7 @@ Order (SPEC §7.3 circularity):
     → earned premium → buy zone → decision.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 
 import pandas as pd
@@ -44,7 +44,7 @@ from app.scoring.knockouts import KnockoutInputs, KnockoutResult, knockouts
 from app.scoring.pillars import PillarInputs, PillarScore, non_valuation_pillars, valuation_pillar
 from app.technical.buy_zone import BuyZone, buy_zone
 from app.technical.engine import TechnicalAnalysis, analyze
-from app.valuation.blend import Valuation
+from app.valuation.blend import Valuation, lower_confidence
 
 # Which dataset a missing sub-metric / knock-out input comes from (for data_gaps rows).
 _GAP_DATASET: dict[str, Dataset] = {
@@ -347,7 +347,9 @@ def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> B
             as_of=as_of,
             pledge_pct=shp["pledge"],
             cfo_history=[_v(v) for v in cfo.tolist()] if len(cfo) else None,
-            auditor_resignations=data.overrides.auditor_resignations,
+            auditor_resignations=data.overrides.auditor_resignations
+            if data.overrides.auditor_resignations is not None
+            else data.auditor_resignations,
             on_asm_gsm=data.on_asm_gsm,
             mcap_cr=run.market_cap_cr,
             avg_traded_value_cr_20d=_avg_traded_value(
@@ -374,6 +376,16 @@ def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> B
 
     grading = resolve_grade(pillars, ko, valuation_for, sc)
     val = valuations.get("v")
+    if val is not None and data.reconciliation_issues:  # SPEC v0.2 §3.9
+        lowered = lower_confidence(val.confidence, vc.confidence.reconciliation_steps_down)
+        n = len(data.reconciliation_issues)
+        val = replace(val, confidence=lowered, reasons=[
+            *val.reasons,
+            f"{n} open reconciliation issue(s) across sources: confidence "
+            + (f"{val.confidence.value} → {lowered.value}" if lowered is not val.confidence
+               else f"stays {lowered.value}"),
+        ])  # fmt: skip
+    red_flags += [f"event: {f}" for f in data.event_red_flags]
     final = grading.final.grade
 
     # ── earned premium ──
@@ -590,6 +602,7 @@ def _assemble(
         red_flags=red_flags,
         data_gaps=sorted(set(data_gaps)),
         thesis=None,
+        reconciliation_issues=list(data.reconciliation_issues),
         provisional_grade=grading.provisional.grade.value if grading.provisional.grade else None,
         mos_grade=grading.mos_grade.value if grading.mos_grade else None,
         pillars=[_pillar_dto(p, float(weights[p.pillar.value])) for p in pillars.values()],

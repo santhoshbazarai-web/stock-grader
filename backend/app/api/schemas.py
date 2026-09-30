@@ -7,7 +7,15 @@ from fastapi import Path
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.core.config import GradeKey, ZoneKey
-from app.db.enums import AlertType, BacktestStatus, FilingStatus, JobStatus, ReviewStatus
+from app.db.enums import (
+    AlertType,
+    BacktestStatus,
+    EventKind,
+    FilingStatus,
+    IssueStatus,
+    JobStatus,
+    ReviewStatus,
+)
 from app.reports.dto import StockReport
 from app.reports.overrides import Overrides
 
@@ -456,3 +464,54 @@ class PipelineStart(BaseModel):
     reason: str
     report_as_of: date | None
     run: PipelineRunOut | None
+
+
+# ───────────── events and reconciliation (SPEC v0.2 §3.8-3.9) ─────────────
+
+
+class EventOut(BaseModel):
+    id: int
+    exchange: str
+    kind: EventKind
+    category: str | None
+    red_flag: bool
+    title: str
+    detail: str | None
+    event_date: date | None
+    disseminated_at: datetime | None
+    url: str | None
+    data: dict[str, Any] | None
+
+
+class StockEventsOut(BaseModel):
+    symbol: str
+    upcoming: list[EventOut] = Field(description="Board meetings from today on (the calendar)")
+    events: list[EventOut] = Field(description="Newest first, within `days`")
+
+
+class IssueOut(BaseModel):
+    id: int
+    period_end: date
+    period_type: str
+    basis: str
+    item_code: str
+    source: str
+    reference_source: str
+    value_inr: float
+    reference_value_inr: float
+    diff_rel: float
+    values: dict[str, float]
+    cause: Literal["units", "basis", "restatement"] | None
+    reasons: list[str]
+    status: IssueStatus
+    detected_at: datetime
+    checked_at: datetime
+    resolved_at: datetime | None
+
+
+class ReconciliationOut(BaseModel):
+    symbol: str
+    tolerance_rel: float
+    checked_at: datetime | None = Field(description="Last check of any figure (None: never)")
+    open: list[IssueOut] = Field(description="Lower the valuation confidence; the banner")
+    closed: list[IssueOut] = Field(description="Resolved or ignored, newest first")

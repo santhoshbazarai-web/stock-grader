@@ -1,0 +1,9 @@
+[
+  {"bm_symbol": "DEMOIT", "sm_name": "Demo Infotech Limited", "sm_isin": "INE9DEMO0001",
+   "bm_purpose": "Financial Results", "bm_desc": "To consider and approve the audited financial results for the quarter and year ended March 31, 2024",
+   "bm_date": "20-Jun-2024", "bm_timestamp": "10-Jun-2024 17:30:00", "attachment": "-"},
+  {"bm_symbol": "DEMOBANK", "sm_name": "Demo Bank Ltd.", "bm_purpose": "Fund Raising",
+   "bm_desc": "To consider raising of funds by way of QIP", "bm_date": "18-Jun-2024",
+   "bm_timestamp": "11-Jun-2024 09:00:00"},
+  {"bm_symbol": "DEMOIT", "bm_purpose": "Financial Results"}
+]

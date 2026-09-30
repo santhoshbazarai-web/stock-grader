@@ -109,12 +109,12 @@ Every listed company files its quarterly and annual results with NSE and BSE as 
 document (SEBI's Ind AS results format). These filings are the primary source of fundamentals;
 a Screener export is an optional top-up.
 
-- **Nightly job:** the worker's `results_watch` job reads each stock's filing list from NSE
+- **Nightly job:** the worker's `results_backfill` job reads each stock's filing list from NSE
   and downloads new documents into `fin_quarterly` / `fin_annual`.
   - Q4 filings also give the fiscal year's P&L, balance sheet and cash flow.
   - Download backlog lives in the `result_filings` table.
 - **Backfill:** 10 years of history take a few nights at `max_downloads_per_run` (300, in
-  `jobs.yaml`). To fetch one stock now: `python -m app.jobs run results_watch --symbols TCS`.
+  `jobs.yaml`). To fetch one stock now: `python -m app.jobs run results_backfill --symbols TCS`.
 - **Real announcement dates:** each filing is dated by when NSE published it. A filing
   published after the 15:30 close counts from the next day, so backtests only use results the
   market had seen.
@@ -200,6 +200,50 @@ shareholding → reconciliation → metrics → valuation → technicals → sco
 - **Nightly:** Nifty 500 reports are rebuilt every night (`valuation_scores`, 23:30), so they
   normally load instantly.
 
+## Results watch, corporate events and reconciliation
+
+- **`results_watch`** (every 15 min, 07:00–22:45 IST) reads the NSE results-filing list, the
+  NSE board-meeting calendar and BSE announcements (BSE's "Result" category is a results
+  filing).
+  - A new results filing for a universe stock (Nifty 500 + watchlist) starts that stock's
+    pipeline with `trigger=results`. That run carries the previous report's grade, zone,
+    action and FV.
+  - When the run's report step finds the grade, zone or action changed, or FV moved more than
+    5% (`jobs.yaml` → `results_watch.notify.fv_change_rel`), it creates a notification (in-app,
+    plus Telegram when configured). Example: "XYZ Q2 FY25 results: Grade B→A,
+    FV ₹1,240→₹1,390, zone Fair→Discount".
+  - A second filing of the same results (the other basis, or BSE after NSE) within
+    `rerun_after_hours` does not start another run.
+  - The job's details list the results board meetings expected over the next 14 days.
+- **`events`** (every 30 min, at :07 and :37) reads these NSE feeds: announcements, promoter
+  pledges, SAST reg. 29, insider trades (PIT), and the bulk / block deal files.
+  - Each event is linked to a stock by symbol, ISIN, BSE code or company name.
+  - It is classified by keyword rules (`jobs.yaml` → `event_classification`). Auditor
+    resignations, rating downgrades, defaults and pledge invocations are red flags.
+  - An auditor resignation feeds the auditor knock-out. Once the stored announcements cover
+    the whole knock-out window, "none on record" counts as clean rather than unknown.
+  - The stock page shows an **events card**: upcoming board meetings, then recent events.
+- **Fetching:** both jobs follow SPEC §3.2a. They take a shared Redis lock, so they never hit
+  the exchanges at the same time. Every raw feed file is cached under `data/raw/` before
+  parsing. They re-read the last `lookback_days` and dedupe on the feed's own ids.
+- **Reconciliation** (a pipeline step, plus nightly `reconcile` at 23:00 for stocks with new
+  filings) compares sales, EBITDA, PAT, CFO, total assets and equity for the latest 3 fiscal
+  years and 4 quarters.
+  - Sources: NSE XBRL (the reference), accepted annual-report PDF values, yfinance and, when
+    enabled, Market Lens.
+  - A difference over 2% (and over ₹50 lakh) becomes a `reconciliation_issue`, with a likely
+    cause: units, consolidated/standalone mix-up, or restatement.
+  - Open issues lower the valuation confidence by one level and show a banner on the stock
+    page. **Ignore** dismisses an issue you have explained; it stays ignored while the
+    figures are unchanged.
+- **Market Lens** (`providers.yaml` → `market_lens`) is off by default. Its JSON is
+  undocumented, so every field name is config. Check them against the page's own requests
+  before setting `enabled: true`.
+- **Untested against live feeds:** the parsers are tested on hand-written files in the
+  published shapes (`backend/tests/fixtures/events/README.md`), because NSE and BSE are
+  unreachable from the build environment. Run `python -m app.jobs run events` and
+  `python -m app.jobs run results_watch` once, and check their details.
+
 ## Symbol master and search
 
 The header search box finds a stock by NSE symbol ("HDFCBANK", or "hdfc bank"), BSE code
@@ -251,11 +295,14 @@ python -m app.jobs run eod_prices --symbols TCS,INFY     # one job now (add --fu
 python -m app.jobs run nse_bhavcopy --date 2024-03-28
 python -m app.jobs run shareholding --force              # ignore the filing-season window
 python -m app.jobs verify-adjustment --symbol INFY       # raw vs adjusted around splits/bonuses
-python -m app.jobs run results_watch --symbols TCS       # fetch a stock's results filings now
+python -m app.jobs run results_backfill --symbols TCS       # fetch a stock's results filings now
 python -m app.jobs xbrl-inspect filing.xml               # what the XBRL parser reads (no DB)
 python -m app.jobs xbrl-reparse --symbols TCS            # re-parse cached XBRL after a map change
 python -m app.jobs xbrl-coverage --symbols TCS,INFY      # fiscal years parsed per statement
 python -m app.jobs run symbol_master                     # NSE/BSE/Fyers symbol master + aliases
+python -m app.jobs run results_watch                     # results filings in the feeds → pipelines
+python -m app.jobs run events                            # announcements, pledge, SAST, PIT, deals
+python -m app.jobs run reconcile --symbols TCS           # cross-source checks for one stock
 python -m app.jobs pipeline-worker                       # only the on-demand pipeline loop (dev)
 python -m app.jobs run annual_reports --symbols TCS      # annual-report PDFs for BS/CF gap years
 python -m app.jobs pdf-inspect report.pdf --fy 2014      # what the PDF reader finds (no DB)
@@ -268,8 +315,10 @@ Prices are stored raw and split/bonus-adjusted (`adj_*`, `data/adjust.py`); adju
 recomputed whenever new bars or corporate actions arrive. `valuation_scores` builds every
 report in two passes: the first collects each stock's multiples as sector peers, the second
 builds the reports. `refresh_queue` is the fallback for on-demand pipeline runs (below).
-`backtests` runs queued backtest requests (below). `results_watch` ingests exchange results
+`backtests` runs queued backtest requests (below). `results_backfill` ingests exchange results
 filings, and `annual_reports` reads annual-report PDFs for the years they lack (above).
+`results_watch`, `events` and `reconcile` are described under "Results watch, corporate events
+and reconciliation".
 
 ## API
 
@@ -291,6 +340,9 @@ curl -H "Authorization: Bearer $TOKEN" localhost:8000/api/stocks/TCS/report
 | `POST /api/stocks/{symbol}/refresh` | Start (or join) a forced pipeline run: re-fetch the stock's data and rebuild |
 | `POST /api/pipeline`, `GET /api/pipeline[/{id}]` | On-demand pipeline: fresh report → no run; else a run to follow |
 | `GET /api/pipeline/{id}/events` | Server-Sent Events: live progress of a run |
+| `GET /api/stocks/{symbol}/events` | Corporate events: upcoming board meetings and recent events (`kinds`, `days`) |
+| `GET /api/stocks/{symbol}/reconciliation` | Open and closed cross-source differences (the banner) |
+| `POST /api/stocks/{symbol}/reconciliation/{id}/ignore` \| `/reopen` | Dismiss an explained difference, or reopen it |
 | `GET /api/stocks/{symbol}/valuation/sensitivity` | DCF WACC × terminal-growth grid |
 | `GET/POST/DELETE /api/stocks/{symbol}/overrides` | User assumptions and manual inputs; POST recomputes |
 | `GET /api/screener` | Filter by grade / zone / sector / action / EP / buy-zone distance / mcap, and sort |
@@ -394,7 +446,11 @@ through a same-origin `/api` proxy in Next.js, so the session cookie works witho
 - **Scorecard:** a six-pillar radar plus expandable sub-metrics, each with its reason.
 - **Decision:** the reasons, earned-premium conditions, "why is it cheap?" / value-trap
   checklists and a technical summary.
+- **Reconciliation banner:** shown when sources disagree on a filed figure (above), with the
+  likely cause and an Ignore button.
 - **Red flags and data gaps.**
+- **Corporate events:** upcoming board meetings and the latest announcements, results,
+  pledge / SAST / insider-trading disclosures and bulk / block deals; red flags are marked.
 - **10-year fundamentals:** small multiples for sales, EBITDA, PAT, CFO, FCF, ROCE and CCC,
   plus the shareholding trend. Each chart has a table view.
 - **Data coverage:** fiscal years × P&L / BS / CF per basis, each cell labelled and coloured
@@ -416,7 +472,9 @@ They are clearly synthetic: names end in "(synthetic demo)" and prices have `sou
 synthetic NIFTY500 is written only when no NIFTY500 prices exist, and it is purged with the
 demo. The demo also adds symbol-master entries with made-up ISINs (`INE9DEMO…`) and BSE codes
 (`990001`–`990006`), a former name and symbol for DEMOIT ("Demo Infotech Systems", `DEMOINFO`),
-and a BSE-only company (`990099`), so search can be tried.
+and a BSE-only company (`990099`), so search can be tried. DEMOIT and DEMOCODE get a few
+synthetic corporate events, and DEMOSOFT gets one open reconciliation issue, so the events card
+and the banner can be seen.
 
 **UI tests.** With the stack running (API, web and `python -m app.jobs pipeline-worker`,
 or the worker) and demo data seeded, run `E2E_PASSWORD=<APP_PASSWORD> make e2e`. Playwright covers:

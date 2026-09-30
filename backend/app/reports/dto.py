@@ -180,6 +180,10 @@ class StockReport(_Dto):
     red_flags: list[str]
     data_gaps: list[str]
     thesis: str | None = None
+    reconciliation_issues: list[str] = Field(
+        default_factory=list,
+        description="Open cross-source differences (SPEC §3.9); they lower the confidence",
+    )
     # ── detail ──
     provisional_grade: str | None
     mos_grade: str | None

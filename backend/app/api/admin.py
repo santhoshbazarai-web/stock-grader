@@ -134,7 +134,7 @@ def upload_xbrl(
     ],
     symbol: Annotated[str, Form(pattern=SYMBOL_PATTERN)],
 ) -> XbrlUploadSummary:
-    """Import exchange results filings by hand, for filings the ``results_watch`` job cannot
+    """Import exchange results filings by hand, for filings the ``results_backfill`` job cannot
     download (e.g. BSE-only companies, or while NSE is unreachable). Each document is parsed
     like a downloaded one; its basis (standalone / consolidated) and period come from the
     document. With no dissemination time, the announcement date is the board-meeting date +
@@ -187,7 +187,7 @@ def list_filings(
     status_: Annotated[FilingStatus | None, Query(alias="status")] = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
 ) -> list[ResultFilingOut]:
-    """The exchange results filings ledger (``results_watch`` and XBRL uploads), most
+    """The exchange results filings ledger (``results_backfill`` and XBRL uploads), most
     recently updated first."""
     q = (
         select(ResultFiling, Instrument.symbol)
@@ -252,7 +252,7 @@ def filings_summary(session: SessionDep) -> FilingsSummary:
     responses={404: {"description": "Not found"}, 409: {"description": "Uploaded file"}},
 )
 def retry_filing(filing_id: int, session: SessionDep) -> ResultFilingOut:
-    """Put a failed exchange filing back in the queue: ``results_watch`` downloads it again on
+    """Put a failed exchange filing back in the queue: ``results_backfill`` downloads it again on
     its next run (attempts restart at 0). Uploaded files cannot be re-downloaded: upload again."""
     row = session.get(ResultFiling, filing_id)
     if row is None:

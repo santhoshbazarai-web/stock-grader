@@ -40,15 +40,18 @@ from app.data.providers.base import (
     ConstituentsProvider,
     CorporateActionsProvider,
     DeliveryProvider,
+    EventsProvider,
     FundamentalsProvider,
     IndexPriceProvider,
     PriceProvider,
     ProviderError,
     ProviderUnavailable,
+    ReferenceFinancialsProvider,
     ResultsFilingsProvider,
     ShareholdingProvider,
     SurveillanceProvider,
 )
+from app.db.enums import EventKind
 
 logger = logging.getLogger(__name__)
 
@@ -256,6 +259,32 @@ class DataRouter:
             ResultsFilingsProvider,
             lambda p: p.results_document(url),
             symbol=symbol,
+            record_gap=False,
+        )
+
+    def events(
+        self, provider: Provider, kind: EventKind, start: date, end: date
+    ) -> RouteResult[pd.DataFrame]:
+        """One exchange feed from one provider (every provider's feeds are read, so this is
+        not a fallback chain). No data gap: the events / results_watch jobs report failures."""
+        return self.fetch(
+            Dataset.EVENTS,
+            EventsProvider,
+            lambda p: p.events(kind, start, end),
+            symbol=None,
+            providers=[provider],
+            record_gap=False,
+        )
+
+    def reference_financials(self, provider: Provider, symbol: str) -> RouteResult[pd.DataFrame]:
+        """A reconciliation-only source's figures (SPEC §3.9); failures are reported by the
+        reconciliation, not recorded as data gaps."""
+        return self.fetch(
+            Dataset.REFERENCE_FINANCIALS,
+            ReferenceFinancialsProvider,
+            lambda p: p.reference_financials(symbol),
+            symbol=symbol,
+            providers=[provider],
             record_gap=False,
         )
 

@@ -74,4 +74,6 @@ def test_spec_tables_present() -> None:
         "symbols",  # SPEC v0.2 §3.4-3.5: ISIN symbol master
         "symbol_aliases",
         "pipeline_runs",  # SPEC v0.2 §3.4, §3.7: on-demand pipeline progress
+        "events",  # SPEC v0.2 §3.4, §3.8: exchange event feeds
+        "reconciliation_issues",  # SPEC v0.2 §3.9: cross-source differences
     } == MODEL_TABLES

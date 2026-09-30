@@ -1,4 +1,4 @@
-"""Filing jobs: shareholding, results_watch (exchange results XBRL)."""
+"""Filing jobs: shareholding, results_backfill (exchange results XBRL)."""
 
 import logging
 from datetime import date, datetime
@@ -66,7 +66,7 @@ def shareholding(ctx: JobContext, options: JobOptions) -> JobOutcome:
     return JobOutcome(written, {"failed": failed})
 
 
-def results_watch(ctx: JobContext, options: JobOptions) -> JobOutcome:
+def results_backfill(ctx: JobContext, options: JobOptions) -> JobOutcome:
     """Exchange results filings (XBRL) → fin_quarterly / fin_annual (replaces Screener uploads).
 
     1. **List.** Read each symbol's filing list from NSE and add unseen documents to the
@@ -81,7 +81,7 @@ def results_watch(ctx: JobContext, options: JobOptions) -> JobOutcome:
        the ``fin_quarterly`` providers (yfinance) with ``announcement_date`` = the day first
        seen — never earlier than the real one — and a data gap until its filing is stored.
     """
-    jcfg = ctx.config.jobs.results_watch
+    jcfg = ctx.config.jobs.results_backfill
     today = ctx.today()
     in_season = ctx.config.jobs.results_season.contains(today.month, today.day)
     recheck_all = in_season or options.force or bool(options.symbols)
@@ -106,10 +106,10 @@ def results_watch(ctx: JobContext, options: JobOptions) -> JobOutcome:
 def list_results(
     ctx: JobContext, symbols: list[str], *, recheck_all: bool, fallback: bool
 ) -> dict[str, Any]:
-    """Step 1 of results_watch: read each symbol's NSE filing list into the ledger (outside
+    """Step 1 of results_backfill: read each symbol's NSE filing list into the ledger (outside
     ``recheck_all``, a symbol at most every ``index_recheck_days``). With ``fallback``, a symbol
     whose list can't be read gets new quarters from yfinance, flagged as a data gap."""
-    jcfg = ctx.config.jobs.results_watch
+    jcfg = ctx.config.jobs.results_backfill
     today = ctx.today()
     oldest = cutoff(today, ctx.config.providers.history_years)
     listed, index_failed, fallback_written, flagged = 0, [], 0, []
@@ -133,9 +133,9 @@ def list_results(
 
 
 def download_results(ctx: JobContext, symbols: list[str], *, limit: int) -> dict[str, Any]:
-    """Step 2 of results_watch: download and store pending documents (and failed ones below
+    """Step 2 of results_backfill: download and store pending documents (and failed ones below
     ``max_attempts``), newest period first, at most ``limit``."""
-    jcfg, ncfg = ctx.config.jobs.results_watch, ctx.config.providers.nse.results
+    jcfg, ncfg = ctx.config.jobs.results_backfill, ctx.config.providers.nse.results
     downloaded, parsed, failed = 0, 0, {}
     session = ctx.session_factory()
     try:

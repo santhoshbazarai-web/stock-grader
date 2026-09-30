@@ -20,7 +20,7 @@ import logging
 import re
 import time
 from collections.abc import Callable
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
@@ -31,6 +31,17 @@ import requests
 from app.core.config import NseConfig, Provider, ProvidersConfig
 from app.core.rate_limiter import Limiter
 from app.data.canonical import labels_for, pick
+from app.data.events import (
+    EVENT_COLUMNS,
+    EventFormatError,
+    parse_nse_announcements,
+    parse_nse_board_meetings,
+    parse_nse_deals,
+    parse_nse_pit,
+    parse_nse_pledges,
+    parse_nse_results_feed,
+    parse_nse_sast,
+)
 from app.data.providers.base import ProviderError, ProviderUnavailable
 from app.data.raw_store import RawStore, RawStoreError
 from app.data.symbol_master import (
@@ -43,7 +54,7 @@ from app.data.symbol_master import (
     parse_nse_symbol_changes,
 )
 from app.data.xbrl import audited_from_text, statement_type_from_text
-from app.db.enums import CorporateActionType, SurveillanceList
+from app.db.enums import CorporateActionType, EventKind, SurveillanceList
 
 logger = logging.getLogger(__name__)
 
@@ -491,7 +502,7 @@ def _int(value: Any) -> int | None:
 class NseProvider:
     """Implements DeliveryProvider, ConstituentsProvider, SurveillanceProvider,
     CorporateActionsProvider, ShareholdingProvider, ResultsFilingsProvider,
-    AnnualReportsProvider and NseSymbolFilesProvider."""
+    AnnualReportsProvider, NseSymbolFilesProvider and EventsProvider."""
 
     name = Provider.NSE
 
@@ -628,6 +639,70 @@ class NseProvider:
             raise ProviderUnavailable(f"annual report larger than {cfg.max_bytes} bytes")
         return resp.content
 
+    # ───────────── event feeds (SPEC §3.8, §10 events) ─────────────
+
+    def _cache(self, name: str, content: bytes) -> str | None:
+        """Cache before parsing (§3.2a); the path relative to the cache root."""
+        if self._raw is None:
+            return None
+        try:
+            return self._raw.relative(self._raw.save("nse", name, content))
+        except RawStoreError as exc:
+            raise ProviderUnavailable(str(exc)) from exc
+
+    def events(self, kind: EventKind, start: date, end: date) -> pd.DataFrame:
+        """One market-wide feed for [start, end]: JSON feeds in windows of at most
+        ``events.max_days_per_request`` days; the bulk / block deal files (latest trading day
+        only) ignore the window."""
+        self._http.begin_call()
+        cfg = self._cfg.events
+        if kind in (EventKind.BULK_DEAL, EventKind.BLOCK_DEAL):
+            path = cfg.bulk_deals_path if kind is EventKind.BULK_DEAL else cfg.block_deals_path
+            resp = self._http.get(f"{self._cfg.archives_url}{path}")
+            if resp is None:
+                raise ProviderError(f"NSE {path} not found")
+            raw = self._cache(f"{kind.value}.csv", resp.content)
+            try:
+                df = parse_nse_deals(resp.content.decode("utf-8", errors="replace"), kind)
+            except EventFormatError as exc:
+                raise ProviderError(f"NSE {kind.value}: {exc}") from exc
+            df["raw_path"] = raw
+            return df
+        paths: dict[EventKind, str] = {
+            EventKind.ANNOUNCEMENT: cfg.announcements_path,
+            EventKind.BOARD_MEETING: cfg.board_meetings_path,
+            EventKind.RESULTS: cfg.results_path,
+            EventKind.PLEDGE: cfg.pledge_path,
+            EventKind.SAST: cfg.sast_path,
+            EventKind.INSIDER_TRADE: cfg.pit_path,
+        }
+        frames, warnings = [], []
+        periods = cfg.results_periods if kind is EventKind.RESULTS else [None]
+        for lo, hi in _windows(start, end, cfg.max_days_per_request):
+            for period in periods:
+                params = {"index": "equities", "from_date": f"{lo:%d-%m-%Y}",
+                          "to_date": f"{hi:%d-%m-%Y}"}  # fmt: skip
+                if period is not None:
+                    params["period"] = period
+                payload = self._http.get_json(f"{self._cfg.base_url}{paths[kind]}", params)
+                if payload is None:
+                    continue
+                raw = self._cache(f"{kind.value}_{lo:%Y%m%d}_{hi:%Y%m%d}{'_' + period if period
+                                   else ''}.json", json.dumps(payload).encode())  # fmt: skip
+                try:
+                    df = _parse_feed(kind, payload, self._cfg.results.xbrl_hosts)
+                except EventFormatError as exc:
+                    raise ProviderError(f"NSE {kind.value}: {exc}") from exc
+                df["raw_path"] = raw
+                warnings += df.attrs.get("warnings", [])
+                frames.append(df)
+        if not frames:
+            return pd.DataFrame(columns=[*EVENT_COLUMNS, "raw_path"])
+        out = pd.concat(frames, ignore_index=True).drop_duplicates(["kind", "source_id"],
+                                                                   ignore_index=True)  # fmt: skip
+        out.attrs["warnings"] = warnings[:50]
+        return out
+
     # ───────────── symbol master (SPEC §3.5) ─────────────
 
     def _archive_text(self, path: str, name: str) -> str:
@@ -664,6 +739,30 @@ class NseProvider:
             return parse_nse_name_changes(text)
         except MasterFormatError as exc:
             raise ProviderError(str(exc)) from exc
+
+
+def _windows(start: date, end: date, days: int) -> list[tuple[date, date]]:
+    """[start, end] in consecutive pieces of at most ``days`` days, newest first."""
+    out, hi = [], end
+    while hi >= start:
+        lo = max(start, hi - timedelta(days=days - 1))
+        out.append((lo, hi))
+        hi = lo - timedelta(days=1)
+    return out
+
+
+def _parse_feed(kind: EventKind, payload: Any, hosts: list[str]) -> pd.DataFrame:
+    if kind is EventKind.ANNOUNCEMENT:
+        return parse_nse_announcements(payload)
+    if kind is EventKind.BOARD_MEETING:
+        return parse_nse_board_meetings(payload)
+    if kind is EventKind.RESULTS:
+        return parse_nse_results_feed(payload, hosts)
+    if kind is EventKind.PLEDGE:
+        return parse_nse_pledges(payload)
+    if kind is EventKind.SAST:
+        return parse_nse_sast(payload)
+    return parse_nse_pit(payload)
 
 
 def build_nse_provider(

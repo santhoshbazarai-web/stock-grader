@@ -48,3 +48,4 @@ valuation:
   confidence:
     low_if_method_cv_above: 0.35
     medium_if_method_cv_above: 0.20
+    reconciliation_steps_down: 1   # open reconciliation issues (SPEC §3.9): one level lower

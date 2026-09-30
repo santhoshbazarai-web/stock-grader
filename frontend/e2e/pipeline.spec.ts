@@ -29,9 +29,10 @@ test("refresh runs the pipeline with live progress and swaps in the new report",
   await expect(
     steps.getByRole("listitem", { name: "Valuation: ok" }),
   ).toContainText("fair value ₹");
+  // demo stocks have no exchange XBRL figures: nothing to reconcile (SPEC §3.9)
   await expect(
-    steps.getByRole("listitem", { name: "Reconciliation: skipped" }),
-  ).toBeVisible();
+    steps.getByRole("listitem", { name: "Reconciliation: ok" }),
+  ).toContainText("no exchange-filed figures to check");
   // optional steps without data (no network in the test stack) are warnings …
   await expect(
     steps.getByRole("listitem", { name: "Filings index: warning" }),

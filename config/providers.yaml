@@ -11,17 +11,20 @@ providers:
     shareholding:       [nse, screener]
     fin_annual:         [screener, yfinance]
     fin_quarterly:      [screener, yfinance]
-    results_filings:    [nse]       # results filing list + XBRL documents (results_watch)
+    results_filings:    [nse]       # results filing list + XBRL documents (results_backfill)
     annual_reports:     [nse]       # annual-report list + PDFs: balance sheet / cash flow gap filler
     symbol_master:      [nse, bse, fyers]  # all three are read and joined on ISIN (symbol_master)
     index_constituents: [nse]
     surveillance:       [nse]
+    events:             [nse, bse]  # every feed in jobs.events / results_watch is read (not a fallback)
+    reference_financials: [market_lens]  # reconciliation-only sources (off unless market_lens.enabled)
   rate_limits:            # requests per second / per minute (verify against current broker docs)
     fyers:    {per_sec: 8,  per_min: 180}
     kite:     {per_sec: 3,  per_min: 150}
     yfinance: {per_sec: 2,  per_min: 60}
     nse:      {per_sec: 1,  per_min: 30}
     bse:      {per_sec: 1,  per_min: 30}
+    market_lens: {per_sec: 0.5, per_min: 10}
   staleness_hours:
     daily_ohlcv: 30
     ltp: 0.1
@@ -64,7 +67,7 @@ providers:
       NIFTYAUTO: ind_niftyautolist.csv
       NIFTYMETAL: ind_niftymetallist.csv
       NIFTYREALTY: ind_niftyrealtylist.csv
-    results:                   # financial results filings (XBRL), read by results_watch
+    results:                   # financial results filings (XBRL), read by results_backfill
       index_path: "/api/corporates-financial-results"   # ?index=equities&symbol=..&period=..
       periods: [Quarterly, Annual]
       xbrl_hosts: [nsearchives.nseindia.com, archives.nseindia.com, www.nseindia.com]
@@ -88,6 +91,17 @@ providers:
       equity_list_path: "/content/equities/EQUITY_L.csv"
       symbol_changes_path: "/content/equities/symbolchange.csv"
       name_changes_path: "/content/equities/namechange.csv"
+    events:                    # market-wide feeds (SPEC §3.8, §10 events); ?index=equities&from_date=&to_date=
+      announcements_path: "/api/corporate-announcements"
+      board_meetings_path: "/api/corporate-board-meetings"
+      results_path: "/api/corporates-financial-results"   # the results filing list, all companies
+      results_periods: [Quarterly, Annual]
+      pledge_path: "/api/corporate-pledgedata"
+      sast_path: "/api/corporate-sast-reg29"
+      pit_path: "/api/corporates-pit"
+      bulk_deals_path: "/content/equities/bulk.csv"     # archives_url; latest trading day
+      block_deals_path: "/content/equities/block.csv"
+      max_days_per_request: 7  # longer windows are read a week at a time
     annual_reports:            # annual-report PDFs: gap filler for BS / CF years (SPEC §3.6 step 3)
       index_path: "/api/annual-reports"   # ?index=equities&symbol=..
       hosts: [nsearchives.nseindia.com, archives.nseindia.com, www.nseindia.com]
@@ -116,6 +130,11 @@ providers:
     referer: "https://www.bseindia.com/"
     request_timeout_s: 30
     scrip_master_path: "/BseIndiaAPI/api/ListofScripData/w?Group=&Scripcode=&industry=&segment=Equity&status=Active"
+    # corporate announcements, all companies: ?pageno=&strCat=-1&strPrevDate=YYYYMMDD&strToDate=..
+    announcements_path: "/BseIndiaAPI/api/AnnSubCategoryGetData/w"
+    announcements_max_pages: 20
+    results_categories: [Result]
+    attachment_url: "https://www.bseindia.com/xml-data/corpfiling/AttachLive/"
   symbols:                     # symbol master + search (SPEC §3.5)
     fyers_masters:             # public CSVs; read only when Fyers is configured
       - "https://public.fyers.in/sym_details/NSE_CM.csv"
@@ -124,5 +143,22 @@ providers:
     search:
       min_similarity: 0.3      # pg_trgm score below 0.3 is not a match
       candidate_limit: 200     # matching terms read per query before grouping by company
+  market_lens:                 # NSE Market Lens (beta): reconciliation only (SPEC §0, §3.2a)
+    enabled: false             # undocumented JSON: check the field names below before enabling
+    base_url: "https://marketlens.nseindia.com"
+    financials_path: "/api/financials?symbol={symbol}"
+    request_timeout_s: 20
+    records_key: data
+    period_end_field: periodEnd
+    period_type_field: periodType
+    basis_field: consolidation
+    amount_unit_inr: 1.0e+7    # amounts in ₹ crore
+    field_map:
+      revenue: revenueFromOperations
+      ebitda: ebitda
+      pat: netProfit
+      cfo: cashFromOperatingActivities
+      total_assets: totalAssets
+      total_equity: totalEquity
   oauth_state_ttl_s: 600  # broker login must complete within this many seconds
   history_years: 10
