@@ -8,16 +8,17 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { api, ApiError } from "@/lib/api";
 import { ACTION_LABEL, crore, inr, num, pct, ZONE_LABEL } from "@/lib/format";
-import type { StockReport } from "@/lib/types";
+import type { PipelineRun, StockReport } from "@/lib/types";
 
 const BUYS = new Set(["strong_buy", "buy", "accumulate", "buy_on_pullback", "momentum_entry"]);
 
-export function ReportHeader({ report }: { report: StockReport }) {
+export function ReportHeader({ report, onRun }: { report: StockReport; onRun?: (run: PipelineRun) => void }) {
   const [queued, setQueued] = useState<string | null>(null);
   async function refresh() {
     try {
-      const r = await api<{ queued: boolean; queue_length: number }>(`/stocks/${report.symbol}/refresh`, { method: "POST" });
-      setQueued(r.queued ? `Refresh queued (${r.queue_length} waiting)` : "Already queued");
+      const r = await api<{ queued: boolean; run_id: number }>(`/stocks/${report.symbol}/refresh`, { method: "POST" });
+      setQueued(r.queued ? null : "Already running");
+      onRun?.(await api<PipelineRun>(`/pipeline/${r.run_id}`));
     } catch (e) {
       setQueued(e instanceof ApiError ? e.detail : "refresh failed");
     }

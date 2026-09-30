@@ -10,6 +10,7 @@
     python -m app.jobs xbrl-coverage --symbols TCS,INFY   # years parsed per statement
     python -m app.jobs pdf-inspect report.pdf [--fy 2014] # what the annual-report reader finds
     python -m app.jobs pdf-reparse [--symbols TCS]        # re-read cached annual reports
+    python -m app.jobs pipeline-worker                    # only the on-demand pipeline loop
 
 Exit codes: 0 success/skipped, 1 failed, 2 unknown or not-yet-implemented job.
 """
@@ -83,6 +84,10 @@ def _parser() -> argparse.ArgumentParser:
         help="re-read cached annual reports with the current pdf_labels.yaml (no network)",
     )
     pdf_re.add_argument("--symbols", action="append", default=None, help="comma-separated")
+    sub.add_parser(
+        "pipeline-worker",
+        help="run queued on-demand pipeline runs as they arrive (the worker does this too)",
+    )
     return p
 
 
@@ -229,6 +234,21 @@ def pdf_reparse(ctx: JobContext, symbols: Sequence[str] | None) -> int:
     return 1 if failed else 0
 
 
+def pipeline_worker(ctx: JobContext) -> int:
+    """The worker's pipeline thread on its own (development, e2e): Ctrl+C stops it."""
+    import threading
+
+    from app.pipeline.runner import worker_loop
+
+    stop = threading.Event()
+    print("pipeline worker: waiting for runs (Ctrl+C to stop)", flush=True)
+    try:
+        worker_loop(ctx, stop)
+    except KeyboardInterrupt:
+        stop.set()
+    return 0
+
+
 def _list(ctx: JobContext) -> int:
     for name in JobName:
         spec = REGISTRY[name]
@@ -329,4 +349,6 @@ def main(argv: Sequence[str] | None = None, context_factory: ContextFactory | No
         return xbrl_coverage(ctx, args.symbols)
     if args.command == "pdf-reparse":
         return pdf_reparse(ctx, args.symbols)
+    if args.command == "pipeline-worker":
+        return pipeline_worker(ctx)
     return verify_adjustment(ctx, args.symbol)

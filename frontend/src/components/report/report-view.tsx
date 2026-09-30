@@ -1,24 +1,33 @@
 "use client";
 
-// Stock Report page (SPEC §9): header, zone gauge, chart, valuation panel, scorecard,
+// Stock Report page (SPEC §9, §3.7): pipeline progress, header, zone gauge, chart, valuation panel, scorecard,
 // decision, red flags / data gaps, 10-year fundamentals and data coverage (§3.6 step 4). Saving assumptions swaps in the
 // recomputed report, which re-fetches the chart overlays and sensitivity grid.
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { AppNav } from "@/components/common";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api, ApiError } from "@/lib/api";
-import type { StockReport } from "@/lib/types";
+import type { PipelineRun, PipelineStart, StockReport } from "@/lib/types";
 
 import { CoverageGrid } from "./coverage-grid";
 import { FundamentalsCharts } from "./fundamentals-charts";
 import { DecisionPanel, FlagsPanel, ReportHeader } from "./panels";
+import { PipelineProgress } from "./pipeline-progress";
 import { PriceChart } from "./price-chart";
 import { Scorecard } from "./scorecard";
 import { ValuationPanel } from "./valuation-panel";
 import { ZoneGauge } from "./zone-gauge";
 
-function Section({ title, children, className }: { title: string; children: React.ReactNode; className?: string }) {
+function Section({
+  title,
+  children,
+  className,
+}: {
+  title: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
   return (
     <Card className={`gap-4 ${className ?? ""}`}>
       <CardHeader>
@@ -31,16 +40,41 @@ function Section({ title, children, className }: { title: string; children: Reac
 
 export function ReportView({ symbol }: { symbol: string }) {
   const [report, setReport] = useState<StockReport | null>(null);
-  const [error, setError] = useState<{ status: number; detail: string } | null>(null);
+  const [error, setError] = useState<{ status: number; detail: string } | null>(
+    null,
+  );
   const [sectors, setSectors] = useState<string[]>([]);
+  const [run, setRun] = useState<PipelineRun | null>(null);
 
+  // SPEC §3.7: a fresh stored report shows at once; otherwise a pipeline run updates it (the
+  // stored report stays on screen meanwhile), or builds it for a stock seen for the first time.
   useEffect(() => {
     let live = true;
     setReport(null);
     setError(null);
+    setRun(null);
+    const startRun = () =>
+      api<PipelineStart>("/pipeline", {
+        method: "POST",
+        body: JSON.stringify({ symbol }),
+      })
+        .then((p) => live && p.run && setRun(p.run))
+        .catch(() => undefined);
     api<StockReport>(`/stocks/${symbol}/report`)
-      .then((r) => live && setReport(r))
-      .catch((e) => live && setError(e instanceof ApiError ? { status: e.status, detail: e.detail } : { status: 0, detail: "failed" }));
+      .then((r) => {
+        if (!live) return;
+        setReport(r);
+        startRun();
+      })
+      .catch((e) => {
+        if (!live) return;
+        setError(
+          e instanceof ApiError
+            ? { status: e.status, detail: e.detail }
+            : { status: 0, detail: "failed" },
+        );
+        if (e instanceof ApiError && e.status === 404) startRun();
+      });
     api<{ parsed: { sectors: Record<string, unknown> } }>("/config")
       .then((c) => live && setSectors(Object.keys(c.parsed.sectors).sort()))
       .catch(() => undefined);
@@ -49,22 +83,49 @@ export function ReportView({ symbol }: { symbol: string }) {
     };
   }, [symbol]);
 
+  const onFinished = useCallback(
+    (r: PipelineRun) => {
+      if (r.status !== "done") return;
+      api<StockReport>(`/stocks/${symbol}/report`)
+        .then((rep) => {
+          setReport(rep);
+          setError(null);
+        })
+        .catch(() => undefined);
+    },
+    [symbol],
+  );
+
   return (
     <main className="mx-auto flex max-w-7xl flex-col gap-6 p-4 sm:p-6">
       <AppNav />
-      {error && (
+      {run && (
+        <Card>
+          <CardContent>
+            <PipelineProgress
+              key={run.id}
+              run={run}
+              onFinished={onFinished}
+              compact={!!report}
+            />
+          </CardContent>
+        </Card>
+      )}
+      {error && !run && (
         <Card>
           <CardContent className="text-sm">
             {error.status === 404
-              ? `No report for ${symbol.toUpperCase()}: ${error.detail}. Queue a data refresh from the dashboard or upload fundamentals.`
+              ? `No report for ${symbol.toUpperCase()}: ${error.detail}.`
               : `Report unavailable: ${error.detail}`}
           </CardContent>
         </Card>
       )}
-      {!report && !error && <p className="text-muted-foreground text-sm">Building report…</p>}
+      {!report && !error && (
+        <p className="text-muted-foreground text-sm">Building report…</p>
+      )}
       {report && (
         <>
-          <ReportHeader report={report} />
+          <ReportHeader report={report} onRun={setRun} />
           <Section title="Valuation zone">
             <ZoneGauge report={report} />
           </Section>
@@ -73,7 +134,11 @@ export function ReportView({ symbol }: { symbol: string }) {
           </Section>
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <Section title="Valuation">
-              <ValuationPanel report={report} sectors={sectors} onReport={(r) => r && setReport(r)} />
+              <ValuationPanel
+                report={report}
+                sectors={sectors}
+                onReport={(r) => r && setReport(r)}
+              />
             </Section>
             <Section title="Scorecard">
               <Scorecard report={report} />

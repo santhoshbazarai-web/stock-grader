@@ -64,7 +64,7 @@ function Freshness({ jobs }: { jobs: JobsView }) {
       </dl>
       <p className="text-muted-foreground text-xs">
         {jobs.open_data_gaps} open data gaps
-        {jobs.refresh_queue.length > 0 && ` · refresh queued: ${jobs.refresh_queue.join(", ")}`}
+        {jobs.refresh_queue.length > 0 && ` · updating: ${jobs.refresh_queue.join(", ")}`}
       </p>
       {failed.length > 0 && (
         <ul className="flex flex-col gap-1 text-xs" aria-label="Recent failed jobs">

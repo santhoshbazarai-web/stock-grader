@@ -256,6 +256,24 @@ Implementation notes (annual-report PDFs, §3.6 steps 3-4: `data/annual_report.p
 4. Steps are idempotent and resumable. A failure in an optional step (e.g. PDF gap-fill) still produces a report, with its `data_gaps` listed.
 5. Nifty 500 is pre-computed nightly, so it normally loads instantly.
 
+Implementation notes (`pipeline/runner.py`, `api/pipeline.py`, `pipeline_runs`; parameters in `jobs.yaml` → `pipeline`):
+- **Step 1 (fresh?):** the stored report is served without a run when it is at least as new as the stock's latest price bar, was built after the latest parsed filing (results XBRL or annual report), and is younger than `max_report_age_hours`. `force` (the "Refresh data" button) runs anyway. A symbol has at most one queued or running run; asking again joins it.
+- **Steps:** each step reuses the nightly job code for the one symbol.
+  - Per-run budgets: `max_xbrl_downloads` and `max_annual_reports`; the nightly jobs fetch the rest.
+  - Filings index and XBRL parse are the two halves of `results_watch`.
+  - Technicals rank the stock's RS against the universe's latest stored snapshots, never against itself alone.
+  - Metrics, valuation and scoring report from one report build, rebuilt after the technical step so the new RS percentile counts.
+  - Reconciliation is a skipped step until §3.9 is built.
+  - Required steps: symbol (in the symbol master, once that is built), prices (stored bars suffice when the refresh fails), metrics, valuation, scoring, report.
+- **Optional-step failures:** a failed optional step is a warning. Its message is added to the report's `data_gaps` as "pipeline <step>: <message>", and the report is still built. A failed required step fails the run, and the steps after it are skipped.
+- **Resumable:** the worker claims a queued run with `FOR UPDATE SKIP LOCKED`.
+  - A heartbeat thread keeps long steps owned. A running run whose heartbeat is older than `stale_after_s` is taken over and resumed from its first unfinished step; the data steps are upserts, so repeating one is harmless.
+  - After `max_attempts` claims the run fails.
+  - The worker process runs a pipeline thread (queued runs start within `poll_interval_s`); the `refresh_queue` job is the fallback, and `python -m app.jobs pipeline-worker` runs the loop alone.
+- **Events:** `GET /api/pipeline/{id}/events` is Server-Sent Events. It sends a `progress` event (the whole run) whenever its `version` changes, `end` when it is done or failed, and keep-alive comments every `sse_heartbeat_s`; the stream stops after `sse_max_minutes`. It polls the database every `sse_poll_s` with short-lived sessions.
+- **UI:** the stock page shows a stored report at once and, if it is not fresh, a compact progress panel while a run updates it. A stock seen for the first time shows the full panel until its report exists. "Refresh data" starts a forced run.
+- **Nightly precompute:** `valuation_scores` runs at 23:30, after that evening's prices, technicals, shareholding and results jobs, so Nifty 500 reports are fresh the next day.
+
 ### 3.8 Results-driven refresh
 - `results_watch` job:
   - Polls the NSE and BSE corporate-announcement and financial-results feeds every 15 min from 07:00 to 23:00 IST.

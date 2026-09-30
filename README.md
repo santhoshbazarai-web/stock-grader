@@ -180,6 +180,26 @@ older years lack them. Annual reports fill those years (SPEC §3.6 step 3).
   reader and NSE's annual-report list format have only been tested on synthetic reports.
   Check a few real ones with `pdf-inspect` first.
 
+## On-demand pipeline
+
+Opening a stock shows its stored report at once. When the report is older than its latest
+prices or filings (or 20 hours), a pipeline run brings it up to date in the background, with
+a live progress panel. A stock seen for the first time is built step by step, with the
+progress on screen:
+
+symbol → prices → corporate actions → filings index → results XBRL → annual-report PDFs →
+shareholding → reconciliation → metrics → valuation → technicals → scoring → report.
+
+- **Warnings:** each step shows ✓, ⚠ or ✗ with its message. An optional step that fails
+  (e.g. NSE unreachable) is a warning, and the report is still built with that gap listed.
+  With no prices at all there is no report, and the run fails.
+- **Refresh data** on the report page starts a run even when the report is fresh.
+- **Where runs happen:** the worker picks runs up within a second and resumes a run
+  interrupted by a restart. Progress streams over Server-Sent Events. Per-run budgets are
+  in `jobs.yaml` → `pipeline`.
+- **Nightly:** Nifty 500 reports are rebuilt every night (`valuation_scores`, 23:30), so they
+  normally load instantly.
+
 ## Symbol master and search
 
 The header search box finds a stock by NSE symbol ("HDFCBANK", or "hdfc bank"), BSE code
@@ -236,6 +256,7 @@ python -m app.jobs xbrl-inspect filing.xml               # what the XBRL parser 
 python -m app.jobs xbrl-reparse --symbols TCS            # re-parse cached XBRL after a map change
 python -m app.jobs xbrl-coverage --symbols TCS,INFY      # fiscal years parsed per statement
 python -m app.jobs run symbol_master                     # NSE/BSE/Fyers symbol master + aliases
+python -m app.jobs pipeline-worker                       # only the on-demand pipeline loop (dev)
 python -m app.jobs run annual_reports --symbols TCS      # annual-report PDFs for BS/CF gap years
 python -m app.jobs pdf-inspect report.pdf --fy 2014      # what the PDF reader finds (no DB)
 python -m app.jobs pdf-reparse --symbols TCS             # re-read cached reports after a label change
@@ -246,7 +267,7 @@ In Docker: `docker compose run --rm worker python -m app.jobs run eod_prices --s
 Prices are stored raw and split/bonus-adjusted (`adj_*`, `data/adjust.py`); adjustment is
 recomputed whenever new bars or corporate actions arrive. `valuation_scores` builds every
 report in two passes: the first collects each stock's multiples as sector peers, the second
-builds the reports. `refresh_queue` handles `POST /api/stocks/{symbol}/refresh` requests.
+builds the reports. `refresh_queue` is the fallback for on-demand pipeline runs (below).
 `backtests` runs queued backtest requests (below). `results_watch` ingests exchange results
 filings, and `annual_reports` reads annual-report PDFs for the years they lack (above).
 
@@ -267,7 +288,9 @@ curl -H "Authorization: Bearer $TOKEN" localhost:8000/api/stocks/TCS/report
 | `GET /api/stocks/search?q=` | Fuzzy search: NSE symbol, BSE code, ISIN, name, former name/symbol |
 | `GET/POST/DELETE /api/stocks/{symbol}/aliases` | Aliases a stock is found by; add / delete your own |
 | `GET /api/stocks/{symbol}/report[?rebuild=true]` | StockReport DTO: the stored one, built on first request |
-| `POST /api/stocks/{symbol}/refresh` | Queue a data refresh + rebuild (worker, within a minute) |
+| `POST /api/stocks/{symbol}/refresh` | Start (or join) a forced pipeline run: re-fetch the stock's data and rebuild |
+| `POST /api/pipeline`, `GET /api/pipeline[/{id}]` | On-demand pipeline: fresh report → no run; else a run to follow |
+| `GET /api/pipeline/{id}/events` | Server-Sent Events: live progress of a run |
 | `GET /api/stocks/{symbol}/valuation/sensitivity` | DCF WACC × terminal-growth grid |
 | `GET/POST/DELETE /api/stocks/{symbol}/overrides` | User assumptions and manual inputs; POST recomputes |
 | `GET /api/screener` | Filter by grade / zone / sector / action / EP / buy-zone distance / mcap, and sort |
@@ -296,7 +319,7 @@ Sign in with `APP_PASSWORD`. Every page is behind the login (SPEC §9).
 | `/backtests` | Queue a backtest (grades × zones × holding period, a date range, optionally a symbol list) and follow its progress; `/backtests/{id}` shows the results (below) |
 | `/settings` | **Brokers:** status, plus Connect / Reconnect for configured brokers (Fyers or Kite OAuth, via the API; the callback returns here with a banner). **Config:** a YAML editor for each `config/*.yaml`, validated as you type exactly as at startup; only a valid file can be saved. **Results filings:** the XBRL ledger (stored / pending / failed, with Retry) and an upload for XBRL documents. **Screener uploads (optional):** import a Screener.in export (you choose consolidated or standalone) to fill what filings lack; both rebuild the report |
 | `/review` | Annual reports: upload a PDF, the reports read, and the review queue of low-confidence values (accept / correct / reject, each with its PDF page and reasons) |
-| `/stocks/{SYMBOL}` | The stock report (below) |
+| `/stocks/{SYMBOL}` | The stock report (below); a pipeline progress panel while it is built or updated |
 
 Broker tokens expire daily (Kite at 06:00 IST), so reconnect from Settings each morning. The
 API only uses them for market data.
@@ -395,8 +418,8 @@ demo. The demo also adds symbol-master entries with made-up ISINs (`INE9DEMO…`
 (`990001`–`990006`), a former name and symbol for DEMOIT ("Demo Infotech Systems", `DEMOINFO`),
 and a BSE-only company (`990099`), so search can be tried.
 
-**UI tests.** With the stack running and demo data seeded, run
-`E2E_PASSWORD=<APP_PASSWORD> make e2e`. Playwright covers:
+**UI tests.** With the stack running (API, web and `python -m app.jobs pipeline-worker`,
+or the worker) and demo data seeded, run `E2E_PASSWORD=<APP_PASSWORD> make e2e`. Playwright covers:
 
 - the login gate and every report section
 - saving and clearing an assumption

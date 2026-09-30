@@ -596,3 +596,39 @@ export type CoverageGrid = {
   fy_end_month: number;
   bases: { basis: "consolidated" | "standalone"; cells: CoverageCell[] }[];
 };
+
+// ── on-demand pipeline (SPEC §3.7; app/api/pipeline.py) ──
+export type PipelineStepStatus = "pending" | "running" | "ok" | "warning" | "failed" | "skipped";
+
+export type PipelineStep = {
+  name: string;
+  label: string;
+  optional: boolean;
+  status: PipelineStepStatus;
+  message: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+};
+
+export type PipelineRun = {
+  id: number;
+  symbol: string;
+  trigger: string;
+  status: "queued" | "running" | "done" | "failed";
+  steps: PipelineStep[];
+  version: number;
+  attempts: number;
+  error: string | null;
+  report_as_of: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+};
+
+export type PipelineStart = {
+  symbol: string;
+  fresh: boolean;
+  reason: string;
+  report_as_of: string | null;
+  run: PipelineRun | null;
+};

@@ -1,5 +1,6 @@
 // End-to-end tests against a running stack seeded with the synthetic demo stocks:
 //   backend:  python -m app.devtools.demo && uvicorn app.main:app --port 8000
+//             python -m app.jobs pipeline-worker   (pipeline runs; e2e/pipeline.spec.ts)
 //   frontend: API_URL=http://localhost:8000 npm run dev
 //   run:      E2E_PASSWORD=<APP_PASSWORD> npm run e2e
 import { defineConfig } from "@playwright/test";
