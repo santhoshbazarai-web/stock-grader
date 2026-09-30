@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- ACME Q4 FY2015 standalone results, Indian GAAP (pre-Ind-AS layout)
+     Synthetic filing in the SEBI/BSE Ind AS financial results XBRL layout (not a real company).
+     Amounts are absolute rupees, as filed; expected canonical values (in crore) are
+     hand-computed in tests/test_xbrl.py. -->
+<xbrli:xbrl xmlns:xbrli="http://www.xbrl.org/2003/instance"
+    xmlns:link="http://www.xbrl.org/2003/linkbase"
+    xmlns:xlink="http://www.w3.org/1999/xlink"
+    xmlns:iso4217="http://www.xbrl.org/2003/iso4217"
+    xmlns:xbrldi="http://xbrl.org/2006/xbrldi"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns:in-bse-fin="http://www.bseindia.com/xbrl/fin/2014-03-31/in-bse-fin">
+  <link:schemaRef xlink:type="simple" xlink:href="http://www.bseindia.com/xbrl/fin/2014-03-31/in-bse-fin-ent-2020-03-31.xsd"/>
+  <xbrli:context id="OneD"><xbrli:entity><xbrli:identifier scheme="http://www.bseindia.com">500999</xbrli:identifier></xbrli:entity><xbrli:period><xbrli:startDate>2015-01-01</xbrli:startDate><xbrli:endDate>2015-03-31</xbrli:endDate></xbrli:period></xbrli:context>
+  <xbrli:context id="FourD"><xbrli:entity><xbrli:identifier scheme="http://www.bseindia.com">500999</xbrli:identifier></xbrli:entity><xbrli:period><xbrli:startDate>2014-04-01</xbrli:startDate><xbrli:endDate>2015-03-31</xbrli:endDate></xbrli:period></xbrli:context>
+  <xbrli:context id="OneI"><xbrli:entity><xbrli:identifier scheme="http://www.bseindia.com">500999</xbrli:identifier></xbrli:entity><xbrli:period><xbrli:instant>2015-03-31</xbrli:instant></xbrli:period></xbrli:context>
+  <xbrli:unit id="INR"><xbrli:measure>iso4217:INR</xbrli:measure></xbrli:unit>
+  <xbrli:unit id="INRPerShare"><xbrli:divide>
+    <xbrli:unitNumerator><xbrli:measure>iso4217:INR</xbrli:measure></xbrli:unitNumerator>
+    <xbrli:unitDenominator><xbrli:measure>xbrli:shares</xbrli:measure></xbrli:unitDenominator>
+  </xbrli:divide></xbrli:unit>
+  <xbrli:unit id="pure"><xbrli:measure>xbrli:pure</xbrli:measure></xbrli:unit>
+  <in-bse-fin:NameOfTheCompany contextRef="OneD">Acme Industries Limited</in-bse-fin:NameOfTheCompany>
+  <in-bse-fin:Symbol contextRef="OneD">ACME</in-bse-fin:Symbol>
+  <in-bse-fin:ScripCode contextRef="OneD">500999</in-bse-fin:ScripCode>
+  <in-bse-fin:NatureOfReportStandaloneConsolidated contextRef="OneD">Standalone</in-bse-fin:NatureOfReportStandaloneConsolidated>
+  <in-bse-fin:DateOfStartOfReportingPeriod contextRef="OneD">2015-01-01</in-bse-fin:DateOfStartOfReportingPeriod>
+  <in-bse-fin:DateOfEndOfReportingPeriod contextRef="OneD">2015-03-31</in-bse-fin:DateOfEndOfReportingPeriod>
+  <in-bse-fin:DateOfStartOfFinancialYear contextRef="OneD">2014-04-01</in-bse-fin:DateOfStartOfFinancialYear>
+  <in-bse-fin:DateOfBoardMeetingWhenFinancialResultsWereApproved contextRef="OneD">2015-05-08</in-bse-fin:DateOfBoardMeetingWhenFinancialResultsWereApproved>
+  <in-bse-fin:WhetherResultsAreAuditedOrUnaudited contextRef="OneD">Audited</in-bse-fin:WhetherResultsAreAuditedOrUnaudited>
+  <in-bse-fin:NetSalesIncomeFromOperations contextRef="OneD" unitRef="INR" decimals="-5">8000000000</in-bse-fin:NetSalesIncomeFromOperations>
+  <in-bse-fin:OtherIncome contextRef="OneD" unitRef="INR" decimals="-5">120000000</in-bse-fin:OtherIncome>
+  <in-bse-fin:ConsumptionOfRawMaterials contextRef="OneD" unitRef="INR" decimals="-5">4000000000</in-bse-fin:ConsumptionOfRawMaterials>
+  <in-bse-fin:EmployeeBenefitsExpense contextRef="OneD" unitRef="INR" decimals="-5">1200000000</in-bse-fin:EmployeeBenefitsExpense>
+  <in-bse-fin:DepreciationAndAmortisationExpense contextRef="OneD" unitRef="INR" decimals="-5">300000000</in-bse-fin:DepreciationAndAmortisationExpense>
+  <in-bse-fin:FinanceCosts contextRef="OneD" unitRef="INR" decimals="-5">80000000</in-bse-fin:FinanceCosts>
+  <in-bse-fin:TotalExpenses contextRef="OneD" unitRef="INR" decimals="-5">6900000000</in-bse-fin:TotalExpenses>
+  <in-bse-fin:ProfitLossFromOrdinaryActivitiesBeforeTax contextRef="OneD" unitRef="INR" decimals="-5">1140000000</in-bse-fin:ProfitLossFromOrdinaryActivitiesBeforeTax>
+  <in-bse-fin:TaxExpense contextRef="OneD" unitRef="INR" decimals="-5">300000000</in-bse-fin:TaxExpense>
+  <in-bse-fin:NetProfitLossForThePeriod contextRef="OneD" unitRef="INR" decimals="-5">840000000</in-bse-fin:NetProfitLossForThePeriod>
+  <in-bse-fin:PaidUpEquityShareCapital contextRef="OneD" unitRef="INR" decimals="-5">200000000</in-bse-fin:PaidUpEquityShareCapital>
+  <in-bse-fin:DilutedEarningsPerShareAfterExtraordinaryItems contextRef="OneD" unitRef="INRPerShare" decimals="2">4.20</in-bse-fin:DilutedEarningsPerShareAfterExtraordinaryItems>
+  <in-bse-fin:NetSalesIncomeFromOperations contextRef="FourD" unitRef="INR" decimals="-5">30000000000</in-bse-fin:NetSalesIncomeFromOperations>
+  <in-bse-fin:OtherIncome contextRef="FourD" unitRef="INR" decimals="-5">500000000</in-bse-fin:OtherIncome>
+  <in-bse-fin:ConsumptionOfRawMaterials contextRef="FourD" unitRef="INR" decimals="-5">15000000000</in-bse-fin:ConsumptionOfRawMaterials>
+  <in-bse-fin:EmployeeBenefitsExpense contextRef="FourD" unitRef="INR" decimals="-5">4500000000</in-bse-fin:EmployeeBenefitsExpense>
+  <in-bse-fin:DepreciationAndAmortisationExpense contextRef="FourD" unitRef="INR" decimals="-5">1100000000</in-bse-fin:DepreciationAndAmortisationExpense>
+  <in-bse-fin:FinanceCosts contextRef="FourD" unitRef="INR" decimals="-5">300000000</in-bse-fin:FinanceCosts>
+  <in-bse-fin:TotalExpenses contextRef="FourD" unitRef="INR" decimals="-5">26000000000</in-bse-fin:TotalExpenses>
+  <in-bse-fin:ProfitLossFromOrdinaryActivitiesBeforeTax contextRef="FourD" unitRef="INR" decimals="-5">4200000000</in-bse-fin:ProfitLossFromOrdinaryActivitiesBeforeTax>
+  <in-bse-fin:TaxExpense contextRef="FourD" unitRef="INR" decimals="-5">1100000000</in-bse-fin:TaxExpense>
+  <in-bse-fin:NetProfitLossForThePeriod contextRef="FourD" unitRef="INR" decimals="-5">3100000000</in-bse-fin:NetProfitLossForThePeriod>
+  <in-bse-fin:DilutedEarningsPerShareAfterExtraordinaryItems contextRef="FourD" unitRef="INRPerShare" decimals="2">15.50</in-bse-fin:DilutedEarningsPerShareAfterExtraordinaryItems>
+  <in-bse-fin:ShareCapital contextRef="OneI" unitRef="INR" decimals="-5">200000000</in-bse-fin:ShareCapital>
+  <in-bse-fin:ReservesAndSurplus contextRef="OneI" unitRef="INR" decimals="-5">14800000000</in-bse-fin:ReservesAndSurplus>
+  <in-bse-fin:ShareholdersFunds contextRef="OneI" unitRef="INR" decimals="-5">15000000000</in-bse-fin:ShareholdersFunds>
+  <in-bse-fin:LongTermBorrowings contextRef="OneI" unitRef="INR" decimals="-5">2000000000</in-bse-fin:LongTermBorrowings>
+  <in-bse-fin:ShortTermBorrowings contextRef="OneI" unitRef="INR" decimals="-5">500000000</in-bse-fin:ShortTermBorrowings>
+  <in-bse-fin:TradePayables contextRef="OneI" unitRef="INR" decimals="-5">2500000000</in-bse-fin:TradePayables>
+  <in-bse-fin:TotalCurrentLiabilities contextRef="OneI" unitRef="INR" decimals="-5">5000000000</in-bse-fin:TotalCurrentLiabilities>
+  <in-bse-fin:TangibleAssets contextRef="OneI" unitRef="INR" decimals="-5">9000000000</in-bse-fin:TangibleAssets>
+  <in-bse-fin:IntangibleAssets contextRef="OneI" unitRef="INR" decimals="-5">400000000</in-bse-fin:IntangibleAssets>
+  <in-bse-fin:NonCurrentInvestments contextRef="OneI" unitRef="INR" decimals="-5">600000000</in-bse-fin:NonCurrentInvestments>
+  <in-bse-fin:TradeReceivables contextRef="OneI" unitRef="INR" decimals="-5">3000000000</in-bse-fin:TradeReceivables>
+  <in-bse-fin:CashAndBankBalances contextRef="OneI" unitRef="INR" decimals="-5">900000000</in-bse-fin:CashAndBankBalances>
+  <in-bse-fin:TotalCurrentAssets contextRef="OneI" unitRef="INR" decimals="-5">8000000000</in-bse-fin:TotalCurrentAssets>
+  <in-bse-fin:TotalAssets contextRef="OneI" unitRef="INR" decimals="-5">23000000000</in-bse-fin:TotalAssets>
+</xbrli:xbrl>

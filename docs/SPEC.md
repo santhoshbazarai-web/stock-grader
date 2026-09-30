@@ -142,7 +142,10 @@ Implementation notes (results XBRL, `data/xbrl.py`, `data/results_store.py`, `jo
   - The quarter is the non-dimensional duration context ending on the reporting date whose length is in `quarter_days`.
   - The fiscal year (Q4 / annual filings only) is one whose length is in `year_days`; it becomes the `fin_annual` row, with the balance sheet from the instant context on the same date and the cash flow from the year context.
   - Comparatives (other end dates), 6/9-month year-to-date, and segment (dimensional) contexts are ignored: a period's first-reported numbers are its point-in-time truth.
-- **Mapping:** element names live only in `canonical.py` (`labels["nse"]`, `XBRL_SUMS`, `XBRL_INFO`, `XBRL_BANK_EXTRA`); the namespace year is ignored. Amounts are absolute rupees → ₹ crore; per-share stays ₹; `pure` percentages ×100.
+- **Mapping:** element names live only in the versioned `fundamentals/xbrl_map.yaml`, with tag groups `ind_as`, `bank` and `pre_ind_as` (Indian GAAP / Clause 41). The pre-Ind-AS names are unverified until checked against a real filing with `xbrl-inspect`. The namespace year is ignored.
+  - Each item has a statement (P&L / BS / CF / ratio): BS items are read from the instant context at the period end, P&L and CF from the period's duration context.
+  - Every value records the tag that matched (`group:Element`, or `sum:group:A+B`) and the map `version`.
+  - Amounts are ₹ in the line items and ₹ crore in the wide tables; per-share stays ₹; `pure` percentages ×100.
   - `ebit` = PBT + finance cost; `ebitda` = PBT + finance cost + D&A − other income.
   - `shares_diluted_cr` = PAT / diluted EPS; book value per share = equity / shares.
   - Split lines (COGS, borrowings, cash, investments, receivables, net block, tax) are the sum of the lines filed; the field is NULL if none is filed.

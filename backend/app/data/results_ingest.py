@@ -11,13 +11,13 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import Dataset, NseResultsConfig
-from app.data.canonical import unavailable_from
 from app.data.gaps import GapRecord, GapRecorder
 from app.data.results_store import EXCHANGE_SOURCE, store_filing
 from app.data.xbrl import XbrlFormatError, announcement_date, parse_results
 from app.db.enums import FilingStatus
 from app.db.models import DataGap, ResultFiling
 from app.db.upsert import upsert
+from app.fundamentals.xbrl_map import get_xbrl_map
 
 # data_gaps.field of the gap left by results_watch's fallback (a quarter stored from yfinance
 # while the exchange filing was unavailable); resolved once a filing is stored.
@@ -90,7 +90,7 @@ def ingest(
                               "dissemination or board-meeting date", [EXCHANGE_SOURCE],
                               "announcement_date"))  # fmt: skip
     if filing.annual is not None:
-        for name in unavailable_from("nse", "fin_annual"):
+        for name in get_xbrl_map().unmapped("fin_annual"):
             gaps.record(GapRecord(Dataset.FIN_ANNUAL, symbol, "not in exchange results filings "
                                   "(XBRL); upload a Screener export to fill it",
                                   [EXCHANGE_SOURCE], name))  # fmt: skip

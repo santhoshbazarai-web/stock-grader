@@ -126,7 +126,8 @@ a Screener export is an optional top-up.
 - **Checking the mapping:** element names can change with new taxonomy years. Before relying
   on a new kind of filing, run
   `python -m app.jobs xbrl-inspect filing.xml`. It prints what was read and the numeric
-  elements the mapping ignores. Add names to `backend/app/data/canonical.py`.
+  elements the mapping ignores. Add names to `backend/app/fundamentals/xbrl_map.yaml` (and bump its
+  `version`); it covers the Ind AS, bank and pre-Ind-AS (Indian GAAP) results formats.
 
 ## Other data sources
 
@@ -143,7 +144,8 @@ a Screener export is an optional top-up.
   standalone at upload), filling only what the XBRL filings don't cover, and records data gaps
   for what the export lacks.
 
-Every source's labels map onto one canonical schema in `backend/app/data/canonical.py`;
+Every source's labels map onto one canonical schema in `backend/app/data/canonical.py` (XBRL
+element names are in the versioned `backend/app/fundamentals/xbrl_map.yaml`);
 the generated table is in [`docs/CANONICAL_FIELDS.md`](docs/CANONICAL_FIELDS.md).
 
 ## Jobs

@@ -115,6 +115,10 @@ def test_bank_filing_maps_interest_and_bank_extras() -> None:
         "gross_npa": approx(6000),
         "net_npa": approx(1500),
         "crar_pct": approx(16.85),  # filed as the fraction 0.1685
+        # balances at 31 Mar (instant OneI) belong to the quarter ending that day too
+        "advances": approx(300000),
+        "deposits": approx(350000),
+        "investments": approx(100000),
     }
     assert a["revenue"] == approx(38000) and a["pat"] == approx(9000)
     assert a["total_assets"] == approx(500000)

@@ -17,7 +17,7 @@ dimension such as a segment) and *units*. A results filing reports several perio
 - dimensional contexts (segments), also ignored.
 
 Monetary facts are absolute rupees and become ₹ crore; per-share facts stay ₹. Element names
-come from ``app.data.canonical`` only (``labels["nse"]`` and the ``XBRL_*`` tables).
+come from ``fundamentals/xbrl_map.yaml`` only (versioned; Ind AS, bank and pre-Ind-AS tags).
 
 Untrusted input: parsed with ``defusedxml`` (no entity expansion, no external entities or DTDs).
 """
@@ -32,20 +32,9 @@ from defusedxml import ElementTree as SafeET
 from defusedxml.common import DefusedXmlException
 
 from app.core.config import NseResultsConfig
-from app.data.canonical import (
-    CANONICAL_FIELDS,
-    XBRL_BANK_EXTRA,
-    XBRL_BANK_MARKER,
-    XBRL_BANK_PCT,
-    XBRL_BANK_STOCKS,
-    XBRL_INFO,
-    XBRL_MAGNITUDES,
-    XBRL_SUMS,
-    Table,
-    fields_for,
-    fiscal_year,
-)
+from app.data.canonical import Table, fields_for, fiscal_year
 from app.db.enums import StatementType
+from app.fundamentals.xbrl_map import ItemSpec, XbrlMap, get_xbrl_map
 
 IST = ZoneInfo("Asia/Kolkata")
 XBRLI = "http://www.xbrl.org/2003/instance"
@@ -58,7 +47,7 @@ _SKIP_NAMESPACES = frozenset(
     }
 )
 _XSI_NIL = "{http://www.w3.org/2001/XMLSchema-instance}nil"
-_SCALE = {"cr": 1e-7, "cr_shares": 1e-7}  # absolute rupees / shares → crore
+CRORE = 1e7  # the wide fin tables hold ₹ crore and share counts in crore
 
 
 class XbrlFormatError(ValueError):
@@ -192,6 +181,14 @@ def _local_measure(measure: str) -> str:
 # ───────────────────────── results extraction ─────────────────────────
 
 
+@dataclass(frozen=True)
+class ItemValue:
+    """One mapped line item of one period, in the map's unit (amounts in ₹)."""
+
+    value: float
+    tag: str  # "group:Element" of the tag that matched, or "sum:group:A+B" for a summed item
+
+
 @dataclass
 class ResultsFiling:
     company: str | None
@@ -208,6 +205,10 @@ class ResultsFiling:
     annual: dict[str, Any] | None  # canonical fin_annual record (+ "extra", "fiscal_year")
     warnings: list[str] = field(default_factory=list)
     contexts: dict[str, str] = field(default_factory=dict)  # quarter / year / balance_sheet → id
+    map_version: int = 0  # xbrl_map.yaml version that produced the values
+    # The same periods as mapped line items (amounts in ₹), for fin_line_items.
+    quarter_items: dict[str, ItemValue] = field(default_factory=dict)
+    year_items: dict[str, ItemValue] = field(default_factory=dict)
 
     def periods(self) -> list[str]:
         out = []
@@ -223,43 +224,59 @@ def _number(f: Fact, unit: str) -> float | None:
         v = float(f.text.strip().replace(",", ""))
     except ValueError:
         return None
-    if unit in _SCALE and (f.unit or "").upper() in ("INR", "SHARES"):
-        v *= _SCALE[unit]
-    elif unit == "pct" and (f.unit or "").lower() == "pure":
+    if unit == "pct" and (f.unit or "").lower() == "pure":
         v *= 100  # XBRL percentages are decimal fractions
     return v
 
 
-def _pick(facts: Mapping[str, Fact], names: tuple[str, ...], unit: str) -> float | None:
-    for name in names:
+def _item(facts: Mapping[str, Fact], spec: ItemSpec) -> ItemValue | None:
+    for group, name in spec.tag_candidates():
         f = facts.get(name)
-        if f is not None and (v := _number(f, unit)) is not None:
-            return v
+        if f is not None and (v := _number(f, spec.unit)) is not None:
+            return ItemValue(abs(v) if spec.magnitude else v, f"{group}:{name}")
+    for group, names in spec.sum_groups():
+        parts = [(n, _number(facts[n], spec.unit)) for n in names if n in facts]
+        reported = [(n, v) for n, v in parts if v is not None]
+        if reported:
+            total = float(sum(v for _, v in reported))
+            tag = f"sum:{group}:" + "+".join(n for n, _ in reported)
+            return ItemValue(abs(total) if spec.magnitude else total, tag)
     return None
 
 
-def _sum(facts: Mapping[str, Fact], names: tuple[str, ...], unit: str) -> float | None:
-    vals = [_number(facts[n], unit) for n in names if n in facts]
-    reported = [v for v in vals if v is not None]
-    return float(sum(reported)) if reported else None
+def extract_items(
+    duration: Mapping[str, Fact], instant: Mapping[str, Fact], xmap: XbrlMap
+) -> dict[str, ItemValue]:
+    """Every mapped item of one period: balance-sheet items from the instant context at the
+    period end, P&L and cash flow from the period's duration context, ratios from either."""
+    out: dict[str, ItemValue] = {}
+    for code, spec in xmap.items.items():
+        if spec.statement == "bs":
+            v = _item(instant, spec)
+        elif spec.statement == "ratio":
+            v = _item(duration, spec) or _item(instant, spec)
+        else:
+            v = _item(duration, spec)
+        if v is not None:
+            out[code] = v
+    return out
 
 
 def _add(*xs: float | None) -> float | None:
     return None if any(x is None for x in xs) else float(sum(x for x in xs if x is not None))
 
 
-def canonical_record(facts: Mapping[str, Fact], table: Table) -> dict[str, Any]:
-    """One period's facts → canonical record. Derivations are documented in
-    ``CANONICAL_FIELDS[...].derived["nse"]``."""
+def wide_record(items: Mapping[str, ItemValue], table: Table, xmap: XbrlMap) -> dict[str, Any]:
+    """Line items → the canonical fin_quarterly / fin_annual record (₹ crore; shares in crore).
+    Derivations are documented in ``CANONICAL_FIELDS[...].derived["nse"]``."""
     rec: dict[str, Any] = {}
     for name in fields_for(table):
-        spec = CANONICAL_FIELDS[name]
-        v = _pick(facts, tuple(lbl.text for lbl in spec.labels.get("nse", ())), spec.unit)
-        if v is None and name in XBRL_SUMS:
-            v = _sum(facts, XBRL_SUMS[name], spec.unit)
-        if v is not None and name in XBRL_MAGNITUDES:
-            v = abs(v)
-        rec[name] = v
+        spec = xmap.items.get(name)
+        v = items.get(name)
+        if spec is None or spec.target != "canonical" or v is None:
+            rec[name] = None
+        else:
+            rec[name] = v.value / CRORE if spec.unit in ("amount", "shares") else v.value
     pbt, interest = rec.get("pbt"), rec.get("interest")
     rec["ebit"] = _add(pbt, interest)
     ebitda_parts = _add(pbt, interest, rec.get("depreciation"))
@@ -272,12 +289,11 @@ def canonical_record(facts: Mapping[str, Fact], table: Table) -> dict[str, Any]:
         shares, equity = rec.get("shares_diluted_cr"), rec.get("total_equity")
         if shares and equity is not None and shares > 0:
             rec["book_value_per_share"] = equity / shares
-    extra: dict[str, float] = {}
-    if XBRL_BANK_MARKER in facts:
-        for key, names in XBRL_BANK_EXTRA.items():
-            v = _pick(facts, names, "pct" if key in XBRL_BANK_PCT else "cr")
-            if v is not None:
-                extra[key] = v
+    extra = {
+        code: v.value / CRORE if xmap.items[code].unit == "amount" else v.value
+        for code, v in items.items()
+        if xmap.items[code].target == "extra"
+    }
     rec["extra"] = extra or None
     return rec
 
@@ -310,14 +326,17 @@ def parse_results(
     *,
     period_start: date | None = None,
     period_end: date | None = None,
+    xmap: XbrlMap | None = None,
 ) -> ResultsFiling:
     """A results filing → its quarter row and (for a Q4 / annual filing) its fiscal-year row.
     ``period_start`` / ``period_end`` (e.g. from the exchange's filing list) are used when the
     document does not state its reporting period."""
+    xmap = xmap or get_xbrl_map()
+    info = {k: tuple(v) for k, v in xmap.info.items()}
     inst = parse_instance(content)
     warnings: list[str] = []
-    end = _date(inst.text(XBRL_INFO["period_end"])) or period_end
-    start = _date(inst.text(XBRL_INFO["period_start"])) or period_start
+    end = _date(inst.text(info["period_end"])) or period_end
+    start = _date(inst.text(info["period_start"])) or period_start
     plain = [c for c in inst.contexts.values() if not c.dimensional and c.end is not None]
     if end is None:  # infer: the latest end date among plain duration contexts
         ends = [c.end for c in plain if not c.instant and c.end is not None]
@@ -339,44 +358,45 @@ def parse_results(
     y_ctx = best(durations, lambda c: cfg.year_days.contains(c.days))
     bs_ctx = best(instants, lambda c: True)
 
+    bs_facts = inst.plain(bs_ctx.id) if bs_ctx else {}
+    q_items = extract_items(inst.plain(q_ctx.id), bs_facts, xmap) if q_ctx else {}
+    y_items = extract_items(inst.plain(y_ctx.id), bs_facts, xmap) if y_ctx else {}
+    if q_items and y_items:  # period-end balances filed only in the quarter's context
+        for code, v in q_items.items():
+            if xmap.items[code].carry_to_year:
+                y_items.setdefault(code, v)
     quarter = annual = None
     if q_ctx is not None:
-        quarter = canonical_record(inst.plain(q_ctx.id), "fin_quarterly")
+        quarter = wide_record(q_items, "fin_quarterly", xmap)
     if y_ctx is not None:
-        facts = {**(inst.plain(bs_ctx.id) if bs_ctx else {}), **inst.plain(y_ctx.id)}
-        annual = canonical_record(facts, "fin_annual")
+        annual = wide_record(y_items, "fin_annual", xmap)
         annual["fiscal_year"] = fiscal_year(datetime.combine(end, time()))
     if quarter is not None and not _has_pl(quarter):
         warnings.append("quarter context has no revenue, PBT or PAT; ignored")
-        quarter = None
+        quarter, q_items = None, {}
     if annual is not None and not _has_pl(annual):
         warnings.append("fiscal-year context has no revenue, PBT or PAT; ignored")
-        annual = None
-    if quarter is not None and annual is not None and quarter.get("extra"):
-        extra = dict(annual.get("extra") or {})
-        for key in XBRL_BANK_STOCKS & set(quarter["extra"]):
-            extra.setdefault(key, quarter["extra"][key])
-        annual["extra"] = extra or None
+        annual, y_items = None, {}
     if quarter is None and annual is None:
         raise XbrlFormatError(
             f"no quarter or fiscal-year results for the period ending {end.isoformat()}"
         )
 
-    is_bank = any(f.name == XBRL_BANK_MARKER for f in inst.facts)
-    nature = inst.text(XBRL_INFO["nature"])
+    is_bank = any(f.name == xmap.bank_marker for f in inst.facts)
+    nature = inst.text(info["nature"])
     statement_type = statement_type_from_text(nature)
     if statement_type is None:
         warnings.append(f"standalone/consolidated not stated ({nature!r})")
     return ResultsFiling(
-        company=inst.text(XBRL_INFO["company"]),
-        symbol=inst.text(XBRL_INFO["symbol"]),
-        scrip_code=inst.text(XBRL_INFO["scrip_code"]),
-        isin=inst.text(XBRL_INFO["isin"]),
+        company=inst.text(info["company"]),
+        symbol=inst.text(info["symbol"]),
+        scrip_code=inst.text(info["scrip_code"]),
+        isin=inst.text(info["isin"]),
         statement_type=statement_type,
-        audited=audited_from_text(inst.text(XBRL_INFO["audited"])),
+        audited=audited_from_text(inst.text(info["audited"])),
         period_start=start or (q_ctx.start if q_ctx else None),
         period_end=end,
-        board_meeting=_date(inst.text(XBRL_INFO["board_meeting"])),
+        board_meeting=_date(inst.text(info["board_meeting"])),
         is_bank=is_bank,
         quarter=quarter,
         annual=annual,
@@ -390,6 +410,9 @@ def parse_results(
             )
             if ctx is not None and rec is not None
         },
+        map_version=xmap.version,
+        quarter_items=q_items,
+        year_items=y_items,
     )
 
 
@@ -397,21 +420,19 @@ def parse_results(
 
 
 def mapped_elements() -> set[str]:
-    """Every element name the parser reads (canonical labels and the XBRL_* tables)."""
-    names = {lbl.text for spec in CANONICAL_FIELDS.values() for lbl in spec.labels.get("nse", ())}
-    for table in (XBRL_SUMS, XBRL_INFO, XBRL_BANK_EXTRA):
-        names.update(n for group in table.values() for n in group)
-    return names
+    """Every element name the parser reads (``xbrl_map.yaml``)."""
+    return get_xbrl_map().all_elements()
 
 
 def describe(content: bytes, cfg: NseResultsConfig) -> str:
     """Human-readable dump of a filing for checking the element mapping against real
     documents: what was read, from which contexts, and which numeric elements in those
-    contexts the mapping does not use (candidates to add to ``app.data.canonical``)."""
+    contexts the mapping does not use (candidates to add to ``fundamentals/xbrl_map.yaml``)."""
     inst = parse_instance(content)
     filing = parse_results(content, cfg)
     used = {cid: role for role, cid in filing.contexts.items()}
     lines = [
+        f"xbrl_map.yaml version {filing.map_version}",
         f"company {filing.company}  symbol {filing.symbol}  scrip {filing.scrip_code}  "
         f"isin {filing.isin}",
         f"basis {filing.statement_type}  audited {filing.audited}  period "
@@ -442,6 +463,10 @@ def describe(content: bytes, cfg: NseResultsConfig) -> str:
             if f.context in used and f.name not in mapped and f.unit is not None
         }
     )
+    for label, items in (("quarter", filing.quarter_items), ("year", filing.year_items)):
+        if items:
+            lines += ["", f"line items, {label} (₹; tag that matched):"]
+            lines += [f"  {code:<28} {v.value:>22,.2f}  {v.tag}" for code, v in items.items()]
     lines += ["", f"numeric elements in the used contexts not mapped ({len(unmapped)}):"]
     lines += [f"  {name}  [{cid}]" for name, cid in unmapped]
     if filing.warnings:

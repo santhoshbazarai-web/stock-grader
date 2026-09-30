@@ -114,7 +114,9 @@ def test_xbrl_inspect_needs_no_database_or_secrets(
     assert "OneD" in out and "used: quarter" in out and "used: balance_sheet" in out
     assert "dimensional, ignored" in out
     assert "revenue                      4,800.00" in out
-    assert "EmployeeBenefitExpense  [OneD]" in out  # an unmapped element, listed for review
+    assert "xbrl_map.yaml version 2" in out
+    assert "Liabilities  [OneI]" in out  # an unmapped element, listed for review
+    assert "sum:ind_as:CostOfMaterialsConsumed+PurchasesOfStockInTrade" in out  # cogs lines
 
     bad = tmp_path / "bad.xml"
     bad.write_bytes(b"<html/>")

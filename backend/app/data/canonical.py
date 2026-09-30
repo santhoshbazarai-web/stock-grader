@@ -2,9 +2,12 @@
 
 ``CANONICAL_FIELDS`` is the single source of truth: for each canonical field (a column of
 ``fin_annual`` / ``fin_quarterly`` / ``shareholding``) it records the unit, which tables carry
-it, and the exact label each source uses (for ``nse`` on the fin tables: the element names of
-the exchange results XBRL; see ``XBRL_*`` below). Parsers never hard-code labels; they look them up
+it, and the exact label each source uses. Parsers never hard-code labels; they look them up
 here. Add a source label here and every parser picks it up.
+
+Exception: the exchange results XBRL (source ``nse`` on the fin tables) is mapped in the
+versioned ``app/fundamentals/xbrl_map.yaml`` (SPEC §3.6), which maps XBRL elements onto these
+field names; only the parser's own derivations are documented here (``derived["nse"]``).
 
 Units
 - ``cr``   ₹ crore. Screener exports are already in crore; yfinance and XBRL report absolute
@@ -65,15 +68,12 @@ CANONICAL_FIELDS: dict[str, FieldSpec] = {
     # ───────── P&L (annual + quarterly) ─────────
     "revenue": FieldSpec(
         "cr", BOTH, "Net sales / revenue from operations (banks: interest earned)",
-        {"screener": _l("Sales"), "yfinance": _l("TotalRevenue", "OperatingRevenue"),
-         "nse": _l("RevenueFromOperations", "InterestEarned")},
+        {"screener": _l("Sales"), "yfinance": _l("TotalRevenue", "OperatingRevenue")},
     ),
     "cogs": FieldSpec(
         "cr", BOTH, "Cost of goods sold (materials consumed)",
         {"yfinance": _l("CostOfRevenue")},
-        {"screener": "Raw Material Cost - Change in Inventory (annual only)",
-         "nse": "sum of the reported XBRL_SUMS['cogs'] lines (materials + purchases + "
-                "change in inventories)"},
+        {"screener": "Raw Material Cost - Change in Inventory (annual only)"},
     ),
     "ebitda": FieldSpec(
         "cr", BOTH,
@@ -86,13 +86,11 @@ CANONICAL_FIELDS: dict[str, FieldSpec] = {
     "other_income": FieldSpec(
         "cr", BOTH, "Non-operating / other income",
         {"screener": _l("Other Income"),
-         "yfinance": _l("OtherNonOperatingIncomeExpenses", "OtherIncomeExpense"),
-         "nse": _l("OtherIncome")},
+         "yfinance": _l("OtherNonOperatingIncomeExpenses", "OtherIncomeExpense")},
     ),
     "depreciation": FieldSpec(
         "cr", BOTH, "Depreciation and amortisation",
-        {"screener": _l("Depreciation"), "yfinance": _l("ReconciledDepreciation"),
-         "nse": _l("DepreciationDepletionAndAmortisationExpense")},
+        {"screener": _l("Depreciation"), "yfinance": _l("ReconciledDepreciation")},
     ),
     "ebit": FieldSpec(
         "cr", BOTH, "Earnings before interest and tax (PBT + interest; includes other income)",
@@ -101,25 +99,20 @@ CANONICAL_FIELDS: dict[str, FieldSpec] = {
     ),
     "interest": FieldSpec(
         "cr", BOTH, "Finance cost (banks: interest expended)",
-        {"screener": _l("Interest"), "yfinance": _l("InterestExpense"),
-         "nse": _l("FinanceCosts", "InterestExpended")},
+        {"screener": _l("Interest"), "yfinance": _l("InterestExpense")},
     ),
     "pbt": FieldSpec(
         "cr", BOTH, "Profit before tax",
-        {"screener": _l("Profit before tax"), "yfinance": _l("PretaxIncome"),
-         "nse": _l("ProfitBeforeTax", "ProfitLossFromOrdinaryActivitiesBeforeTax")},
+        {"screener": _l("Profit before tax"), "yfinance": _l("PretaxIncome")},
     ),
     "tax": FieldSpec(
         "cr", BOTH, "Tax expense",
-        {"screener": _l("Tax"), "yfinance": _l("TaxProvision"), "nse": _l("TaxExpense")},
-        {"nse": "else the sum of XBRL_SUMS['tax'] (current + deferred)"},
+        {"screener": _l("Tax"), "yfinance": _l("TaxProvision")},
     ),
     "pat": FieldSpec(
         "cr", BOTH, "Net profit attributable to shareholders",
         {"screener": _l("Net profit"),
-         "yfinance": _l("NetIncomeCommonStockholders", "NetIncome"),
-         "nse": _l("ProfitOrLossAttributableToOwnersOfParent", "ProfitLossForPeriod",
-                   "NetProfitLossForThePeriod")},
+         "yfinance": _l("NetIncomeCommonStockholders", "NetIncome")},
     ),
     "sga": FieldSpec(
         "cr", ANNUAL, "Selling, general and administrative expenses (Beneish SGAI)",
@@ -127,14 +120,11 @@ CANONICAL_FIELDS: dict[str, FieldSpec] = {
     ),
     "minority_interest_pl": FieldSpec(
         "cr", BOTH, "Profit attributable to minority interests",
-        {"yfinance": _l("MinorityInterests", sign=-1),
-         "nse": _l("ProfitOrLossAttributableToNonControllingInterests")},
+        {"yfinance": _l("MinorityInterests", sign=-1)},
     ),
     "eps_diluted": FieldSpec(
         "rs", BOTH, "Diluted EPS (quarterly: for the quarter, not annualised)",
-        {"yfinance": _l("DilutedEPS"),
-         "nse": _l("DilutedEarningsLossPerShareFromContinuingAndDiscontinuedOperations",
-                   "DilutedEarningsLossPerShareFromContinuingOperations")},
+        {"yfinance": _l("DilutedEPS")},
         {"screener": "pat / shares_diluted_cr (annual only)"},
     ),
     "shares_diluted_cr": FieldSpec(
@@ -145,65 +135,58 @@ CANONICAL_FIELDS: dict[str, FieldSpec] = {
     # ───────── balance sheet (annual) ─────────
     "total_assets": FieldSpec(
         "cr", ANNUAL, "Total assets",
-        {"screener": _l("Total"), "yfinance": _l("TotalAssets"), "nse": _l("Assets")},
+        {"screener": _l("Total"), "yfinance": _l("TotalAssets")},
     ),
     "current_assets": FieldSpec(
         "cr", ANNUAL, "Current assets (Piotroski current ratio, Altman working capital)",
-        {"yfinance": _l("CurrentAssets"), "nse": _l("CurrentAssets")},
+        {"yfinance": _l("CurrentAssets")},
     ),
     "current_liabilities": FieldSpec(
         "cr", ANNUAL, "Current liabilities",
-        {"yfinance": _l("CurrentLiabilities"), "nse": _l("CurrentLiabilities")},
+        {"yfinance": _l("CurrentLiabilities")},
     ),
     "total_equity": FieldSpec(
         "cr", ANNUAL, "Shareholders' equity (excluding minority interest)",
-        {"yfinance": _l("StockholdersEquity"),
-         "nse": _l("EquityAttributableToOwnersOfParent", "Equity")},
+        {"yfinance": _l("StockholdersEquity")},
         {"screener": "Equity Share Capital + Reserves"},
     ),
     "retained_earnings": FieldSpec(
         "cr", ANNUAL, "Retained earnings (Screener/XBRL: reserves / other equity, which also "
                       "holds share premium)",
-        {"screener": _l("Reserves"), "yfinance": _l("RetainedEarnings"),
-         "nse": _l("OtherEquity")},
+        {"screener": _l("Reserves"), "yfinance": _l("RetainedEarnings")},
     ),
     "minority_interest_bs": FieldSpec(
         "cr", ANNUAL, "Minority interest (balance sheet)",
-        {"yfinance": _l("MinorityInterest"), "nse": _l("NonControllingInterest")},
+        {"yfinance": _l("MinorityInterest")},
     ),
     "total_debt": FieldSpec(
         "cr", ANNUAL, "Total borrowings",
         {"screener": _l("Borrowings"), "yfinance": _l("TotalDebt")},
-        {"nse": "sum of the reported XBRL_SUMS['total_debt'] lines (non-current + current)"},
     ),
     "cash_and_equivalents": FieldSpec(
         "cr", ANNUAL, "Cash and bank balances",
         {"screener": _l("Cash & Bank"), "yfinance": _l("CashAndCashEquivalents")},
-        {"nse": "sum of the reported XBRL_SUMS['cash_and_equivalents'] lines"},
     ),
     "non_operating_investments": FieldSpec(
         "cr", ANNUAL, "Investments (treated as non-operating)",
         {"screener": _l("Investments"),
          "yfinance": _l("LongTermEquityInvestment", "InvestmentsAndAdvances")},
-        {"nse": "sum of the reported XBRL_SUMS['non_operating_investments'] lines"},
     ),
     "receivables": FieldSpec(
         "cr", ANNUAL, "Trade receivables",
         {"screener": _l("Receivables"), "yfinance": _l("AccountsReceivable", "Receivables")},
-        {"nse": "sum of the reported XBRL_SUMS['receivables'] lines"},
     ),
     "inventory": FieldSpec(
         "cr", ANNUAL, "Inventories",
-        {"screener": _l("Inventory"), "yfinance": _l("Inventory"), "nse": _l("Inventories")},
+        {"screener": _l("Inventory"), "yfinance": _l("Inventory")},
     ),
     "payables": FieldSpec(
         "cr", ANNUAL, "Trade payables",
-        {"yfinance": _l("AccountsPayable", "Payables"), "nse": _l("TradePayablesCurrent")},
+        {"yfinance": _l("AccountsPayable", "Payables")},
     ),
     "net_block": FieldSpec(
         "cr", ANNUAL, "Net fixed assets",
         {"screener": _l("Net Block"), "yfinance": _l("NetPPE")},
-        {"nse": "sum of the reported XBRL_SUMS['net_block'] lines (PPE + other intangibles)"},
     ),
     "book_value_per_share": FieldSpec(
         "rs", ANNUAL, "Book value per share", {},
@@ -212,24 +195,20 @@ CANONICAL_FIELDS: dict[str, FieldSpec] = {
     # ───────── cash flow (annual) ─────────
     "cfo": FieldSpec(
         "cr", ANNUAL, "Cash from operating activities",
-        {"screener": _l("Cash from Operating Activity"), "yfinance": _l("OperatingCashFlow"),
-         "nse": _l("CashFlowsFromUsedInOperatingActivities")},
+        {"screener": _l("Cash from Operating Activity"), "yfinance": _l("OperatingCashFlow")},
     ),
     "purchase_of_fixed_assets": FieldSpec(
         "cr", ANNUAL, "Capex outflow (positive)",
-        {"yfinance": _l("PurchaseOfPPE", sign=-1),
-         "nse": _l("PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities")},
+        {"yfinance": _l("PurchaseOfPPE", sign=-1)},
     ),
     "sale_of_fixed_assets": FieldSpec(
         "cr", ANNUAL, "Proceeds from sale of fixed assets",
-        {"yfinance": _l("SaleOfPPE"),
-         "nse": _l("ProceedsFromSalesOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities")},
+        {"yfinance": _l("SaleOfPPE")},
     ),
     "dividends_paid": FieldSpec(
         "cr", ANNUAL, "Dividends paid (Screener: dividend amount for the year)",
         {"screener": _l("Dividend Amount"),
-         "yfinance": _l("CashDividendsPaid", "CommonStockDividendPaid", sign=-1),
-         "nse": _l("DividendsPaidClassifiedAsFinancingActivities")},
+         "yfinance": _l("CashDividendsPaid", "CommonStockDividendPaid", sign=-1)},
     ),
     # ───────── shareholding (quarterly filings) ─────────
     "promoter_pct": FieldSpec(
@@ -257,70 +236,6 @@ YFINANCE_SCALE: dict[Unit, float] = {
     "pct": 1.0,
     "count": 1.0,
 }
-
-
-# ───────── NSE / BSE results XBRL (SEBI Ind AS results taxonomy, prefix ``in-bse-fin``) ─────────
-# Element *local names*; the namespace (which changes with each taxonomy year) is ignored.
-# ``CANONICAL_FIELDS[...].labels["nse"]`` lists the elements read directly. The tables below are
-# for lines the filing splits up, the filing's own descriptive facts, and bank-only inputs.
-# Check a real filing with ``python -m app.jobs xbrl-inspect <file.xml>`` and extend these.
-
-# Canonical field → lines summed when the filing has no single total. At least one line must
-# be reported; lines a filing does not tag are nil in its layout (they are not assumed zero
-# when *every* line is missing — the field is then NULL).
-XBRL_SUMS: dict[str, tuple[str, ...]] = {
-    "cogs": ("CostOfMaterialsConsumed", "PurchasesOfStockInTrade",
-             "ChangesInInventoriesOfFinishedGoodsWorkInProgressAndStockInTrade"),
-    "tax": ("CurrentTax", "DeferredTax"),
-    "total_debt": ("BorrowingsNoncurrent", "BorrowingsCurrent"),
-    "cash_and_equivalents": ("CashAndCashEquivalents",
-                             "BankBalanceOtherThanCashAndCashEquivalents"),
-    "non_operating_investments": ("NoncurrentInvestments", "CurrentInvestments"),
-    "receivables": ("TradeReceivablesCurrent", "TradeReceivablesNoncurrent"),
-    "net_block": ("PropertyPlantAndEquipment", "OtherIntangibleAssets"),
-}  # fmt: skip
-
-# Cash-flow lines canonicalised as positive magnitudes whatever sign the filer used.
-XBRL_MAGNITUDES: frozenset[str] = frozenset(
-    {"purchase_of_fixed_assets", "sale_of_fixed_assets", "dividends_paid"}
-)
-
-# Descriptive facts of a results filing (text / dates).
-XBRL_INFO: dict[str, tuple[str, ...]] = {
-    "company": ("NameOfTheCompany",),
-    "symbol": ("Symbol", "NSESymbol"),
-    "scrip_code": ("ScripCode", "BSEScripCode"),
-    "isin": ("ISIN",),
-    "period_start": ("DateOfStartOfReportingPeriod",),
-    "period_end": ("DateOfEndOfReportingPeriod",),
-    "fy_start": ("DateOfStartOfFinancialYear",),
-    "nature": ("NatureOfReportStandaloneConsolidated",),
-    "audited": ("WhetherResultsAreAuditedOrUnaudited",),
-    "board_meeting": ("DateOfBoardMeetingWhenFinancialResultsWereApproved",
-                      "DateOfBoardMeeting"),
-}  # fmt: skip
-
-# Bank results → ``extra`` keys read by app.fundamentals.banking (BANK_FIELDS). Presence of
-# ``InterestEarned`` marks a bank-format filing.
-XBRL_BANK_EXTRA: dict[str, tuple[str, ...]] = {
-    "interest_earned": ("InterestEarned",),
-    "interest_expended": ("InterestExpended",),
-    "operating_expenses": ("OperatingExpenses",),
-    "loan_loss_provisions": ("ProvisionsOtherThanTaxAndContingencies",),
-    "gross_npa": ("GrossNonPerformingAssets", "GrossNpa"),
-    "net_npa": ("NetNonPerformingAssets", "NetNpa"),
-    "crar_pct": ("CapitalAdequacyRatioBaselIii", "CapitalAdequacyRatio"),
-    "advances": ("Advances",),
-    "investments": ("Investments",),
-    "deposits": ("Deposits",),
-}  # fmt: skip
-XBRL_BANK_MARKER = "InterestEarned"
-# Bank figures that are balances at period end (not flows): a Q4 filing often reports them only
-# in the quarter's context, and they hold for the fiscal year that ends on the same day.
-XBRL_BANK_STOCKS: frozenset[str] = frozenset(
-    {"gross_npa", "net_npa", "crar_pct", "advances", "investments", "deposits"}
-)
-XBRL_BANK_PCT: frozenset[str] = frozenset({"crar_pct"})
 
 
 def fields_for(table: Table) -> list[str]:
@@ -398,11 +313,25 @@ def mapping_markdown() -> str:
     """Render ``CANONICAL_FIELDS`` as the table in docs/CANONICAL_FIELDS.md."""
     sources: tuple[Source, ...] = ("screener", "yfinance", "nse")
 
-    def cell(spec: FieldSpec, source: Source) -> str:
+    from app.fundamentals.xbrl_map import get_xbrl_map  # the map imports this module
+
+    xmap = get_xbrl_map()
+
+    def xbrl_cell(name: str) -> list[str]:
+        item = xmap.items.get(name)
+        if item is None or item.target != "canonical":
+            return []
+        parts = [f"`{g}:{n}`" for g, n in item.tag_candidates()]
+        parts += [f"sum of {g}: " + " + ".join(f"`{n}`" for n in ns) for g, ns in item.sum_groups()]
+        return parts + (["(magnitude)"] if item.magnitude else [])
+
+    def cell(spec: FieldSpec, source: Source, name: str) -> str:
         parts = [
             f"`{lbl.text}`" + (" (negated)" if lbl.sign < 0 else "")
             for lbl in spec.labels.get(source, ())
         ]
+        if source == "nse" and "shareholding" not in spec.tables:
+            parts += xbrl_cell(name)
         if source in spec.derived:
             parts.append(f"derived: {spec.derived[source]}")
         return " / ".join(parts) or "—"
@@ -416,8 +345,9 @@ def mapping_markdown() -> str:
         "Units: `cr` ₹ crore, `rs` ₹ per share, `cr_shares` shares in crore, `pct` 0-100.",
         "Labels are tried left to right; `—` means the source cannot supply the field (it stays",
         "NULL and is recorded as a data gap). For NSE, fin-table labels are XBRL element names",
-        "(namespace ignored); the line sums, bank extras and descriptive facts are the `XBRL_*`",
-        "tables in `canonical.py`. Check a real filing with `python -m app.jobs xbrl-inspect`.",
+        "from `backend/app/fundamentals/xbrl_map.yaml` (namespace ignored; `group:` says which",
+        "results format: ind_as, bank or pre_ind_as). Check a real filing with",
+        "`python -m app.jobs xbrl-inspect`.",
         "",
         "| Field | Unit | Tables | Description | Screener (Data Sheet) | yfinance "
         "| NSE (results XBRL; shareholding API) |",
@@ -426,7 +356,7 @@ def mapping_markdown() -> str:
     for name, spec in CANONICAL_FIELDS.items():
         tables = ", ".join(spec.tables)
         row = [f"`{name}`", spec.unit, tables, spec.description]
-        row += [cell(spec, s) for s in sources]
+        row += [cell(spec, s, name) for s in sources]
         lines.append("| " + " | ".join(row) + " |")
     return "\n".join(lines) + "\n"
 

@@ -1,0 +1,394 @@
+# xbrl_map.yaml — exchange results XBRL element → canonical item_code (SPEC v0.2 §3.6 step 1).
+#
+# The one place that names XBRL elements. Loaded and validated by app.fundamentals.xbrl_map;
+# every stored line item records the `version` below, so bump it whenever you change a mapping
+# (a changed map can then be re-applied to the cached raw files, see data/raw).
+#
+# Element *local names*: the namespace (e.g. .../in-bse-fin/2020-03-31) is ignored, so a new
+# taxonomy year does not break the map. Check a real filing with
+#   python -m app.jobs xbrl-inspect <file.xml>
+# which lists every numeric element in the used contexts that this map does not read.
+#
+# Per item_code:
+#   statement  pl | bs | cf | ratio        which statement (drives the coverage report)
+#   unit       amount | per_share | pct | shares
+#              amount: ₹ (filings state absolute rupees; see app.data.xbrl for lakh/crore/million
+#              handling); per_share: ₹ per share, never scaled; pct: 0-100 (a `pure` fraction is
+#              ×100); shares: a count
+#   target     canonical  → a column of fin_quarterly / fin_annual with the same name (stored in
+#                           crore there) and a fin_line_items row
+#              extra      → a key of the wide row's `extra` dict (bank inputs for
+#                           fundamentals/banking.py) and a fin_line_items row
+#              line       → a fin_line_items row only
+#   tags       ordered groups of element names; the first element present wins. Group names are
+#              recorded with the value (e.g. "pre_ind_as:NetSalesIncomeFromOperations"):
+#                ind_as      SEBI Ind AS results format (from FY2016-17 / FY2017-18)
+#                bank        banking results format (Ind AS and earlier)
+#                pre_ind_as  Indian GAAP / Clause 41 results format (before Ind AS)
+#   sum_of     used only when no tag matched: the sum of the listed lines the filing reports (at
+#              least one; lines a layout doesn't tag are nil in it). Same group structure.
+#   magnitude  true → stored as a positive amount whatever sign the filer used (cash outflows)
+#   carry_to_year  true → a balance at period end: if the Q4 filing reports it only in the
+#              quarter's context it also applies to the fiscal year ending that day
+#
+# pre_ind_as names follow the Clause 41 results layout (Net Sales / Income from Operations,
+# Profit from ordinary activities before tax, ...) and are NOT yet verified against a real
+# pre-2017 filing: confirm with xbrl-inspect and correct here (bumping `version`). Results XBRL
+# carried no cash-flow statement before FY2019-20 (SEBI made the half-yearly cash flow part of
+# results then); older cash flows come from annual-report PDFs (SPEC §3.6 step 3).
+
+version: 2
+
+items:
+  # ───────── P&L ─────────
+  revenue:
+    statement: pl
+    unit: amount
+    target: canonical
+    tags:
+      ind_as: [RevenueFromOperations]
+      bank: [InterestEarned]
+      pre_ind_as: [NetSalesIncomeFromOperations, TotalIncomeFromOperationsNet, IncomeFromOperations]
+  other_income:
+    statement: pl
+    unit: amount
+    target: canonical
+    tags:
+      ind_as: [OtherIncome]
+  total_income:
+    statement: pl
+    unit: amount
+    target: line
+    tags:
+      ind_as: [Income]
+      bank: [TotalIncome]
+      pre_ind_as: [TotalIncome]
+  cogs:
+    statement: pl
+    unit: amount
+    target: canonical
+    sum_of:
+      ind_as: [CostOfMaterialsConsumed, PurchasesOfStockInTrade,
+               ChangesInInventoriesOfFinishedGoodsWorkInProgressAndStockInTrade]
+      pre_ind_as: [ConsumptionOfRawMaterials]
+  employee_benefit_expense:
+    statement: pl
+    unit: amount
+    target: line
+    tags:
+      ind_as: [EmployeeBenefitExpense]
+      pre_ind_as: [EmployeeBenefitsExpense]
+  other_expenses:
+    statement: pl
+    unit: amount
+    target: line
+    tags:
+      ind_as: [OtherExpenses]
+  total_expenses:
+    statement: pl
+    unit: amount
+    target: line
+    tags:
+      ind_as: [Expenses]
+      pre_ind_as: [TotalExpenses]
+  depreciation:
+    statement: pl
+    unit: amount
+    target: canonical
+    tags:
+      ind_as: [DepreciationDepletionAndAmortisationExpense]
+      pre_ind_as: [DepreciationAndAmortisationExpense]
+  interest:
+    statement: pl
+    unit: amount
+    target: canonical
+    tags:
+      ind_as: [FinanceCosts]
+      bank: [InterestExpended]
+  exceptional_items:
+    statement: pl
+    unit: amount
+    target: line
+    tags:
+      ind_as: [ExceptionalItemsBeforeTax]
+      pre_ind_as: [ExceptionalItems]
+  pbt:
+    statement: pl
+    unit: amount
+    target: canonical
+    tags:
+      ind_as: [ProfitBeforeTax]
+      bank: [ProfitLossFromOrdinaryActivitiesBeforeTax]
+  tax:
+    statement: pl
+    unit: amount
+    target: canonical
+    tags:
+      ind_as: [TaxExpense]
+    sum_of:
+      ind_as: [CurrentTax, DeferredTax]
+  pat:
+    statement: pl
+    unit: amount
+    target: canonical
+    tags:
+      ind_as: [ProfitOrLossAttributableToOwnersOfParent, ProfitLossForPeriod]
+      bank: [NetProfitLossForThePeriod]
+      pre_ind_as: [NetProfitLossAfterTaxesMinorityInterestAndShareOfProfitLossOfAssociates,
+                   NetProfitLossForThePeriod]
+  minority_interest_pl:
+    statement: pl
+    unit: amount
+    target: canonical
+    tags:
+      ind_as: [ProfitOrLossAttributableToNonControllingInterests]
+      pre_ind_as: [MinorityInterest]
+  eps_basic:
+    statement: pl
+    unit: per_share
+    target: line
+    tags:
+      ind_as: [BasicEarningsLossPerShareFromContinuingAndDiscontinuedOperations,
+               BasicEarningsLossPerShareFromContinuingOperations]
+      pre_ind_as: [BasicEarningsPerShareAfterExtraordinaryItems,
+                   BasicEarningsPerShareBeforeExtraordinaryItems]
+  eps_diluted:
+    statement: pl
+    unit: per_share
+    target: canonical
+    tags:
+      ind_as: [DilutedEarningsLossPerShareFromContinuingAndDiscontinuedOperations,
+               DilutedEarningsLossPerShareFromContinuingOperations]
+      pre_ind_as: [DilutedEarningsPerShareAfterExtraordinaryItems,
+                   DilutedEarningsPerShareBeforeExtraordinaryItems]
+  paid_up_equity_capital:   # "paid-up equity share capital" line of the results table
+    statement: pl
+    unit: amount
+    target: line
+    tags:
+      ind_as: [PaidUpValueOfEquityShareCapital]
+      pre_ind_as: [PaidUpEquityShareCapital]
+
+  # ───────── balance sheet (statement of assets and liabilities, half-yearly) ─────────
+  total_assets:
+    statement: bs
+    unit: amount
+    target: canonical
+    tags:
+      ind_as: [Assets]
+      pre_ind_as: [TotalAssets]
+  current_assets:
+    statement: bs
+    unit: amount
+    target: canonical
+    tags:
+      ind_as: [CurrentAssets]
+      pre_ind_as: [TotalCurrentAssets]
+  current_liabilities:
+    statement: bs
+    unit: amount
+    target: canonical
+    tags:
+      ind_as: [CurrentLiabilities]
+      pre_ind_as: [TotalCurrentLiabilities]
+  total_equity:
+    statement: bs
+    unit: amount
+    target: canonical
+    tags:
+      ind_as: [EquityAttributableToOwnersOfParent, Equity]
+      pre_ind_as: [ShareholdersFunds, TotalShareholdersFunds]
+  equity_share_capital:
+    statement: bs
+    unit: amount
+    target: line
+    tags:
+      ind_as: [EquityShareCapital]
+      bank: [Capital]
+      pre_ind_as: [ShareCapital]
+  retained_earnings:
+    statement: bs
+    unit: amount
+    target: canonical
+    tags:
+      ind_as: [OtherEquity]
+      bank: [ReservesAndSurplus]
+      pre_ind_as: [ReservesAndSurplus]
+  minority_interest_bs:
+    statement: bs
+    unit: amount
+    target: canonical
+    tags:
+      ind_as: [NonControllingInterest]
+      pre_ind_as: [MinorityInterest]
+  total_debt:
+    statement: bs
+    unit: amount
+    target: canonical
+    tags:
+      bank: [Borrowings]
+    sum_of:
+      ind_as: [BorrowingsNoncurrent, BorrowingsCurrent]
+      pre_ind_as: [LongTermBorrowings, ShortTermBorrowings]
+  cash_and_equivalents:
+    statement: bs
+    unit: amount
+    target: canonical
+    sum_of:
+      ind_as: [CashAndCashEquivalents, BankBalanceOtherThanCashAndCashEquivalents]
+      pre_ind_as: [CashAndBankBalances]
+  non_operating_investments:
+    statement: bs
+    unit: amount
+    target: canonical
+    sum_of:
+      ind_as: [NoncurrentInvestments, CurrentInvestments]
+      pre_ind_as: [NonCurrentInvestments]
+  receivables:
+    statement: bs
+    unit: amount
+    target: canonical
+    sum_of:
+      ind_as: [TradeReceivablesCurrent, TradeReceivablesNoncurrent]
+      pre_ind_as: [TradeReceivables]
+  inventory:
+    statement: bs
+    unit: amount
+    target: canonical
+    tags:
+      ind_as: [Inventories]
+  payables:
+    statement: bs
+    unit: amount
+    target: canonical
+    tags:
+      ind_as: [TradePayablesCurrent]
+      pre_ind_as: [TradePayables]
+  net_block:
+    statement: bs
+    unit: amount
+    target: canonical
+    sum_of:
+      ind_as: [PropertyPlantAndEquipment, OtherIntangibleAssets]
+      pre_ind_as: [TangibleAssets, IntangibleAssets]
+  capital_work_in_progress:
+    statement: bs
+    unit: amount
+    target: line
+    tags:
+      ind_as: [CapitalWorkInProgress]
+      pre_ind_as: [CapitalWorkInProgress]
+
+  # ───────── cash flow (half-yearly, from FY2019-20) ─────────
+  cfo:
+    statement: cf
+    unit: amount
+    target: canonical
+    tags:
+      ind_as: [CashFlowsFromUsedInOperatingActivities]
+  purchase_of_fixed_assets:
+    statement: cf
+    unit: amount
+    target: canonical
+    magnitude: true
+    tags:
+      ind_as: [PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities]
+  sale_of_fixed_assets:
+    statement: cf
+    unit: amount
+    target: canonical
+    magnitude: true
+    tags:
+      ind_as: [ProceedsFromSalesOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities]
+  dividends_paid:
+    statement: cf
+    unit: amount
+    target: canonical
+    magnitude: true
+    tags:
+      ind_as: [DividendsPaidClassifiedAsFinancingActivities]
+
+  # ───────── banks → wide row `extra` (fundamentals/banking.py BANK_FIELDS) ─────────
+  interest_earned:
+    statement: pl
+    unit: amount
+    target: extra
+    tags:
+      bank: [InterestEarned]
+  interest_expended:
+    statement: pl
+    unit: amount
+    target: extra
+    tags:
+      bank: [InterestExpended]
+  operating_expenses:
+    statement: pl
+    unit: amount
+    target: extra
+    tags:
+      bank: [OperatingExpenses]
+  loan_loss_provisions:
+    statement: pl
+    unit: amount
+    target: extra
+    tags:
+      bank: [ProvisionsOtherThanTaxAndContingencies]
+  gross_npa:
+    statement: ratio
+    unit: amount
+    target: extra
+    carry_to_year: true
+    tags:
+      bank: [GrossNonPerformingAssets, GrossNpa]
+  net_npa:
+    statement: ratio
+    unit: amount
+    target: extra
+    carry_to_year: true
+    tags:
+      bank: [NetNonPerformingAssets, NetNpa]
+  crar_pct:
+    statement: ratio
+    unit: pct
+    target: extra
+    carry_to_year: true
+    tags:
+      bank: [CapitalAdequacyRatioBaselIii, CapitalAdequacyRatio]
+  advances:
+    statement: bs
+    unit: amount
+    target: extra
+    carry_to_year: true
+    tags:
+      bank: [Advances]
+  investments:
+    statement: bs
+    unit: amount
+    target: extra
+    carry_to_year: true
+    tags:
+      bank: [Investments]
+  deposits:
+    statement: bs
+    unit: amount
+    target: extra
+    carry_to_year: true
+    tags:
+      bank: [Deposits]
+
+# A filing containing this element is in the banking format.
+bank_marker: InterestEarned
+
+# Descriptive facts of a filing (text / dates), first present wins.
+info:
+  company: [NameOfTheCompany]
+  symbol: [Symbol, NSESymbol]
+  scrip_code: [ScripCode, BSEScripCode]
+  isin: [ISIN]
+  period_start: [DateOfStartOfReportingPeriod]
+  period_end: [DateOfEndOfReportingPeriod]
+  fy_start: [DateOfStartOfFinancialYear]
+  nature: [NatureOfReportStandaloneConsolidated]
+  audited: [WhetherResultsAreAuditedOrUnaudited]
+  board_meeting: [DateOfBoardMeetingWhenFinancialResultsWereApproved, DateOfBoardMeeting]
+  rounding: [LevelOfRoundingUsedInFinancialStatements]
