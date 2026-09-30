@@ -24,4 +24,40 @@ The pipeline has four parts:
 
 ## Resolution
 
-Each Partial or Missing item gets its own commit. This section is filled in as they land.
+Each Partial or Missing item got its own commit. Status after P17:
+
+| # | Requirement | Before | After | Commit | Where now |
+|---|---|---|---|---|---|
+| 1 | Versioned tag map, Ind-AS + pre-Ind-AS | Partial | **Met**, with one caveat | `2040395` | `backend/app/fundamentals/xbrl_map.yaml` (`version: 2`; tag groups `ind_as`, `bank`, `pre_ind_as`), validated by `fundamentals/xbrl_map.py`; each line item records its tag and map version. **Caveat:** the `pre_ind_as` element names follow the Clause 41 layout but are unverified against a real filing |
+| 2 | Units to ₹ (lakhs / crores / millions) | Partial | **Met** | `04703fa` | `data/xbrl.py::amount_scale`: detects amounts keyed in the stated rounding level via PAT ÷ EPS, else `decimals`. Factors are in `providers.yaml` `nse.results.rounding_levels`. Line items hold ₹ |
+| 3 | Consolidated and standalone stored and labelled | Met | Met | — | Unchanged; line items also carry `basis` |
+| 4 | Restatements as versions | Missing | **Met** | `a77f37b` | Comparative contexts are now parsed; `results_store.record_line_items` versions each period's figures by `usable_from` (not download order), with a rounding tolerance. Wide tables use the latest version; backtests use the version public at each date (`backtest/pit.py::versioned_frame`) |
+| 5 | Long-format `fin_line_items` with `announced_at`, `filing_id` | Missing | **Met** | `a77f37b` | Table `fin_line_items` (migration `e2c3d4f5a6b7`): value in ₹, unit, basis, statement, period type, version, `filing_id`, `announced_at`, `usable_from`, `tag`, `map_version`, `isin` |
+| 6 | FY totals derived from quarters, flagged | Missing | **Met** | `bc0565e` | `results_store.derive_years`: `derived = true` line items plus `fin_annual.is_derived`; the report lists derived years; a later filed annual figure supersedes the sum |
+| 7 | Raw files cached under `data/raw` before parsing | Missing | **Met** | `89e66d5` | `data/raw_store.py`: `RAW_DATA_DIR/<source>/<yyyy>/<mm>/<dd>/`, for XBRL documents, NSE results lists and uploads; `result_filings.raw_path`; `python -m app.jobs xbrl-reparse`. Other NSE fetchers (bhavcopy, surveillance) are outside this audit and not cached yet (SPEC §3.2a; P21) |
+| 8 | Coverage for 5 Nifty 500 stocks | Missing | **Partial**: tool only | `3d96acc` | `python -m app.jobs xbrl-coverage --symbols …` reports the earliest and latest fiscal year per statement. It has **not been measured**: NSE and BSE are blocked in this build environment. See below |
+
+**Golden tests** (bank, manufacturer, IT; 3 years each including a pre-2017 year): **Partial.**
+- The harness is ready: `tests/test_golden_xbrl.py` and `tests/fixtures/golden_xbrl/expected.yaml`, covering HDFCBANK, MARUTI and TCS for FY2016, FY2020 and FY2024.
+- The real XBRL files and hand-checked figures are not in yet, for the same network reason, so the nine entries skip and name what's missing.
+- The structure test and a self-test of the harness run.
+
+### Still to do (needs network access to NSE/BSE)
+
+1. **Measure coverage (item 8).** Run `results_watch` for five Nifty 500 stocks, e.g.
+   `python -m app.jobs run results_watch --symbols TCS,HDFCBANK,MARUTI,RELIANCE,ASIANPAINT`, with
+   `max_downloads_per_run` raised, or over several nights. Then run
+   `python -m app.jobs xbrl-coverage --symbols TCS,HDFCBANK,MARUTI,RELIANCE,ASIANPAINT` and record
+   the table here.
+2. **Fill the golden set.** Download the nine filings, check the `pre_ind_as` names with
+   `xbrl-inspect` (fix `xbrl_map.yaml` and bump `version`), and enter the hand-checked figures with
+   `checked_against` (see `tests/fixtures/golden_xbrl/README.md`).
+
+Expected coverage limits:
+- **P&L:** as far back as XBRL results filing goes (roughly the early-to-mid 2010s).
+- **Balance sheet:** only from the half-yearly statement of assets and liabilities, and only
+  once SEBI required it in results.
+- **Cash flow:** from FY2020, when SEBI added the half-yearly cash flow to results.
+
+Earlier balance sheets and cash flows are for the annual-report PDF gap filler (SPEC §3.6 step 3,
+P18).
