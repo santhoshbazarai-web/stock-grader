@@ -1,0 +1,155 @@
+# Split into config/scoring.yaml, config/valuation.yaml, config/sectors.yaml, config/providers.yaml
+# when the repo is created (Phase 0 prompt does this). All values are starting points — tune after backtests.
+
+# ───────────────────────── providers.yaml ─────────────────────────
+providers:
+  enabled:
+    fyers: true
+    kite: false            # Kite Connect paid plan (₹500/mo) needed for prices; budget is ₹0
+    nse: true
+    bse: true
+    yfinance: true
+    market_lens: true      # reconciliation only; turn off if it breaks
+    screener_import: true  # manual gap-fill only
+  priority:
+    daily_ohlcv:        [fyers, kite, nse_bhavcopy, yfinance]
+    index_ohlcv:        [fyers, kite, niftyindices, yfinance]
+    ltp:                [fyers, kite]
+    delivery:           [nse]
+    symbol_master:      [nse, bse, fyers]
+    corporate_actions:  [nse, bse, yfinance]
+    shareholding:       [nse, bse]
+    fin_results:        [nse_xbrl, bse_xbrl]
+    fin_gap_fill:       [annual_report_pdf, screener_import]
+    events:             [nse, bse]
+    index_constituents: [niftyindices]
+    surveillance:       [nse]
+  reconcile_against:    [bse_xbrl, market_lens, yfinance]
+  reconcile_tolerance:  0.02
+  rate_limits:            # requests per second / per minute (verify against current broker docs)
+    fyers:    {per_sec: 8,  per_min: 180}
+    kite:     {per_sec: 3,  per_min: 150}
+    yfinance: {per_sec: 2,  per_min: 60}
+    nse:      {per_sec: 1,  per_min: 30}
+    bse:      {per_sec: 1,  per_min: 30}
+    market_lens: {per_sec: 0.5, per_min: 15}
+  universe: NIFTY500
+  results_watch: {interval_min: 15, window: ["07:00", "23:00"]}
+  notify_if: {grade_change: true, zone_change: true, action_change: true, fv_change_pct: 5}
+  telegram: {enabled: true, commands: ["/grade", "/buyzone", "/status"]}
+  staleness_hours:
+    daily_ohlcv: 30
+    ltp: 0.1
+    fin_annual: 2400
+  history_years: 10
+
+# ───────────────────────── valuation.yaml ─────────────────────────
+valuation:
+  risk_free_rate: 0.065          # update weekly from 10-yr G-sec
+  equity_risk_premium: 0.07
+  size_premium:                  # by market cap (₹ Cr)
+    - {max_mcap: 5000,   premium: 0.02}
+    - {max_mcap: 20000,  premium: 0.01}
+    - {max_mcap: null,   premium: 0.0}
+  beta: {lookback_years: 2, frequency: weekly, benchmark: NIFTY500, blume_adjust: true, floor: 0.6, cap: 1.8}
+  tax_rate_default: 0.252
+  dcf:
+    stage1_years: 5
+    stage2_years: 5
+    terminal_growth: 0.05
+    terminal_growth_bounds: [0.04, 0.06]
+    g1_cap_by_default: 0.25
+    sensitivity: {wacc_step: 0.005, wacc_range: 0.02, tg_values: [0.04, 0.05, 0.06, 0.07]}
+    scenarios:
+      bear: {g1_delta: -0.05, margin_delta: -0.02, wacc_delta: 0.01}
+      base: {g1_delta: 0.0,   margin_delta: 0.0,   wacc_delta: 0.0}
+      bull: {g1_delta: 0.04,  margin_delta: 0.015, wacc_delta: -0.005}
+  bands:
+    lookback_years: [5, 10]
+    multiples: [pe, ev_ebitda, pb]
+  relative:
+    roce_exponent: 0.5
+    growth_exponent: 0.5
+  mos_by_grade: {A_plus: 0.15, A: 0.15, B: 0.275, C: 0.40, D: 0.40}
+  zones:
+    fair_upper_mult: 1.10
+    top_band_cap_sigma: 2
+  confidence:
+    low_if_method_cv_above: 0.35
+
+# ───────────────────────── sectors.yaml ─────────────────────────
+sectors:
+  default:
+    model: fcff
+    weights: {dcf_base: 0.40, band_pe: 0.25, band_ev_ebitda: 0.15, relative: 0.20}
+  it_services:        {model: fcff, weights: {dcf_base: 0.45, band_pe: 0.30, relative: 0.25}}
+  fmcg:               {model: fcff, weights: {dcf_base: 0.40, band_pe: 0.35, relative: 0.25}}
+  pharma:             {model: fcff, weights: {dcf_base: 0.40, band_pe: 0.30, relative: 0.30}}
+  capital_goods:      {model: fcff, weights: {dcf_base: 0.35, band_pe: 0.35, relative: 0.30}}
+  banks:
+    model: bank
+    weights: {justified_pb: 0.45, band_pb: 0.35, relative_pb: 0.20}
+    long_run_growth: 0.10
+  nbfc:
+    model: bank
+    weights: {justified_pb: 0.40, band_pb: 0.35, relative_pb: 0.25}
+  insurance:          {model: insurance, weights: {band_p_ev: 0.60, relative_p_ev: 0.40}, manual_inputs: [embedded_value, vnb]}
+  metals:             {model: cyclical, normalise_years: 10, weights: {normalised_ev_ebitda: 0.60, band_ev_ebitda: 0.25, band_pb: 0.15}, asset_heavy: true}
+  cement:             {model: cyclical, normalise_years: 8,  weights: {normalised_ev_ebitda: 0.50, band_ev_ebitda: 0.30, relative: 0.20}, asset_heavy: true}
+  chemicals:          {model: cyclical, normalise_years: 7,  weights: {normalised_ev_ebitda: 0.40, dcf_base: 0.30, band_pe: 0.30}}
+  auto:               {model: cyclical, normalise_years: 7,  weights: {normalised_ev_ebitda: 0.40, dcf_base: 0.30, band_pe: 0.30}}
+  real_estate:        {model: nav, nav_discount: 0.20, manual_inputs: [nav]}
+  holding_company:    {model: sotp, holding_discount: 0.30}
+
+# ───────────────────────── scoring.yaml ─────────────────────────
+scoring:
+  weights: {quality: 25, growth: 20, valuation: 20, health: 15, governance: 10, technical: 10}
+  grade_cutoffs: {A_plus: 85, A: 75, B: 60, C: 45}
+  knockouts:
+    max_pledge_pct: 10
+    negative_cfo_years_in_5: 3
+    min_mcap_cr: 500
+    min_avg_traded_value_cr_20d: 5
+    beneish_m_max: -1.78
+    auditor_resignation_years: 2
+    on_asm_gsm: true
+    cap_grade: C
+  # piecewise-linear maps: [[metric_value, score], ...] — linear between points, clamped at ends
+  maps:
+    roce_5y_avg:        [[0.08, 0], [0.12, 40], [0.18, 75], [0.25, 100]]
+    cfo_to_ebitda_5y:   [[0.40, 0], [0.60, 50], [0.75, 80], [0.90, 100]]
+    fcf_conversion_5y:  [[0.0, 0],  [0.50, 50], [0.80, 85], [1.0, 100]]
+    piotroski:          [[3, 0], [5, 40], [7, 80], [9, 100]]
+    sales_cagr_5y:      [[0.0, 0], [0.08, 40], [0.15, 75], [0.25, 100]]
+    eps_cagr_5y:        [[0.0, 0], [0.10, 40], [0.18, 75], [0.30, 100]]
+    eps_yoy_last4q:     [[-0.10, 0], [0.05, 40], [0.20, 80], [0.35, 100]]
+    discount_to_fv:     [[-0.40, 0], [-0.10, 30], [0.0, 50], [0.15, 80], [0.30, 100]]   # (FV-CMP)/FV
+    reverse_dcf_gap:    [[0.10, 0], [0.0, 50], [-0.05, 80], [-0.10, 100]]              # implied - historical
+    debt_to_equity:     [[1.5, 0], [1.0, 30], [0.5, 70], [0.1, 100]]
+    interest_coverage:  [[1.5, 0], [3, 40], [6, 80], [12, 100]]
+    net_debt_ebitda:    [[4, 0], [2.5, 40], [1, 80], [0, 100]]
+    pledge_pct:         [[20, 0], [10, 30], [2, 80], [0, 100]]
+    rs_percentile:      [[20, 0], [50, 40], [80, 85], [95, 100]]
+    stage_score:        {1: 50, 2: 100, 3: 30, 4: 0}
+  earned_premium:
+    momentum_entry_min: 6
+    rs_percentile_min: 80
+    near_52w_high_pct: 0.10
+  bank_maps:
+    gnpa_pct:           [[6, 0], [3, 50], [1.5, 85], [0.8, 100]]
+    nim_pct:            [[2, 0], [3, 50], [4, 85], [5, 100]]
+    car_pct:            [[11.5, 0], [14, 50], [17, 85], [20, 100]]
+    roa_pct:            [[0.5, 0], [1.0, 50], [1.6, 85], [2.2, 100]]
+
+# ───────────────────────── technical ─────────────────────────
+technical:
+  swing_fractal_n: 3
+  zone_impulse_atr_mult: 2.0
+  zone_max_base_candles: 6
+  zone_max_retests_fresh: 1
+  stage_sma_weeks: 30
+  atr_period: 14
+  rsi_period: 14
+  invalidation_atr_buffer: 0.5
+  volume_profile_lookback_weeks: 52
+  avwap_anchors: [low_52w, last_results_date, last_major_swing_low]

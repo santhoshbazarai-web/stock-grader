@@ -55,6 +55,37 @@ Before starting: create an empty GitHub repo `stock-grader`, put `AGENTS.md` at 
 ### P16 — Deploy
 > Production docker-compose with Caddy (HTTPS), backups for Postgres, env-based config. Document broker redirect-URI registration for the production domain.
 
+---
+## v0.2 prompts — run after the XBRL parser task Codex is doing now
+Read SPEC §0 and §3.2–3.10 first; they override earlier sections.
+
+### P17 — Harden the XBRL parser (acceptance for the current task)
+> Make the NSE+BSE XBRL parser meet SPEC §3.6 steps 1, 2 and 5: a versioned `xbrl_map.yaml` covering Ind-AS and pre-Ind-AS tags; normalisation of units to ₹; consolidated and standalone both stored; restatements stored as versions; long-format `fin_line_items`; FY totals derived from quarters and flagged. Save raw files under data/raw before parsing. Tests: 3 golden companies (a bank, a manufacturer, an IT company) with hand-checked values for 3 different years, including one pre-2017 year.
+
+### P18 — Annual-report PDF gap filler + review queue
+> Implement SPEC §3.6 step 3: find the annual report PDF on NSE/BSE, locate the standalone and consolidated balance sheet and cash flow pages, extract with pdfplumber (fallback camelot), fuzzy-map labels to item_codes, and assign a confidence score. Add a review-queue API and a UI table to accept or edit low-confidence rows. Add the coverage-grid endpoint for §3.6 step 4.
+
+### P19 — Symbol master + fuzzy search
+> Implement SPEC §3.5 with pg_trgm, an ISIN join across NSE/BSE/Fyers masters, and aliases from NSE symbol/name-change files. Search box in the Next.js header with keyboard navigation. Test that "hdfc bank", "HDFCBANK", "500180" and an old company name all resolve correctly.
+
+### P20 — On-demand pipeline with live progress
+> Implement SPEC §3.7: a resumable per-symbol pipeline, an SSE progress endpoint, and a frontend progress panel. Optional-step failures still produce a report with data_gaps. Nightly precompute for Nifty 500.
+
+### P21 — Events + results-driven refresh + reconciliation
+> Implement SPEC §3.8 and §3.9: NSE/BSE announcement, results, board-meeting, pledge/SAST, PIT and bulk/block deal fetchers following §3.2a rules; a results_watch job that triggers pipelines; before/after report diffs into notifications; a reconciliation job and a stock-page banner. Market Lens adapter is optional and guarded by config.
+
+### P22 — Broker connect UX + price fallback chain
+> Implement the Settings → Brokers page and flow in SPEC §3.3 for Fyers (enabled) and Kite (disabled by config, but code complete). Price router order: Fyers → NSE bhavcopy history builder → yfinance. Morning token reminder. Assert in a test that no order, GTT, holdings, positions or funds endpoints are ever called.
+
+### P23 — Telegram bot + notifications
+> In-app notification centre plus a Telegram bot (long-polling, outbound only, allow-listed to the owner's chat_id) with /grade SYMBOL, /buyzone and /status. Alerts from P14 and change-notifications from P21 go to both channels.
+
+### P24 — Home deployment
+> Implement SPEC §3.10: a docker-compose profile for Windows/WSL2, restart policies, nightly pg_dump to a configurable path, catch-up jobs on worker start, and a README section for Tailscale access and broker redirect-URI registration. A `make doctor` command checks env vars, DB, Redis, broker token status, NSE reachability and disk space.
+
+### P25 — End-to-end acceptance test
+> Playwright test: type "hdfc bank" in the search box, select it, watch the pipeline complete, and verify the report shows Baseline/FV/Top band, zone, grade, action, the coverage grid with ≥10 years of P&L, and a sources panel. Run it against 5 golden stocks. This test must pass before calling v1 done.
+
 ### Later
 - NSE/BSE XBRL parser to replace manual Screener uploads
 - LLM thesis generator (numbers in → text out, no new facts)
