@@ -498,3 +498,79 @@ export type XbrlFileResult = {
 };
 
 export type XbrlUploadSummary = { symbol: string; files: XbrlFileResult[] };
+
+// ───────────── annual-report PDFs, review queue, coverage (SPEC v0.2 §3.6 steps 3-4) ─────────────
+
+export type ReviewStatus = "auto_accepted" | "pending" | "accepted" | "corrected" | "rejected";
+
+export type AnnualReportStatement = {
+  statement: "bs" | "cf";
+  basis: "consolidated" | "standalone";
+  pages: number[];
+  method: "pdfplumber" | "camelot";
+  unit: string | null;
+  checks: ("passed" | "failed" | "none")[];
+  column_dates: (string | null)[];
+};
+
+export type AnnualReport = {
+  id: number;
+  symbol: string;
+  exchange: "nse" | "upload";
+  document: string;
+  fiscal_year: number | null;
+  disseminated_at: string | null;
+  usable_from: string | null;
+  status: FilingStatus;
+  attempts: number;
+  error: string | null;
+  page_count: number | null;
+  statements: AnnualReportStatement[] | null;
+  warnings: string[] | null;
+  has_document: boolean;
+  candidates: Partial<Record<ReviewStatus, number>>;
+  parsed_at: string | null;
+  updated_at: string;
+};
+
+export type PdfCandidate = {
+  id: number;
+  symbol: string;
+  annual_report_id: number;
+  fiscal_year: number | null;
+  statement: "bs" | "cf";
+  basis: "consolidated" | "standalone";
+  period_end: string;
+  item_code: string;
+  value_cr: number | null;
+  corrected_value_cr: number | null;
+  raw_value: number;
+  raw_label: string;
+  pages: number[];
+  method: string;
+  confidence: number;
+  reasons: string[];
+  status: ReviewStatus;
+  stored: boolean;
+  note: string | null;
+  reviewed_at: string | null;
+};
+
+export type ReviewSummary = { pending: number; reports_parsed: number; reports_failed: number };
+
+export type CoverageSource = "xbrl" | "pdf" | "derived" | "screener" | "yfinance" | "nse";
+
+export type CoverageCell = {
+  fiscal_year: number;
+  statement: "P&L" | "BS" | "CF";
+  sources: CoverageSource[];
+  items: number;
+  pending_review: number;
+};
+
+export type CoverageGrid = {
+  symbol: string;
+  years: number[];
+  fy_end_month: number;
+  bases: { basis: "consolidated" | "standalone"; cells: CoverageCell[] }[];
+};

@@ -1,7 +1,7 @@
 "use client";
 
 // Stock Report page (SPEC §9): header, zone gauge, chart, valuation panel, scorecard,
-// decision, red flags / data gaps and 10-year fundamentals. Saving assumptions swaps in the
+// decision, red flags / data gaps, 10-year fundamentals and data coverage (§3.6 step 4). Saving assumptions swaps in the
 // recomputed report, which re-fetches the chart overlays and sensitivity grid.
 import { useEffect, useState } from "react";
 
@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api, ApiError } from "@/lib/api";
 import type { StockReport } from "@/lib/types";
 
+import { CoverageGrid } from "./coverage-grid";
 import { FundamentalsCharts } from "./fundamentals-charts";
 import { DecisionPanel, FlagsPanel, ReportHeader } from "./panels";
 import { PriceChart } from "./price-chart";
@@ -88,6 +89,9 @@ export function ReportView({ symbol }: { symbol: string }) {
           </div>
           <Section title="Fundamentals (10 years)">
             <FundamentalsCharts symbol={report.symbol} />
+          </Section>
+          <Section title="Data coverage">
+            <CoverageGrid symbol={report.symbol} />
           </Section>
         </>
       )}
