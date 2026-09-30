@@ -16,7 +16,9 @@ dimension such as a segment) and *units*. A results filing reports several perio
   numbers first reported for a period are its point-in-time truth (rule 4);
 - dimensional contexts (segments), also ignored.
 
-Monetary facts are absolute rupees and become ₹ crore; per-share facts stay ₹. Element names
+Monetary facts are rupees (a filing that keyed them in its stated lakh/crore/million rounding
+level is detected and scaled, see :func:`amount_scale`); line items keep ₹, the wide rows
+₹ crore; per-share facts stay ₹. Element names
 come from ``fundamentals/xbrl_map.yaml`` only (versioned; Ind AS, bank and pre-Ind-AS tags).
 
 Untrusted input: parsed with ``defusedxml`` (no entity expansion, no external entities or DTDs).
@@ -78,6 +80,7 @@ class Fact:
     context: str
     unit: str | None  # the unit's measure local name: INR, pure, shares, INRPerShare...
     text: str
+    decimals: str | None = None  # the fact's `decimals` attribute ("-5", "2", "INF")
 
 
 @dataclass
@@ -167,7 +170,10 @@ def parse_instance(content: bytes) -> Instance:
         if ns in _SKIP_NAMESPACES or not ctx or el.get(_XSI_NIL) == "true":
             continue
         unit_ref = el.get("unitRef")
-        facts.append(Fact(name, ctx, units.get(unit_ref) if unit_ref else None, el.text or ""))
+        facts.append(
+            Fact(name, ctx, units.get(unit_ref) if unit_ref else None, el.text or "",
+                 el.get("decimals"))
+        )  # fmt: skip
     if not facts:
         raise XbrlFormatError("XBRL instance has no facts")
     return Instance(contexts, facts)
@@ -206,6 +212,8 @@ class ResultsFiling:
     warnings: list[str] = field(default_factory=list)
     contexts: dict[str, str] = field(default_factory=dict)  # quarter / year / balance_sheet → id
     map_version: int = 0  # xbrl_map.yaml version that produced the values
+    rounding: str | None = None  # the filing's stated rounding level (presentation only)
+    amount_scale: float = 1.0  # factor applied to monetary facts to get rupees (usually 1)
     # The same periods as mapped line items (amounts in ₹), for fin_line_items.
     quarter_items: dict[str, ItemValue] = field(default_factory=dict)
     year_items: dict[str, ItemValue] = field(default_factory=dict)
@@ -229,34 +237,45 @@ def _number(f: Fact, unit: str) -> float | None:
     return v
 
 
-def _item(facts: Mapping[str, Fact], spec: ItemSpec) -> ItemValue | None:
+def _usable(f: Fact | None, spec: ItemSpec) -> bool:
+    """Amounts must be in rupees; a fact in another currency is not read (see warnings)."""
+    return f is not None and (spec.unit != "amount" or (f.unit or "INR").upper() == "INR")
+
+
+def _item(facts: Mapping[str, Fact], spec: ItemSpec, scale: float) -> ItemValue | None:
+    factor = scale if spec.unit == "amount" else 1.0
     for group, name in spec.tag_candidates():
         f = facts.get(name)
-        if f is not None and (v := _number(f, spec.unit)) is not None:
+        if _usable(f, spec) and f is not None and (v := _number(f, spec.unit)) is not None:
+            v *= factor
             return ItemValue(abs(v) if spec.magnitude else v, f"{group}:{name}")
     for group, names in spec.sum_groups():
-        parts = [(n, _number(facts[n], spec.unit)) for n in names if n in facts]
+        parts = [(n, _number(facts[n], spec.unit)) for n in names if _usable(facts.get(n), spec)]
         reported = [(n, v) for n, v in parts if v is not None]
         if reported:
-            total = float(sum(v for _, v in reported))
+            total = float(sum(v for _, v in reported)) * factor
             tag = f"sum:{group}:" + "+".join(n for n, _ in reported)
             return ItemValue(abs(total) if spec.magnitude else total, tag)
     return None
 
 
 def extract_items(
-    duration: Mapping[str, Fact], instant: Mapping[str, Fact], xmap: XbrlMap
+    duration: Mapping[str, Fact],
+    instant: Mapping[str, Fact],
+    xmap: XbrlMap,
+    scale: float = 1.0,
 ) -> dict[str, ItemValue]:
     """Every mapped item of one period: balance-sheet items from the instant context at the
-    period end, P&L and cash flow from the period's duration context, ratios from either."""
+    period end, P&L and cash flow from the period's duration context, ratios from either.
+    Amounts are multiplied by ``scale`` (see :func:`amount_scale`) to give rupees."""
     out: dict[str, ItemValue] = {}
     for code, spec in xmap.items.items():
         if spec.statement == "bs":
-            v = _item(instant, spec)
+            v = _item(instant, spec, scale)
         elif spec.statement == "ratio":
-            v = _item(duration, spec) or _item(instant, spec)
+            v = _item(duration, spec, scale) or _item(instant, spec, scale)
         else:
-            v = _item(duration, spec)
+            v = _item(duration, spec, scale)
         if v is not None:
             out[code] = v
     return out
@@ -320,6 +339,73 @@ def audited_from_text(text: str | None) -> bool | None:
     return None
 
 
+def rounding_factor(level: str | None, levels: Mapping[str, float]) -> float | None:
+    """The stated rounding level ("Lakhs", "Rupees in Crores"...) → rupees per unit, or None
+    when not stated or unknown. The largest matching keyword wins ("Rupees in Lakhs" → lakh)."""
+    text = (level or "").lower()
+    matches = [factor for keyword, factor in levels.items() if keyword in text]
+    return max(matches) if matches else None
+
+
+def amount_scale(
+    inst: Instance, rounding: str | None, cfg: NseResultsConfig, xmap: XbrlMap
+) -> tuple[float, list[str]]:
+    """The factor that turns this filing's monetary facts into rupees (SPEC §3.6 step 2).
+
+    XBRL requires amounts in the unit's base (rupees) with ``decimals`` giving the rounding,
+    e.g. ``decimals="-5"`` for figures rounded to lakhs, so normally the factor is 1. A filer
+    that keyed amounts in its stated rounding level instead is detected, in this order:
+
+    1. PAT / diluted EPS (both in the reporting period) is the share count. Fewer than
+       ``min_plausible_shares`` shares unscaled, but enough once scaled → scale.
+    2. Without EPS: most monetary facts carry ``decimals >= 0`` (a precision finer than a
+       rupee, only plausible for figures keyed in lakhs/crores/millions) → scale.
+    """
+    factor = rounding_factor(rounding, cfg.rounding_levels)
+    notes: list[str] = []
+    units = {(f.unit or "").upper() for f in inst.facts if f.unit}
+    currencies = {u for u in units if u.isalpha() and "PER" not in u}  # not INR per share
+    if other := currencies - {"INR", "PURE", "SHARES"}:
+        notes.append(f"amounts in {sorted(other)} are not read (rupees only)")
+    if factor is None or factor == 1:
+        return 1.0, notes
+    implied = _implied_shares(inst, xmap)
+    if implied is not None:
+        if implied < cfg.min_plausible_shares <= implied * factor:
+            notes.append(f"amounts were keyed in {rounding!r}, not rupees (PAT / EPS implies "
+                         f"{implied:,.0f} shares); scaled x{factor:g}")  # fmt: skip
+            return factor, notes
+        return 1.0, notes
+    monetary = [f for f in inst.facts if (f.unit or "").upper() == "INR" and f.decimals]
+    keyed = [f for f in monetary if f.decimals != "INF" and _int(f.decimals) is not None
+             and (_int(f.decimals) or 0) >= 0]  # fmt: skip
+    if monetary and len(keyed) * 2 > len(monetary):
+        notes.append(f"amounts were keyed in {rounding!r}, not rupees (decimals >= 0); "
+                     f"scaled x{factor:g}")  # fmt: skip
+        return factor, notes
+    return 1.0, notes
+
+
+def _int(text: str | None) -> int | None:
+    try:
+        return int(text) if text is not None else None
+    except ValueError:
+        return None
+
+
+def _implied_shares(inst: Instance, xmap: XbrlMap) -> float | None:
+    """PAT / diluted EPS from the same non-dimensional context, unscaled."""
+    pat_spec, eps_spec = xmap.items["pat"], xmap.items["eps_diluted"]
+    for ctx in inst.contexts.values():
+        if ctx.dimensional or ctx.instant:
+            continue
+        facts = inst.plain(ctx.id)
+        pat, eps = _item(facts, pat_spec, 1.0), _item(facts, eps_spec, 1.0)
+        if pat is not None and eps is not None and eps.value and pat.value:
+            return abs(pat.value / eps.value)
+    return None
+
+
 def parse_results(
     content: bytes,
     cfg: NseResultsConfig,
@@ -358,9 +444,12 @@ def parse_results(
     y_ctx = best(durations, lambda c: cfg.year_days.contains(c.days))
     bs_ctx = best(instants, lambda c: True)
 
+    rounding = inst.text(info["rounding"])
+    scale, notes = amount_scale(inst, rounding, cfg, xmap)
+    warnings += notes
     bs_facts = inst.plain(bs_ctx.id) if bs_ctx else {}
-    q_items = extract_items(inst.plain(q_ctx.id), bs_facts, xmap) if q_ctx else {}
-    y_items = extract_items(inst.plain(y_ctx.id), bs_facts, xmap) if y_ctx else {}
+    q_items = extract_items(inst.plain(q_ctx.id), bs_facts, xmap, scale) if q_ctx else {}
+    y_items = extract_items(inst.plain(y_ctx.id), bs_facts, xmap, scale) if y_ctx else {}
     if q_items and y_items:  # period-end balances filed only in the quarter's context
         for code, v in q_items.items():
             if xmap.items[code].carry_to_year:
@@ -411,6 +500,8 @@ def parse_results(
             if ctx is not None and rec is not None
         },
         map_version=xmap.version,
+        rounding=rounding,
+        amount_scale=scale,
         quarter_items=q_items,
         year_items=y_items,
     )
@@ -432,7 +523,8 @@ def describe(content: bytes, cfg: NseResultsConfig) -> str:
     filing = parse_results(content, cfg)
     used = {cid: role for role, cid in filing.contexts.items()}
     lines = [
-        f"xbrl_map.yaml version {filing.map_version}",
+        f"xbrl_map.yaml version {filing.map_version}  rounding {filing.rounding!r}  "
+        f"amounts x{filing.amount_scale:g} → ₹",
         f"company {filing.company}  symbol {filing.symbol}  scrip {filing.scrip_code}  "
         f"isin {filing.isin}",
         f"basis {filing.statement_type}  audited {filing.audited}  period "

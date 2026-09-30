@@ -146,6 +146,10 @@ Implementation notes (results XBRL, `data/xbrl.py`, `data/results_store.py`, `jo
   - Each item has a statement (P&L / BS / CF / ratio): BS items are read from the instant context at the period end, P&L and CF from the period's duration context.
   - Every value records the tag that matched (`group:Element`, or `sum:group:A+B`) and the map `version`.
   - Amounts are ₹ in the line items and ₹ crore in the wide tables; per-share stays ₹; `pure` percentages ×100.
+- **Units (§3.6 step 2):** XBRL amounts are rupees by rule, so the rounding level a filing states (`LevelOfRoundingUsedInFinancialStatements`) is presentation only.
+  - A filer that keyed amounts in that level instead is detected once per filing. The primary check: PAT ÷ diluted EPS implies fewer than `nse.results.min_plausible_shares` shares unscaled, but enough once scaled. Without EPS: most monetary facts carry `decimals ≥ 0`.
+  - All amounts are then multiplied by the level's factor from `nse.results.rounding_levels` (lakh 1e5, million 1e6, crore 1e7...), with a warning on the filing.
+  - Amounts in a currency other than INR are not read (warning).
   - `ebit` = PBT + finance cost; `ebitda` = PBT + finance cost + D&A − other income.
   - `shares_diluted_cr` = PAT / diluted EPS; book value per share = equity / shares.
   - Split lines (COGS, borrowings, cash, investments, receivables, net block, tax) are the sum of the lines filed; the field is NULL if none is filed.

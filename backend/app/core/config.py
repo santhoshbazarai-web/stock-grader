@@ -155,6 +155,11 @@ class NseResultsConfig(_Strict):
     year_days: DayRange  # ... and this long a fiscal year
     # Filings disseminated at or after this IST time count as known from the next day (rule 4).
     available_after_ist: time
+    # Rounding levels a filing may state (LevelOfRoundingUsedInFinancialStatements), keyword →
+    # rupees per unit, used when a filer keyed amounts in that unit instead of rupees.
+    rounding_levels: dict[str, PositiveFloat]
+    # PAT / diluted EPS below this many shares means the amounts cannot be in rupees.
+    min_plausible_shares: PositiveFloat
 
     @model_validator(mode="after")
     def _check(self) -> Self:

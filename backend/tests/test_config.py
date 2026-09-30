@@ -148,6 +148,8 @@ def _delete(path: list[str]) -> Mutator:
         ("providers", _set(["nse", "results", "xbrl_hosts"], []), "at least 1"),
         ("providers", _set(["nse", "results", "available_after_ist"], "25:00"), "available_after"),
         ("providers", _delete(["nse", "results"]), "results"),
+        ("providers", _set(["nse", "results", "rounding_levels", "lakh"], 0), "greater than 0"),
+        ("providers", _delete(["nse", "results", "min_plausible_shares"]), "min_plausible"),
         ("providers", _delete(["priority", "results_filings"]), "missing datasets"),
         # valuation
         ("valuation", _set(["risk_free_rate"], 6.5), "less than or equal to 1"),

@@ -69,5 +69,11 @@ providers:
       quarter_days: {min: 80, max: 100}    # context spans (days) classified as a quarter
       year_days: {min: 350, max: 380}      # ... and as a fiscal year
       available_after_ist: "15:30"  # disseminated at/after the close → usable from the next day
+      # XBRL amounts should be absolute rupees. A filing that states a rounding level and keyed
+      # its amounts in that unit (decimals >= 0, or PAT/EPS implying < min_plausible_shares
+      # shares) is scaled by the matching factor. Keywords are matched in the stated level.
+      rounding_levels: {rupees: 1, thousand: 1.0e+3, lakh: 1.0e+5, lac: 1.0e+5,
+                        million: 1.0e+6, crore: 1.0e+7, billion: 1.0e+9}
+      min_plausible_shares: 100000   # a listed company has far more than 1 lakh shares
   oauth_state_ttl_s: 600  # broker login must complete within this many seconds
   history_years: 10
