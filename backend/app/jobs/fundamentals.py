@@ -10,7 +10,8 @@ from sqlalchemy import func, select
 from app.core.config import Dataset, Provider, Season
 from app.data.canonical import fields_for
 from app.data.gaps import GapRecord
-from app.data.results_ingest import FALLBACK_GAP_FIELD, cutoff, ingest
+from app.data.raw_store import RawStoreError
+from app.data.results_ingest import FALLBACK_GAP_FIELD, cache_raw, cutoff, ingest
 from app.db.enums import FilingStatus, StatementType
 from app.db.models import FinQuarterly, Instrument, ResultFiling, Shareholding
 from app.db.upsert import upsert
@@ -139,8 +140,15 @@ def results_watch(ctx: JobContext, options: JobOptions) -> JobOutcome:
                 row.status = FilingStatus.FAILED
                 row.error = "; ".join(doc.reasons)[:2000]
             else:
-                ingest(session, row, symbol=symbol, content=doc.data, cfg=ncfg, gaps=ctx.gaps,
-                       now=ctx.now())  # fmt: skip
+                try:  # cache the raw document before parsing it (SPEC §3.2a)
+                    row.raw_path = cache_raw(ctx.raw_store, "nse", row.document, doc.data)
+                except RawStoreError as exc:
+                    row.attempts += 1
+                    row.status = FilingStatus.FAILED
+                    row.error = str(exc)[:2000]
+                else:
+                    ingest(session, row, symbol=symbol, content=doc.data, cfg=ncfg,
+                           gaps=ctx.gaps, now=ctx.now())  # fmt: skip
             if row.status is FilingStatus.PARSED:
                 parsed += 1
             else:

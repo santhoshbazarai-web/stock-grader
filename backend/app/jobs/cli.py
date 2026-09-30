@@ -6,6 +6,7 @@
     python -m app.jobs run shareholding --force
     python -m app.jobs verify-adjustment --symbol INFY
     python -m app.jobs xbrl-inspect path/to/results.xml   # check the XBRL element mapping
+    python -m app.jobs xbrl-reparse [--symbols TCS]       # re-apply xbrl_map.yaml to cached files
 
 Exit codes: 0 success/skipped, 1 failed, 2 unknown or not-yet-implemented job.
 """
@@ -58,7 +59,56 @@ def _parser() -> argparse.ArgumentParser:
         "xbrl-inspect", help="show what the results XBRL parser reads from a filing (no DB)"
     )
     inspect.add_argument("path", type=Path, help="an NSE/BSE results XBRL document (.xml)")
+    reparse = sub.add_parser(
+        "xbrl-reparse",
+        help="re-parse cached results XBRL documents with the current xbrl_map.yaml (no network)",
+    )
+    reparse.add_argument("--symbols", action="append", default=None, help="comma-separated")
     return p
+
+
+def xbrl_reparse(ctx: JobContext, symbols: Sequence[str] | None) -> int:
+    """Re-apply the current tag map to every cached document (``result_filings.raw_path``)."""
+    from app.data.raw_store import RawStoreError
+    from app.data.results_ingest import ingest
+    from app.db.enums import FilingStatus
+    from app.db.models import ResultFiling
+    from app.jobs.common import normalise_symbols
+
+    if ctx.raw_store is None:
+        print("no raw-file cache configured", file=sys.stderr)
+        return 1
+    cfg = ctx.config.providers.nse.results
+    session = ctx.session_factory()
+    try:
+        q = (
+            select(ResultFiling, Instrument.symbol)
+            .join(Instrument, Instrument.id == ResultFiling.instrument_id)
+            .where(ResultFiling.raw_path.is_not(None))
+            .order_by(ResultFiling.period_end.nulls_first(), ResultFiling.id)
+        )
+        if symbols:
+            q = q.where(Instrument.symbol.in_(normalise_symbols(symbols)))
+        rows = session.execute(q).all()
+        counts = {FilingStatus.PARSED: 0, FilingStatus.FAILED: 0}
+        for row, symbol in rows:
+            try:
+                content = ctx.raw_store.read(row.raw_path or "")
+            except (OSError, RawStoreError) as exc:
+                print(f"{symbol} {row.document}: cached file unreadable ({exc})", file=sys.stderr)
+                counts[FilingStatus.FAILED] += 1
+                continue
+            ingest(session, row, symbol=symbol, content=content, cfg=cfg, gaps=ctx.gaps,
+                   now=ctx.now())  # fmt: skip
+            counts[row.status] = counts.get(row.status, 0) + 1
+            if row.status is FilingStatus.FAILED:
+                print(f"{symbol} {row.document}: {row.error}", file=sys.stderr)
+            session.commit()
+    finally:
+        session.close()
+    parsed, failed = counts[FilingStatus.PARSED], counts[FilingStatus.FAILED]
+    print(f"re-parsed {len(rows)} cached filing(s): {parsed} stored, {failed} failed")
+    return 1 if failed else 0
 
 
 def xbrl_inspect(path: Path) -> int:
@@ -167,4 +217,6 @@ def main(argv: Sequence[str] | None = None, context_factory: ContextFactory | No
         return _list(ctx)
     if args.command == "run":
         return _run(ctx, args)
+    if args.command == "xbrl-reparse":
+        return xbrl_reparse(ctx, args.symbols)
     return verify_adjustment(ctx, args.symbol)

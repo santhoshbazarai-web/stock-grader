@@ -54,8 +54,9 @@ def _no_network(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
-def _env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+def _env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[None]:
     monkeypatch.setenv("FERNET_KEY", Fernet.generate_key().decode())
+    monkeypatch.setenv("RAW_DATA_DIR", str(tmp_path / "raw"))  # never the repo's data/raw
     monkeypatch.setenv("APP_PASSWORD", "test-password")
     monkeypatch.setenv("CONFIG_DIR", str(REPO_CONFIG_DIR))
     monkeypatch.setenv("REDIS_URL", TEST_REDIS_URL)

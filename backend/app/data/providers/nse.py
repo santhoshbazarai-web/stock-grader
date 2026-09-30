@@ -15,6 +15,7 @@ raise :class:`ProviderError` with the offending keys instead of returning partia
 
 import csv
 import io
+import json
 import logging
 import re
 import time
@@ -31,6 +32,7 @@ from app.core.config import NseConfig, Provider, ProvidersConfig
 from app.core.rate_limiter import Limiter
 from app.data.canonical import labels_for, pick
 from app.data.providers.base import ProviderError, ProviderUnavailable
+from app.data.raw_store import RawStore, RawStoreError
 from app.data.xbrl import audited_from_text, statement_type_from_text
 from app.db.enums import CorporateActionType, SurveillanceList
 
@@ -444,9 +446,12 @@ class NseProvider:
 
     name = Provider.NSE
 
-    def __init__(self, config: NseConfig, session: NseSession) -> None:
+    def __init__(
+        self, config: NseConfig, session: NseSession, raw_store: RawStore | None = None
+    ) -> None:
         self._cfg = config
         self._http = session
+        self._raw = raw_store
 
     def delivery(self, day: date) -> pd.DataFrame:
         self._http.begin_call()
@@ -520,6 +525,12 @@ class NseProvider:
                 f"{self._cfg.base_url}{cfg.index_path}",
                 params={"index": "equities", "symbol": symbol.strip().upper(), "period": period},
             )
+            if self._raw is not None and payload is not None:  # cache before parsing (§3.2a)
+                name = f"results_{symbol.strip().upper()}_{period}.json"
+                try:
+                    self._raw.save("nse", name, json.dumps(payload).encode())
+                except RawStoreError as exc:
+                    raise ProviderUnavailable(str(exc)) from exc
             df, w = parse_results_index(payload if payload is not None else [], cfg.xbrl_hosts)
             frames.append(df)
             warnings += w
@@ -540,8 +551,10 @@ class NseProvider:
         return resp.content
 
 
-def build_nse_provider(config: ProvidersConfig, limiter: Limiter | None) -> NseProvider:
+def build_nse_provider(
+    config: ProvidersConfig, limiter: Limiter | None, raw_store: RawStore | None = None
+) -> NseProvider:
     session = NseSession(
         config.nse, limiter=limiter, rate_limit_timeout_s=config.retry.rate_limit_timeout_s
     )
-    return NseProvider(config.nse, session)
+    return NseProvider(config.nse, session, raw_store)

@@ -3,7 +3,7 @@
 import json
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +31,7 @@ from app.data.providers.nse import (
     parse_ca_subject,
     parse_results_index,
 )
+from app.data.raw_store import RawStore
 from app.db.enums import CorporateActionType
 from tests.conftest import REPO_CONFIG_DIR
 
@@ -376,6 +377,20 @@ def test_results_filings_requests_every_period_and_dedupes(http: responses.Reque
     assert "symbol=ACME" in (http.calls[1].request.url or "")
     # the router pays for the first request; the session for the rest (homepage + 2nd period)
     assert len(limiter.calls) == len(CFG.results.periods)
+
+
+def test_results_filings_caches_each_list_before_parsing(
+    http: responses.RequestsMock, tmp_path: Path
+) -> None:
+    http.add(responses.GET, HOME, body="<html/>")
+    http.add(responses.GET, RESULTS, body=text("financial_results_acme.json"))
+    store = RawStore(tmp_path, clock=lambda: datetime(2024, 5, 10, 12, 0, tzinfo=UTC))
+    NseProvider(CFG, NseSession(CFG, clock=Clock()), store).results_filings("acme")
+    day = tmp_path / "nse" / "2024" / "05" / "10"
+    assert sorted(p.name for p in day.iterdir()) == [
+        f"results_ACME_{period}.json" for period in sorted(CFG.results.periods)
+    ]
+    assert json.loads((day / "results_ACME_Quarterly.json").read_text())[0]["symbol"] == "ACME"
 
 
 def test_results_document_guards(http: responses.RequestsMock) -> None:

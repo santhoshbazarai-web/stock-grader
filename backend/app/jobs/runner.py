@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 from app.alerts.telegram import TelegramNotifier
 from app.core.config import AppConfig, JobName
 from app.data.gaps import GapRecorder
+from app.data.raw_store import RawStore
 from app.data.router import DataRouter
 from app.db.enums import JobStatus
 from app.db.models import JobRun
@@ -42,6 +43,7 @@ class JobContext:
     gaps: GapRecorder
     clock: Callable[[], datetime] = lambda: datetime.now(UTC)
     notifier: TelegramNotifier | None = None  # alerts: optional Telegram delivery
+    raw_store: RawStore | None = None  # raw-file cache (SPEC §3.2a); None only in tests
 
     def now(self) -> datetime:
         return self.clock().astimezone(ZoneInfo(self.config.jobs.timezone))

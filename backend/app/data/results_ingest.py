@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Dataset, NseResultsConfig
 from app.data.gaps import GapRecord, GapRecorder
+from app.data.raw_store import RawStore
 from app.data.results_store import EXCHANGE_SOURCE, store_filing
 from app.data.xbrl import XbrlFormatError, announcement_date, parse_results
 from app.db.enums import FilingStatus
@@ -22,6 +23,14 @@ from app.fundamentals.xbrl_map import get_xbrl_map
 # data_gaps.field of the gap left by results_watch's fallback (a quarter stored from yfinance
 # while the exchange filing was unavailable); resolved once a filing is stored.
 FALLBACK_GAP_FIELD = "results_filing"
+
+
+def cache_raw(store: RawStore | None, source: str, name: str, content: bytes) -> str | None:
+    """Cache the raw bytes before parsing (SPEC §3.2a); the path relative to the cache root.
+    Raises :class:`RawStoreError` when the cache is not writable: nothing is parsed then."""
+    if store is None:
+        return None
+    return store.relative(store.save(source, name, content))
 
 
 def upload_document_id(content: bytes) -> str:

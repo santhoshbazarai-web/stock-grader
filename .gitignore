@@ -21,3 +21,6 @@ node_modules/
 dump.rdb
 # production backups (docker-compose.prod.yml)
 /backups/
+
+# raw-file cache (RAW_DATA_DIR default when running outside Docker)
+/data/raw/

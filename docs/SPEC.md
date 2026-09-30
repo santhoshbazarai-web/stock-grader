@@ -165,6 +165,11 @@ Implementation notes (results XBRL, `data/xbrl.py`, `data/results_store.py`, `jo
   - A document naming another symbol, or with no stated basis, is refused (rule 5).
   - If a symbol's list can't be read in season, new quarters come from yfinance with their first-seen date and a `results_filing` data gap, which is resolved when the filing is stored.
 - **Checking the mapping:** `python -m app.jobs xbrl-inspect <file.xml>` prints the contexts used, the canonical values, and the numeric elements the mapping ignores.
+- **Raw cache (§3.2a):** every XBRL document, every NSE results-list JSON and every uploaded file is written to `RAW_DATA_DIR/<source>/<yyyy>/<mm>/<dd>/` (IST fetch date; source `nse` or `upload`) before it is parsed.
+  - The ledger's `raw_path` points at the document.
+  - Files are never overwritten; a different body under a taken name gets a hash suffix.
+  - An unwritable cache fails the filing (or the upload, with 503) rather than parsing uncached.
+  - `python -m app.jobs xbrl-reparse [--symbols …]` re-applies the current `xbrl_map.yaml` to the cached documents without network access.
 
 ### 3.7 On-demand pipeline (when you type a stock)
 1. The user selects a symbol. If `reports` holds a result that is fresher than both the latest price date and the latest filing date, return it instantly.

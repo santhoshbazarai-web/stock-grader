@@ -35,7 +35,8 @@ from app.api.schemas import (
 from app.core.config import ConfigError, get_config, load_config
 from app.data.gaps import SessionGapRecorder
 from app.data.providers.screener_import import ScreenerFormatError, import_screener
-from app.data.results_ingest import ensure_uploaded_row, ingest
+from app.data.raw_store import RawStore, RawStoreError
+from app.data.results_ingest import cache_raw, ensure_uploaded_row, ingest
 from app.db.enums import BacktestStatus, FilingStatus, StatementType
 from app.db.models import (
     Backtest,
@@ -117,7 +118,11 @@ def upload_screener(
     "/uploads/xbrl",
     tags=["uploads"],
     status_code=status.HTTP_201_CREATED,
-    responses={413: {"description": "File too large"}, 422: {"description": "Not XML"}},
+    responses={
+        413: {"description": "File too large"},
+        422: {"description": "Not XML"},
+        503: {"description": "Raw-file cache not writable; nothing parsed"},
+    },
 )
 def upload_xbrl(
     session: SessionDep,
@@ -140,6 +145,7 @@ def upload_xbrl(
         )
     sym = symbol.upper()
     iid = ensure_instruments(session, [sym])[sym]
+    store = RawStore(settings.raw_data_dir)
     results = []
     for f in files:
         name = f.filename or "upload.xml"
@@ -152,6 +158,11 @@ def upload_xbrl(
                 f"{name}: larger than {settings.upload_max_bytes} bytes",
             )
         row = ensure_uploaded_row(session, instrument_id=iid, content=content)
+        try:  # cache the raw file before parsing it (SPEC §3.2a)
+            row.raw_path = cache_raw(store, "upload", f"{sym}_{row.document[7:23]}.xml", content)
+        except RawStoreError as exc:
+            session.rollback()
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
         ingest(session, row, symbol=sym, content=content, cfg=config.providers.nse.results,
                gaps=SessionGapRecorder(session), now=datetime.now(UTC))  # fmt: skip
         session.commit()

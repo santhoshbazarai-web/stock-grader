@@ -251,6 +251,8 @@ class ResultFiling(TimestampMixin, Base):
     status: Mapped[FilingStatus] = mapped_column(str_enum(FilingStatus))
     attempts: Mapped[int] = mapped_column(Integer, server_default="0")
     error: Mapped[str | None] = mapped_column(Text)
+    # The document as cached before parsing, relative to settings.raw_data_dir (SPEC §3.2a).
+    raw_path: Mapped[str | None] = mapped_column(String(512))
     periods: Mapped[list[str] | None]  # e.g. ["quarter 2024-03-31", "year 2024-03-31"]
     warnings: Mapped[list[str] | None]
     parsed_at: Mapped[datetime | None]

@@ -123,6 +123,10 @@ a Screener export is an optional top-up.
 - **Settings → Results filings** shows the backlog, failed documents (with Retry), and takes
   XBRL files uploaded by hand. Use uploads for BSE-only companies, or when NSE can't be reached;
   the XBRL link is on each company's results page on either exchange.
+- **Raw cache:** every downloaded XBRL document, filing list and upload is saved under
+  `RAW_DATA_DIR` (default `data/raw/`; the `rawdata` volume in Docker) as
+  `<source>/<yyyy>/<mm>/<dd>/<file>` before parsing. After changing the tag map, run
+  `python -m app.jobs xbrl-reparse` to rebuild from the cache instead of re-downloading.
 - **Checking the mapping:** element names can change with new taxonomy years. Before relying
   on a new kind of filing, run
   `python -m app.jobs xbrl-inspect filing.xml`. It prints what was read and the numeric
@@ -162,6 +166,7 @@ python -m app.jobs run shareholding --force              # ignore the filing-sea
 python -m app.jobs verify-adjustment --symbol INFY       # raw vs adjusted around splits/bonuses
 python -m app.jobs run results_watch --symbols TCS       # fetch a stock's results filings now
 python -m app.jobs xbrl-inspect filing.xml               # what the XBRL parser reads (no DB)
+python -m app.jobs xbrl-reparse --symbols TCS            # re-parse cached XBRL after a map change
 ```
 
 In Docker: `docker compose run --rm worker python -m app.jobs run eod_prices --symbols TCS`.

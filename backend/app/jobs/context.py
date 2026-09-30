@@ -15,6 +15,7 @@ from app.data.providers.kite_instruments import RedisInstrumentStore
 from app.data.providers.nse import build_nse_provider
 from app.data.providers.screener_import import ScreenerProvider
 from app.data.providers.yf import build_yfinance_provider
+from app.data.raw_store import RawStore
 from app.data.router import DataRouter
 from app.db.enums import Broker
 from app.db.session import get_session_factory
@@ -27,6 +28,7 @@ def build_context(settings: Settings, config: AppConfig) -> JobContext:
     limiter = RateLimiter(redis, config.providers.rate_limits)
     tokens = BrokerTokenStore(session_factory, TokenCipher(settings.fernet_key.get_secret_value()))
     pc = config.providers
+    raw_store = RawStore(settings.raw_data_dir)
     candidates: dict[Provider, object | None] = {
         Provider.FYERS: build_fyers_provider(
             settings.fyers_app_id, lambda: tokens.get_valid(Broker.FYERS), pc, limiter
@@ -39,11 +41,13 @@ def build_context(settings: Settings, config: AppConfig) -> JobContext:
             limiter,
         ),
         Provider.YFINANCE: build_yfinance_provider(pc, limiter),
-        Provider.NSE: build_nse_provider(pc, limiter),
+        Provider.NSE: build_nse_provider(pc, limiter, raw_store),
         Provider.SCREENER: ScreenerProvider(session_factory),
     }
     providers = {k: v for k, v in candidates.items() if v is not None}
     gaps = DbGapRecorder(session_factory)
     router = DataRouter(providers, pc, limiter=limiter, gaps=gaps)
     notifier = build_notifier(settings, config.jobs.alerts.telegram_timeout_s)
-    return JobContext(config, session_factory, router, redis, gaps, notifier=notifier)
+    return JobContext(
+        config, session_factory, router, redis, gaps, notifier=notifier, raw_store=raw_store
+    )

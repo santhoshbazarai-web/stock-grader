@@ -238,3 +238,52 @@ def test_fallback_to_yfinance_when_nse_list_fails_then_resolved_by_the_filing(en
     assert (q.source, q.revenue) == ("nse", pytest.approx(1250))
     assert q.announcement_date == date(2024, 5, 11)  # the real date replaces first-seen
     assert gap.resolved_at is not None
+
+
+# ───────────── raw cache (SPEC §3.2a) ─────────────
+
+
+def test_documents_are_cached_before_parsing(acme: Env) -> None:
+    run(acme, symbols=("ACME",))
+    store = acme.ctx.raw_store
+    assert store is not None
+    rows = ledger(acme)
+    assert rows[Q4].raw_path == "nse/2024/06/14/ACME_Q4FY24.xml"  # fetched 14 Jun (IST)
+    assert store.read(rows[Q4].raw_path) == acme.nse.documents[Q4]
+    # even a document that then fails to parse is kept, so a map fix can re-read it
+    assert rows[BROKEN].raw_path is not None and store.read(rows[BROKEN].raw_path).startswith(
+        b"<html"
+    )
+    assert OLD not in rows  # beyond history_years: never listed, never downloaded
+
+
+def test_an_unwritable_cache_fails_the_filing_instead_of_parsing_uncached(acme: Env) -> None:
+    root = acme.ctx.raw_store.root if acme.ctx.raw_store else None
+    assert root is not None
+    root.parent.mkdir(parents=True, exist_ok=True)
+    root.write_text("not a directory")
+    run(acme, symbols=("ACME",))
+    row = ledger(acme)[Q4]
+    assert row.status is FilingStatus.FAILED and "raw cache not writable" in (row.error or "")
+    with acme.session() as s:
+        assert s.scalars(select(FinQuarterly)).all() == []
+
+
+def test_reparse_rebuilds_from_the_cache_without_downloading(
+    acme: Env, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from app.jobs.cli import main
+
+    run(acme, symbols=("ACME",))
+    downloads = list(acme.nse.document_requests)
+    with acme.session() as s:
+        s.execute(FinQuarterly.__table__.delete())
+        s.execute(FinAnnual.__table__.delete())
+        s.commit()
+    assert main(["xbrl-reparse", "--symbols", "ACME"], context_factory=lambda: acme.ctx) == 1
+    out = capsys.readouterr()
+    assert "re-parsed 3 cached filing(s): 2 stored, 1 failed" in out.out
+    assert "not an XBRL instance" in out.err  # the broken document, still broken
+    assert acme.nse.document_requests == downloads  # nothing fetched
+    with acme.session() as s:
+        assert s.scalars(select(FinAnnual)).one().revenue == pytest.approx(4800)

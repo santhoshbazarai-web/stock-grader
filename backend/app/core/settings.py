@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://stockgrader:stockgrader@localhost:5432/stockgrader"
     redis_url: str = "redis://localhost:6379/0"
     config_dir: Path = Field(default=_REPO_ROOT / "config")  # CONFIG_DIR
+    # Raw files (XBRL documents, filing lists, uploads) are cached here before parsing (SPEC
+    # §3.2a): <raw_data_dir>/<source>/<yyyy>/<mm>/<dd>/<file>.
+    raw_data_dir: Path = Field(default=_REPO_ROOT / "data" / "raw")  # RAW_DATA_DIR
     log_level: str = "INFO"
     # Browser-facing URL of the web app; broker OAuth callbacks redirect back here.
     web_url: str = "http://localhost:3000"

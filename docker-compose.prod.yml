@@ -21,6 +21,7 @@ x-backend: &backend
   environment:
     APP_ENV: production
     CONFIG_DIR: /config
+    RAW_DATA_DIR: /data/raw   # raw XBRL / filing-list cache, parsed from here (SPEC §3.2a)
     DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-stockgrader}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.production}@db:5432/${POSTGRES_DB:-stockgrader}
     REDIS_URL: redis://redis:6379/0
     WEB_URL: https://${DOMAIN:?set DOMAIN in .env.production}
@@ -31,6 +32,7 @@ x-backend: &backend
     TRUSTED_PROXIES: '["${CADDY_IP:-172.30.0.10}"]'
   volumes:
     - ${CONFIG_PATH:-./config}:/config:ro
+    - rawdata:/data/raw
   networks: [backend]
   depends_on:
     db:
@@ -92,6 +94,7 @@ services:
     volumes:
       # Read-write: Settings → Config saves here. The directory must be writable by uid 1000.
       - ${CONFIG_PATH:-./config}:/config
+      - rawdata:/data/raw
     networks: [edge, backend]
     depends_on:
       db:
@@ -189,6 +192,7 @@ networks:
   backend: {}
 
 volumes:
+  rawdata:   # re-downloadable, so not in the nightly backups
   pgdata:
   redisdata:
   caddy_data:

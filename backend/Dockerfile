@@ -16,7 +16,8 @@ RUN uv sync --frozen --no-dev
 
 COPY . .
 
-RUN useradd --system --uid 1000 app && chown -R app /app
+# /data/raw: raw-file cache (RAW_DATA_DIR); a named volume mounted there inherits this owner
+RUN useradd --system --uid 1000 app && mkdir -p /data/raw && chown -R app /app /data
 USER app
 
 EXPOSE 8000

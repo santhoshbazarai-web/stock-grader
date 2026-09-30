@@ -4,6 +4,7 @@ DataRouter in front of scripted fake providers."""
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -16,6 +17,7 @@ from app.core.config import Provider, load_config
 from app.data.gaps import DbGapRecorder
 from app.data.providers.base import ProviderUnavailable
 from app.data.providers.nse import RESULTS_COLUMNS
+from app.data.raw_store import RawStore
 from app.data.router import DataRouter
 from app.db.models import Base
 from app.jobs.runner import JobContext
@@ -138,7 +140,7 @@ class Env:
 
 
 @pytest.fixture
-def env(migrated_engine: Engine, redis_client: Redis) -> Iterator[Env]:
+def env(migrated_engine: Engine, redis_client: Redis, tmp_path: Path) -> Iterator[Env]:
     factory = sessionmaker(bind=migrated_engine, expire_on_commit=False)
     config = load_config(REPO_CONFIG_DIR)
     prices, nse, quarterly = FakePrices(), FakeNse(), FakeQuarterly()
@@ -151,7 +153,10 @@ def env(migrated_engine: Engine, redis_client: Redis) -> Iterator[Env]:
         clock=lambda: NOW,
         sleep=lambda _: None,
     )
-    ctx = JobContext(config, factory, router, redis_client, gaps, clock=lambda: NOW)
+    ctx = JobContext(
+        config, factory, router, redis_client, gaps, clock=lambda: NOW,
+        raw_store=RawStore(tmp_path / "raw", clock=lambda: NOW),
+    )  # fmt: skip
     yield Env(ctx, prices, nse, quarterly, factory)
     with migrated_engine.begin() as conn:
         tables = ", ".join(Base.metadata.tables)

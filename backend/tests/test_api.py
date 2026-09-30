@@ -527,6 +527,13 @@ def test_xbrl_upload_parses_each_file_and_fills_the_ledger(client: TestClient, d
     assert q2["statement_type"] == "standalone" and q2["announcement_date"] == "2024-10-25"
     year = db.scalars(select(FinAnnual)).one()
     assert (year.revenue, year.source) == (pytest.approx(4800), "nse")
+    # each upload was cached under RAW_DATA_DIR/upload/<yyyy>/<mm>/<dd>/ before parsing
+    cached = db.scalars(select(ResultFiling.raw_path).order_by(ResultFiling.id)).all()
+    assert all(p and p.startswith("upload/") and p.endswith(".xml") for p in cached)
+    raw_root = get_settings().raw_data_dir
+    assert (raw_root / cached[0]).read_bytes() == (
+        XBRL_FIX / "acme_q4fy24_consolidated.xml"
+    ).read_bytes()
 
     # the same document again is one ledger row; for another company it is refused
     client.post("/api/uploads/xbrl", files=_xbrl("acme_q4fy24_consolidated.xml"),
