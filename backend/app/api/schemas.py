@@ -7,7 +7,7 @@ from fastapi import Path
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.core.config import GradeKey, ZoneKey
-from app.db.enums import AlertType, BacktestStatus, FilingStatus, JobStatus
+from app.db.enums import AlertType, BacktestStatus, FilingStatus, JobStatus, ReviewStatus
 from app.reports.dto import StockReport
 from app.reports.overrides import Overrides
 
@@ -295,3 +295,88 @@ class UploadedDataset(BaseModel):
     last_fiscal_year: int | None
     quarters: int
     uploaded_at: datetime
+
+
+# ───────────── annual-report PDFs, review queue, coverage (SPEC v0.2 §3.6 steps 3-4) ─────────────
+
+
+class AnnualReportOut(BaseModel):
+    id: int
+    symbol: str
+    exchange: str = Field(description="nse | upload")
+    document: str
+    fiscal_year: int | None
+    disseminated_at: datetime | None
+    usable_from: date | None = Field(description="First day a signal may use it (rule 4)")
+    status: FilingStatus
+    attempts: int
+    error: str | None
+    page_count: int | None
+    statements: list[dict[str, Any]] | None = Field(
+        description="Per statement found: statement, basis, pages, method, unit, column_dates, "
+        "checks"
+    )
+    warnings: list[str] | None
+    has_document: bool = Field(description="The raw file is cached (can be opened / re-read)")
+    candidates: dict[str, int] = Field(description="Values read, per review status")
+    parsed_at: datetime | None
+    updated_at: datetime
+
+
+class PdfCandidateOut(BaseModel):
+    id: int
+    symbol: str
+    annual_report_id: int
+    fiscal_year: int | None = Field(description="The report's fiscal year")
+    statement: Literal["bs", "cf"]
+    basis: Literal["consolidated", "standalone"]
+    period_end: date
+    item_code: str
+    value_cr: float | None = Field(description="As read, in ₹ crore (None: no unit stated)")
+    corrected_value_cr: float | None
+    raw_value: float = Field(description="As printed, in the page's unit")
+    raw_label: str
+    pages: list[int]
+    method: str
+    confidence: float
+    reasons: list[str]
+    status: ReviewStatus
+    stored: bool = Field(description="In fin_line_items (not when the exchange XBRL has it)")
+    note: str | None
+    reviewed_at: datetime | None
+
+
+class ReviewRequest(BaseModel):
+    action: Literal["accept", "correct", "reject"]
+    value_cr: float | None = Field(default=None, description="correct: the value in ₹ crore")
+    item_code: str | None = Field(
+        default=None, pattern=r"^[a-z_]{1,64}$",
+        description="correct: another item of the same statement, when the label was mis-mapped",
+    )  # fmt: skip
+
+
+class ReviewSummary(BaseModel):
+    pending: int
+    reports_parsed: int
+    reports_failed: int
+
+
+class CoverageCellOut(BaseModel):
+    fiscal_year: int
+    statement: Literal["P&L", "BS", "CF"]
+    sources: list[str] = Field(description="Best first: xbrl, pdf, derived, screener, yfinance; "
+                               "empty = a gap")  # fmt: skip
+    items: int
+    pending_review: int
+
+
+class CoverageBasis(BaseModel):
+    basis: Literal["consolidated", "standalone"]
+    cells: list[CoverageCellOut]
+
+
+class CoverageGridOut(BaseModel):
+    symbol: str
+    years: list[int]
+    fy_end_month: int
+    bases: list[CoverageBasis]

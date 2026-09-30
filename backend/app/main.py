@@ -14,6 +14,7 @@ from fastapi import Depends, FastAPI
 from app import __version__
 from app.api import (
     admin,
+    annual_reports,
     auth,
     brokers,
     health,
@@ -75,7 +76,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router, prefix="/api")
     app.include_router(auth.router, prefix="/api")
     app.include_router(brokers.router, prefix="/api")  # per-route auth; callbacks use state
-    for module in (stocks, technical, screener, watchlist, notifications, admin):
+    for module in (stocks, technical, screener, watchlist, notifications, admin, annual_reports):
         app.include_router(
             module.router,
             prefix="/api",

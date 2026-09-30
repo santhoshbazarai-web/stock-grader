@@ -8,6 +8,8 @@
     python -m app.jobs xbrl-inspect path/to/results.xml   # check the XBRL element mapping
     python -m app.jobs xbrl-reparse [--symbols TCS]       # re-apply xbrl_map.yaml to cached files
     python -m app.jobs xbrl-coverage --symbols TCS,INFY   # years parsed per statement
+    python -m app.jobs pdf-inspect report.pdf [--fy 2014] # what the annual-report reader finds
+    python -m app.jobs pdf-reparse [--symbols TCS]        # re-read cached annual reports
 
 Exit codes: 0 success/skipped, 1 failed, 2 unknown or not-yet-implemented job.
 """
@@ -69,6 +71,18 @@ def _parser() -> argparse.ArgumentParser:
         "xbrl-coverage", help="earliest / latest fiscal year parsed per statement (P&L, BS, CF)"
     )
     cov.add_argument("--symbols", action="append", required=True, help="comma-separated")
+    pdf = sub.add_parser(
+        "pdf-inspect", help="show what the annual-report reader finds in a PDF (no DB)"
+    )
+    pdf.add_argument("path", type=Path, help="an annual report (.pdf or the exchange's .zip)")
+    pdf.add_argument(
+        "--fy", type=int, default=None, help="the report's fiscal year (dates undated columns)"
+    )
+    pdf_re = sub.add_parser(
+        "pdf-reparse",
+        help="re-read cached annual reports with the current pdf_labels.yaml (no network)",
+    )
+    pdf_re.add_argument("--symbols", action="append", default=None, help="comma-separated")
     return p
 
 
@@ -144,6 +158,75 @@ def xbrl_inspect(path: Path) -> int:
         print(f"{path}: {exc}", file=sys.stderr)
         return 1
     return 0
+
+
+def pdf_inspect(path: Path, fy: int | None) -> int:
+    from app.core.config import load_config
+    from app.core.settings import config_dir_from_env
+    from app.data.annual_report import AnnualReportError, describe, extract_annual_report
+    from app.fundamentals.pdf_labels import get_pdf_labels
+    from app.fundamentals.xbrl_map import get_xbrl_map
+
+    try:
+        nse = load_config(config_dir_from_env()).providers.nse
+        fy_end = date(fy, nse.results.default_fy_end_month, 1) if fy else None
+        if fy_end is not None:
+            fy_end = (pd.Timestamp(fy_end) + pd.offsets.MonthEnd(0)).date()
+        out = extract_annual_report(
+            path.read_bytes(), cfg=nse.annual_reports, rounding_levels=nse.results.rounding_levels,
+            labels=get_pdf_labels(), xmap=get_xbrl_map(), fiscal_year_end=fy_end,
+        )  # fmt: skip
+    except (OSError, AnnualReportError) as exc:
+        print(f"{path}: {exc}", file=sys.stderr)
+        return 1
+    print(describe(out, nse.annual_reports.confidence.auto_accept))
+    return 0
+
+
+def pdf_reparse(ctx: JobContext, symbols: Sequence[str] | None) -> int:
+    """Re-read every cached annual report (``annual_reports.raw_path``); review decisions are
+    kept."""
+    from app.data.annual_report_store import ingest_report
+    from app.data.raw_store import RawStoreError
+    from app.db.enums import FilingStatus
+    from app.db.models import AnnualReport
+    from app.fundamentals.pdf_labels import get_pdf_labels
+    from app.fundamentals.xbrl_map import get_xbrl_map
+    from app.jobs.common import normalise_symbols
+
+    if ctx.raw_store is None:
+        print("no raw-file cache configured", file=sys.stderr)
+        return 1
+    session = ctx.session_factory()
+    failed = 0
+    try:
+        q = (
+            select(AnnualReport, Instrument.symbol)
+            .join(Instrument, Instrument.id == AnnualReport.instrument_id)
+            .where(AnnualReport.raw_path.is_not(None))
+            .order_by(AnnualReport.fiscal_year.nulls_first(), AnnualReport.id)
+        )
+        if symbols:
+            q = q.where(Instrument.symbol.in_(normalise_symbols(symbols)))
+        rows = session.execute(q).all()
+        for row, symbol in rows:
+            try:
+                content = ctx.raw_store.read(row.raw_path or "")
+            except (OSError, RawStoreError) as exc:
+                print(f"{symbol} {row.document}: cached file unreadable ({exc})", file=sys.stderr)
+                failed += 1
+                continue
+            ingest_report(session, row, content=content, nse=ctx.config.providers.nse,
+                          labels=get_pdf_labels(), xmap=get_xbrl_map(), now=ctx.now())  # fmt: skip
+            if row.status is FilingStatus.FAILED:
+                failed += 1
+                print(f"{symbol} {row.document}: {row.error}", file=sys.stderr)
+            session.commit()
+    finally:
+        session.close()
+    print(f"re-read {len(rows)} cached annual report(s): {len(rows) - failed} read, "
+          f"{failed} failed")  # fmt: skip
+    return 1 if failed else 0
 
 
 def _list(ctx: JobContext) -> int:
@@ -233,6 +316,8 @@ def main(argv: Sequence[str] | None = None, context_factory: ContextFactory | No
     args = _parser().parse_args(argv)
     if args.command == "xbrl-inspect":
         return xbrl_inspect(args.path)
+    if args.command == "pdf-inspect":
+        return pdf_inspect(args.path, args.fy)
     ctx = (context_factory or _default_context)()
     if args.command == "list":
         return _list(ctx)
@@ -242,4 +327,6 @@ def main(argv: Sequence[str] | None = None, context_factory: ContextFactory | No
         return xbrl_reparse(ctx, args.symbols)
     if args.command == "xbrl-coverage":
         return xbrl_coverage(ctx, args.symbols)
+    if args.command == "pdf-reparse":
+        return pdf_reparse(ctx, args.symbols)
     return verify_adjustment(ctx, args.symbol)

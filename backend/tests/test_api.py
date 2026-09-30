@@ -77,6 +77,15 @@ SPEC_PATHS = {
     ("get", "/api/backtests"),
     ("get", "/api/backtests/{backtest_id}"),
     ("get", "/api/jobs"),
+    # SPEC v0.2 §3.6 steps 3-4: annual-report PDFs, review queue, coverage grid
+    ("post", "/api/uploads/annual-report"),
+    ("get", "/api/annual-reports"),
+    ("post", "/api/annual-reports/{report_id}/reparse"),
+    ("get", "/api/annual-reports/{report_id}/document"),
+    ("get", "/api/review/annual-reports"),
+    ("get", "/api/review/annual-reports/summary"),
+    ("post", "/api/review/annual-reports/{candidate_id}"),
+    ("get", "/api/stocks/{symbol}/coverage"),
 }
 
 

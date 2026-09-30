@@ -21,9 +21,17 @@
 		-X-Powered-By
 	}
 
-	# Screener uploads are capped by the API (UPLOAD_MAX_BYTES, 10 MB default); everything else
-	# is small JSON.
-	@upload path /api/uploads/*
+	# Screener / XBRL uploads are capped by the API (UPLOAD_MAX_BYTES, 10 MB default); annual
+	# reports by providers.yaml nse.annual_reports.max_bytes (100 MB); everything else is small
+	# JSON.
+	@report path /api/uploads/annual-report
+	request_body @report {
+		max_size 100MB
+	}
+	@upload {
+		path /api/uploads/*
+		not path /api/uploads/annual-report
+	}
 	request_body @upload {
 		max_size 25MB
 	}

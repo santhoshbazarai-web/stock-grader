@@ -343,3 +343,32 @@ def test_restated_comparative_is_a_new_version(env: Env, newest_first: bool) -> 
     ]
     _report(env, 2015, date(2015, 8, 1), [_value(fy13, "inventory", 50.0)])  # same figure
     assert len(items(env, StatementType.STANDALONE, fy13, "inventory")) == 1
+
+
+# ───────────────────────── CLI ─────────────────────────
+
+
+def test_pdf_inspect_needs_no_database(capsys: pytest.CaptureFixture[str]) -> None:
+    from app.jobs.cli import main
+
+    assert main(["pdf-inspect", str(AR / "acme_ar_fy2012_igaap.pdf"), "--fy", "2012"]) == 0
+    out = capsys.readouterr().out
+    assert "standalone balance sheet: pages [2] (pdfplumber); unit '(Rs. in Lakhs)'" in out
+    assert "? 2012-03-31 total_assets" in out  # below auto_accept: review
+    assert main(["pdf-inspect", str(AR / "scanned_ar.pdf")]) == 1
+    assert "no text layer" in capsys.readouterr().err
+
+
+def test_pdf_reparse_rereads_cached_reports(env: Env, capsys: pytest.CaptureFixture[str]) -> None:
+    from app.jobs.cli import main
+
+    list_fy2024(env)
+    run(env)
+    with env.session() as s:
+        before = s.scalars(select(FinLineItem.id).order_by(FinLineItem.id)).all()
+    assert main(["pdf-reparse", "--symbols", "ACME"], context_factory=lambda: env.ctx) == 0
+    assert "re-read 1 cached annual report(s): 1 read, 0 failed" in capsys.readouterr().out
+    with env.session() as s:
+        report = s.scalars(select(AnnualReport)).one()
+        after = s.scalars(select(FinLineItem.id).order_by(FinLineItem.id)).all()
+    assert report.attempts == 2 and after == before  # same values: nothing rewritten

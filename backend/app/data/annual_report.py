@@ -841,3 +841,25 @@ def _statement_values(
 
 def _month_end(year: int, month: int) -> date:
     return date(year, month, calendar.monthrange(year, month)[1])
+
+
+def describe(out: AnnualReportExtraction, auto_accept: float) -> str:
+    """Human-readable summary of an extraction (``python -m app.jobs pdf-inspect``)."""
+    lines = [f"{out.page_count} pages; pdf_labels.yaml version {out.labels_version}"]
+    for s in out.statements:
+        dates = ", ".join(d.isoformat() if d else "?" for d in s.column_dates)
+        lines.append(f"\n{s.basis} {STATEMENT_NAMES[s.statement]}: pages {s.pages} "
+                     f"({s.method}); unit {s.unit_text!r}; columns {dates}; "
+                     f"cross-checks {s.checks}")  # fmt: skip
+        for v in out.values:
+            if (v.statement, v.basis) != (s.statement, s.basis):
+                continue
+            mark = "  " if v.confidence >= auto_accept and v.value_inr is not None else "? "
+            crore = "—" if v.value_inr is None else f"{v.value_inr / 1e7:,.2f} cr"
+            lines.append(f"  {mark}{v.period_end} {v.item_code:<26} {crore:>16} "
+                         f"{v.confidence:.2f}  {v.raw_label[:60]}")  # fmt: skip
+    if out.warnings:
+        lines.append("\nwarnings:")
+        lines += [f"  - {w}" for w in out.warnings]
+    lines.append("\n'?' = below auto_accept or without a unit: goes to the review queue")
+    return "\n".join(lines)
