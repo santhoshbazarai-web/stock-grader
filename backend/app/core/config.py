@@ -96,6 +96,7 @@ class Dataset(StrEnum):
     FIN_QUARTERLY = "fin_quarterly"
     INDEX_CONSTITUENTS = "index_constituents"
     SURVEILLANCE = "surveillance"
+    RESULTS_FILINGS = "results_filings"  # exchange results filings: index + XBRL documents
 
 
 class RateLimit(_Strict):
@@ -127,6 +128,41 @@ class ApiLimits(_Strict):
     quotes_max_symbols: PositiveInt
 
 
+class DayRange(_Strict):
+    """Inclusive range of period lengths in days (how a context span is classified)."""
+
+    min: PositiveInt
+    max: PositiveInt
+
+    @model_validator(mode="after")
+    def _ordered(self) -> Self:
+        if self.min > self.max:
+            raise ValueError("min must be <= max")
+        return self
+
+    def contains(self, days: int) -> bool:
+        return self.min <= days <= self.max
+
+
+class NseResultsConfig(_Strict):
+    """Financial results filings (XBRL) — the replacement for manual Screener uploads."""
+
+    index_path: str  # JSON list of a symbol's results filings, relative to base_url
+    periods: list[str] = Field(min_length=1)  # the index's `period` values to request
+    xbrl_hosts: list[str] = Field(min_length=1)  # documents are fetched only from these hosts
+    max_xbrl_bytes: PositiveInt
+    quarter_days: DayRange  # a duration context this long is a quarter
+    year_days: DayRange  # ... and this long a fiscal year
+    # Filings disseminated at or after this IST time count as known from the next day (rule 4).
+    available_after_ist: time
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        if self.quarter_days.max >= self.year_days.min:
+            raise ValueError("quarter_days must end before year_days starts")
+        return self
+
+
 class NseConfig(_Strict):
     base_url: str
     archives_url: str
@@ -135,6 +171,7 @@ class NseConfig(_Strict):
     request_timeout_s: PositiveFloat
     corporate_actions_from_years: PositiveInt
     index_constituent_files: dict[str, str]
+    results: NseResultsConfig
 
 
 class ProvidersConfig(_Strict):
@@ -699,6 +736,14 @@ class AlertsJobConfig(_Strict):
         return self
 
 
+class ResultsWatchJobConfig(_Strict):
+    """results_watch: ingest exchange results filings (XBRL) incrementally."""
+
+    max_downloads_per_run: PositiveInt  # XBRL documents per run; a backfill spreads over nights
+    index_recheck_days: PositiveInt  # outside results season, re-read a symbol's list this often
+    max_attempts: PositiveInt  # a filing that fails this many times stays failed
+
+
 class BacktestConfig(_Strict):
     benchmark: str
     benchmark_tri: str | None = None
@@ -721,6 +766,7 @@ class JobsConfig(_Strict):
     corporate_actions: CorporateActionsJobConfig
     alerts: AlertsJobConfig
     backtest: BacktestConfig
+    results_watch: ResultsWatchJobConfig
     shareholding_season: Season
     results_season: Season
 

@@ -453,3 +453,48 @@ export type BacktestSummary = {
   benchmark_cagr: number | null;
   error: string | null;
 };
+
+// ───────── exchange results filings (XBRL; app/api/schemas.py) ─────────
+
+export type FilingStatus = "pending" | "parsed" | "failed";
+
+export type ResultFiling = {
+  id: number;
+  symbol: string;
+  exchange: "nse" | "upload";
+  document: string;
+  period_start: string | null;
+  period_end: string | null;
+  statement_type: "consolidated" | "standalone" | null;
+  audited: boolean | null;
+  is_bank: boolean | null;
+  disseminated_at: string | null;
+  announcement_date: string | null;
+  status: FilingStatus;
+  attempts: number;
+  error: string | null;
+  periods: string[] | null;
+  warnings: string[] | null;
+  parsed_at: string | null;
+  updated_at: string;
+};
+
+export type FilingsSummary = {
+  pending: number;
+  parsed: number;
+  failed: number;
+  symbols: number;
+  last_parsed_at: string | null;
+};
+
+export type XbrlFileResult = {
+  filename: string;
+  status: FilingStatus;
+  periods: string[];
+  statement_type: "consolidated" | "standalone" | null;
+  announcement_date: string | null;
+  warnings: string[];
+  error: string | null;
+};
+
+export type XbrlUploadSummary = { symbol: string; files: XbrlFileResult[] };

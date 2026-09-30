@@ -12,7 +12,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_config
 from app.core.settings import get_settings
-from app.db.models import Backtest, JobRun, UserOverride
+from app.db.enums import FilingStatus
+from app.db.models import Backtest, FinAnnual, JobRun, ResultFiling, UserOverride
 from app.jobs.refresh import PENDING_KEY, QUEUE_KEY
 from app.main import create_app
 from tests.api_support import app_client
@@ -26,6 +27,7 @@ from tests.report_support import (
 )
 
 SCREENER_FIXTURE = Path(__file__).parent / "fixtures" / "screener" / "sample_export.xlsx"
+XBRL_FIX = Path(__file__).parent / "fixtures" / "xbrl"
 
 
 @pytest.fixture
@@ -59,6 +61,10 @@ SPEC_PATHS = {
     ("post", "/api/alerts"),
     ("delete", "/api/alerts/{alert_id}"),
     ("post", "/api/uploads/screener"),
+    ("post", "/api/uploads/xbrl"),
+    ("get", "/api/filings"),
+    ("get", "/api/filings/summary"),
+    ("post", "/api/filings/{filing_id}/retry"),
     ("get", "/api/brokers/status"),
     ("get", "/api/brokers/fyers/login"),
     ("get", "/api/brokers/fyers/callback"),
@@ -499,6 +505,70 @@ def test_uploads_are_listed(client: TestClient) -> None:
     [row] = client.get("/api/uploads/screener").json()
     assert row["symbol"] == "SAMPLEIND" and row["statement_type"] == "standalone"
     assert row["annual_years"] == 10 and row["last_fiscal_year"] == 2024 and row["quarters"] == 10
+
+
+def _xbrl(*names: str) -> list[tuple[str, tuple[str, bytes, str]]]:
+    return [("files", (n, (XBRL_FIX / n).read_bytes(), "application/xml")) for n in names]
+
+
+def test_xbrl_upload_parses_each_file_and_fills_the_ledger(client: TestClient, db: Session) -> None:
+    res = client.post(
+        "/api/uploads/xbrl",
+        files=_xbrl("acme_q4fy24_consolidated.xml", "acme_q2fy25_standalone.xml"),
+        data={"symbol": "acme"},
+    )
+    assert res.status_code == 201
+    body = res.json()
+    assert body["symbol"] == "ACME"
+    q4, q2 = body["files"]
+    assert q4["status"] == "parsed" and q4["periods"] == ["quarter 2024-03-31", "year 2024-03-31"]
+    assert q4["statement_type"] == "consolidated"
+    assert q4["announcement_date"] == "2024-05-11"  # board meeting 10 May + 1 day
+    assert q2["statement_type"] == "standalone" and q2["announcement_date"] == "2024-10-25"
+    year = db.scalars(select(FinAnnual)).one()
+    assert (year.revenue, year.source) == (pytest.approx(4800), "nse")
+
+    # the same document again is one ledger row; for another company it is refused
+    client.post("/api/uploads/xbrl", files=_xbrl("acme_q4fy24_consolidated.xml"),
+                data={"symbol": "ACME"})  # fmt: skip
+    other = client.post("/api/uploads/xbrl", files=_xbrl("acme_q4fy24_consolidated.xml"),
+                        data={"symbol": "OTHER"}).json()  # fmt: skip
+    assert other["files"][0]["status"] == "failed"
+    assert other["files"][0]["error"] == "document is for ACME, not OTHER"
+
+    listed = client.get("/api/filings", params={"symbol": "ACME"}).json()
+    assert len(listed) == 2 and {f["exchange"] for f in listed} == {"upload"}
+    assert all(f["document"].startswith("upload:") for f in listed)
+    assert client.get("/api/filings", params={"status": "failed"}).json()[0]["symbol"] == "OTHER"
+    summary = client.get("/api/filings/summary").json()
+    assert (summary["parsed"], summary["failed"], summary["symbols"]) == (2, 1, 1)
+    assert summary["last_parsed_at"] is not None
+    uploaded = listed[0]["id"]
+    assert client.post(f"/api/filings/{uploaded}/retry").status_code == 409
+    assert client.post("/api/filings/999999/retry").status_code == 404
+
+
+def test_xbrl_upload_rejects_non_xml_and_oversize(client: TestClient) -> None:
+    bad = client.post("/api/uploads/xbrl", files=[("files", ("a.xlsx", b"x", "x"))],
+                      data={"symbol": "ACME"})  # fmt: skip
+    assert bad.status_code == 422 and "expected .xml" in bad.text
+    assert client.post("/api/uploads/xbrl", data={"symbol": "ACME"}).status_code == 422
+    garbage = client.post("/api/uploads/xbrl", files=[("files", ("x.xml", b"<html/>", "x"))],
+                          data={"symbol": "ACME"}).json()  # fmt: skip
+    assert garbage["files"][0]["status"] == "failed"
+    assert "not an XBRL instance" in garbage["files"][0]["error"]
+
+
+def test_retry_requeues_a_failed_exchange_filing(client: TestClient, db: Session) -> None:
+    iid = ensure_instrument(db, "ACME", "chemicals")
+    row = ResultFiling(instrument_id=iid, exchange="nse", document="https://x/A.xml",
+                       status=FilingStatus.FAILED, attempts=3, error="HTTP 503")  # fmt: skip
+    db.add(row)
+    db.commit()
+    res = client.post(f"/api/filings/{row.id}/retry").json()
+    assert (res["status"], res["attempts"], res["error"], res["symbol"]) == (
+        "pending", 0, None, "ACME",
+    )  # fmt: skip
 
 
 def test_config_dry_run_validates_without_saving(config_copy: Path, db: Session) -> None:

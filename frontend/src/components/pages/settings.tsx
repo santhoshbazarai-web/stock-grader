@@ -20,6 +20,7 @@ import type {
 } from "@/lib/types";
 
 import { BrokerList } from "./brokers";
+import { Filings } from "./filings";
 
 const CALLBACK_REASON: Record<string, string> = {
   invalid_state: "the login link expired or was not issued by this app — try Connect again",
@@ -279,10 +280,12 @@ function Uploads() {
   return (
     <Card className="gap-4">
       <CardHeader>
-        <CardTitle className="text-base">Uploads</CardTitle>
+        <CardTitle className="text-base">Screener uploads (optional)</CardTitle>
         <CardDescription>
-          Screener.in Excel exports (“Export to Excel”) supply 10-year fundamentals. The export does not say
-          whether figures are consolidated or standalone, so choose it here; consolidated is preferred.
+          A Screener.in Excel export (“Export to Excel”) fills what the exchange filings lack: SG&amp;A, and years
+          before XBRL filing began. Periods already stored from filings keep the filed figures; the export only fills
+          their empty fields. The export does not say whether figures are consolidated or standalone, so choose it
+          here; consolidated is preferred.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
@@ -448,6 +451,7 @@ export function Settings() {
       <Brokers />
       <Notifications />
       <ConfigEditor />
+      <Filings />
       <Uploads />
     </Page>
   );

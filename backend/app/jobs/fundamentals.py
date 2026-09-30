@@ -1,6 +1,7 @@
-"""Filing-season jobs: shareholding, results_watch."""
+"""Filing jobs: shareholding, results_watch (exchange results XBRL)."""
 
 import logging
+from datetime import date, datetime
 from typing import Any
 
 import pandas as pd
@@ -9,8 +10,9 @@ from sqlalchemy import func, select
 from app.core.config import Dataset, Provider, Season
 from app.data.canonical import fields_for
 from app.data.gaps import GapRecord
-from app.db.enums import StatementType
-from app.db.models import FinQuarterly, Shareholding
+from app.data.results_ingest import FALLBACK_GAP_FIELD, cutoff, ingest
+from app.db.enums import FilingStatus, StatementType
+from app.db.models import FinQuarterly, Instrument, ResultFiling, Shareholding
 from app.db.upsert import upsert
 from app.jobs.common import ensure_instruments, frame_records, non_empty_columns, universe
 from app.jobs.runner import JobContext, JobOptions, JobOutcome
@@ -64,63 +66,198 @@ def shareholding(ctx: JobContext, options: JobOptions) -> JobOutcome:
 
 
 def results_watch(ctx: JobContext, options: JobOptions) -> JobOutcome:
-    """Spot quarters newer than anything stored. New quarters from a fallback source are saved
-    (non-empty columns only) with ``announcement_date`` = the day first seen — never earlier
-    than the real announcement, so backtests cannot look ahead — and flagged with a data gap
-    asking for a fresh Screener export."""
-    if reason := _outside(ctx, options, ctx.config.jobs.results_season):
-        return JobOutcome(skipped_reason=reason)
+    """Exchange results filings (XBRL) → fin_quarterly / fin_annual (replaces Screener uploads).
+
+    1. **List.** Read each symbol's filing list from NSE and add unseen documents to the
+       ``result_filings`` ledger as pending. In results season (or with --force / --symbols)
+       every symbol is re-read on every run; outside it, each at most every
+       ``index_recheck_days``.
+    2. **Download.** Fetch pending documents (and failed ones below ``max_attempts``), newest
+       period first, at most ``max_downloads_per_run`` per run, so a 10-year backfill of the
+       universe spreads over several nights. Each is parsed and stored with its real
+       announcement date (see ``app.data.results_store`` for how it merges with other sources).
+    3. **Fallback.** In season, a symbol whose NSE list cannot be read gets new quarters from
+       the ``fin_quarterly`` providers (yfinance) with ``announcement_date`` = the day first
+       seen — never earlier than the real one — and a data gap until its filing is stored.
+    """
+    jcfg, ncfg = ctx.config.jobs.results_watch, ctx.config.providers.nse.results
     today = ctx.today()
-    written, failed, flagged = 0, [], []
-    for symbol in universe(ctx, options):
-        res = ctx.router.fin_quarterly(symbol)
-        if res.data is None or res.source is None:
-            failed.append(symbol)
+    in_season = ctx.config.jobs.results_season.contains(today.month, today.day)
+    recheck_all = in_season or options.force or bool(options.symbols)
+    oldest = cutoff(today, ctx.config.providers.history_years)
+    symbols = universe(ctx, options)
+
+    listed, index_failed, fallback_written, flagged = 0, [], 0, []
+    for symbol in symbols:
+        key = f"results-index:{symbol}"
+        if not recheck_all and ctx.redis.exists(key):
             continue
-        if res.source is Provider.SCREENER or res.data.empty:
-            continue  # nothing newer than the upload itself
+        res = ctx.router.results_filings(symbol)
+        if res.data is None:
+            index_failed.append(symbol)
+            if in_season or options.force:
+                n = _fallback_quarters(ctx, symbol, today)
+                fallback_written += n
+                if n:
+                    flagged.append(symbol)
+            continue
+        listed += _list_filings(ctx, symbol, res.data, oldest)
+        ctx.redis.set(key, 1, ex=jcfg.index_recheck_days * 86400)
+
+    downloaded, parsed, failed = 0, 0, {}
+    session = ctx.session_factory()
+    try:
+        todo = session.execute(
+            select(ResultFiling.id, Instrument.symbol)
+            .join(Instrument, Instrument.id == ResultFiling.instrument_id)
+            .where(
+                Instrument.symbol.in_(symbols),
+                ResultFiling.exchange == "nse",
+                (ResultFiling.status == FilingStatus.PENDING)
+                | (
+                    (ResultFiling.status == FilingStatus.FAILED)
+                    & (ResultFiling.attempts < jcfg.max_attempts)
+                ),
+            )
+            .order_by(
+                ResultFiling.period_end.desc().nulls_last(),
+                ResultFiling.disseminated_at.desc().nulls_last(),
+            )
+            .limit(jcfg.max_downloads_per_run)
+        ).all()
+    finally:
+        session.close()
+    for filing_id, symbol in todo:
         session = ctx.session_factory()
         try:
-            iid = ensure_instruments(session, [symbol])[symbol]
-            latest = session.scalar(
-                select(func.max(FinQuarterly.period_end)).where(FinQuarterly.instrument_id == iid)
-            )
-            df = _with_period(res.data)
-            new = df[df["period_end"] > latest] if latest else df
-            if new.empty:
-                continue
-            new = new.copy()
-            if "announcement_date" not in new or new["announcement_date"].isna().all():
-                new["announcement_date"] = today  # first-seen date (see docstring)
-            new["statement_type"] = res.data.attrs.get(
-                "statement_type", StatementType.CONSOLIDATED.value
-            )
-            cols = non_empty_columns(new, fields_for("fin_quarterly"))
-            base = ["period_end", "announcement_date", "statement_type"]
-            rows = [
-                {
-                    **r,
-                    "instrument_id": iid,
-                    "source": res.source.value,
-                    "fetched_at": res.fetched_at,
-                }
-                for r in frame_records(new, [*base, *cols])
-            ]
-            written += upsert(session, FinQuarterly, rows)
-            periods = [p.isoformat() for p in new["period_end"]]
-            ctx.gaps.record(
-                GapRecord(
-                    Dataset.FIN_QUARTERLY,
-                    symbol,
-                    f"new quarter(s) {', '.join(periods)} seen via {res.source.value}; "
-                    "upload a fresh Screener export",
-                    [res.source.value],
-                    field="screener_refresh",
-                )
-            )
-            flagged.append(symbol)
+            row = session.get(ResultFiling, filing_id)
+            assert row is not None
+            doc = ctx.router.results_document(row.document, symbol)
+            downloaded += 1
+            if doc.data is None:
+                row.attempts += 1
+                row.status = FilingStatus.FAILED
+                row.error = "; ".join(doc.reasons)[:2000]
+            else:
+                ingest(session, row, symbol=symbol, content=doc.data, cfg=ncfg, gaps=ctx.gaps,
+                       now=ctx.now())  # fmt: skip
+            if row.status is FilingStatus.PARSED:
+                parsed += 1
+            else:
+                failed[row.document] = row.error or "failed"
             session.commit()
         finally:
             session.close()
-    details: dict[str, Any] = {"flagged": flagged, "failed": failed}
-    return JobOutcome(written, details)
+
+    session = ctx.session_factory()
+    try:
+        pending_left = session.scalar(
+            select(func.count())
+            .select_from(ResultFiling)
+            .where(ResultFiling.status == FilingStatus.PENDING)
+        )
+    finally:
+        session.close()
+    details: dict[str, Any] = {
+        "listed_new": listed,
+        "downloaded": downloaded,
+        "parsed": parsed,
+        "failed": dict(list(failed.items())[:50]),
+        "pending_left": pending_left,
+        "index_failed": index_failed,
+        "fallback_flagged": flagged,
+    }
+    return JobOutcome(parsed + fallback_written, details)
+
+
+def _list_filings(ctx: JobContext, symbol: str, listing: pd.DataFrame, oldest: date) -> int:
+    """Add unseen documents to the ledger as pending. Returns how many were new."""
+    session = ctx.session_factory()
+    try:
+        iid = ensure_instruments(session, [symbol])[symbol]
+        known = set(
+            session.scalars(select(ResultFiling.document).where(ResultFiling.instrument_id == iid))
+        )
+        rows = []
+        for raw in listing.to_dict("records"):
+            rec = {k: _plain(v) for k, v in raw.items()}
+            for k in ("period_start", "period_end"):
+                if isinstance(rec[k], datetime):
+                    rec[k] = rec[k].date()
+            too_old = rec["period_end"] is not None and rec["period_end"] < oldest
+            if rec["url"] in known or too_old:
+                continue
+            rows.append(
+                {
+                    "instrument_id": iid,
+                    "exchange": "nse",
+                    "document": rec["url"],
+                    "period_start": rec["period_start"],
+                    "period_end": rec["period_end"],
+                    "statement_type": rec["statement_type"],
+                    "audited": rec["audited"],
+                    "is_bank": rec["is_bank"],
+                    "disseminated_at": rec["disseminated_at"],
+                    "status": FilingStatus.PENDING,
+                }
+            )
+        written = upsert(session, ResultFiling, rows, update=[]) if rows else 0
+        session.commit()
+        return written
+    finally:
+        session.close()
+
+
+def _plain(value: Any) -> Any:
+    """pandas cell → plain Python (NaT/NaN → None, Timestamp → datetime)."""
+    if value is None or (not isinstance(value, str | bool) and pd.isna(value)):
+        return None
+    return value.to_pydatetime() if isinstance(value, pd.Timestamp) else value
+
+
+def _fallback_quarters(ctx: JobContext, symbol: str, today: date) -> int:
+    """Quarters newer than anything stored, from the fin_quarterly providers (yfinance), saved
+    with non-empty columns only and ``announcement_date`` = the day first seen."""
+    res = ctx.router.fin_quarterly(symbol)
+    if res.data is None or res.source is None or res.source is Provider.SCREENER:
+        return 0
+    if res.data.empty:
+        return 0
+    session = ctx.session_factory()
+    try:
+        iid = ensure_instruments(session, [symbol])[symbol]
+        latest = session.scalar(
+            select(func.max(FinQuarterly.period_end)).where(FinQuarterly.instrument_id == iid)
+        )
+        df = _with_period(res.data)
+        new = df[df["period_end"] > latest] if latest else df
+        if new.empty:
+            return 0
+        new = new.copy()
+        if "announcement_date" not in new or new["announcement_date"].isna().all():
+            new["announcement_date"] = today  # first-seen date (see docstring)
+        new["statement_type"] = res.data.attrs.get(
+            "statement_type", StatementType.CONSOLIDATED.value
+        )
+        cols = non_empty_columns(new, fields_for("fin_quarterly"))
+        base = ["period_end", "announcement_date", "statement_type"]
+        rows = [
+            {**r, "instrument_id": iid, "source": res.source.value, "fetched_at": res.fetched_at}
+            for r in frame_records(new, [*base, *cols])
+        ]
+        written = upsert(session, FinQuarterly, rows)
+        periods = [p.isoformat() for p in new["period_end"]]
+        ctx.gaps.record(
+            GapRecord(
+                Dataset.FIN_QUARTERLY,
+                symbol,
+                f"exchange results filings unavailable; quarter(s) {', '.join(periods)} stored "
+                f"from {res.source.value} until the XBRL filing is ingested",
+                [Provider.NSE.value, res.source.value],
+                field=FALLBACK_GAP_FIELD,
+            )
+        )
+        session.commit()
+        return written
+    finally:
+        session.close()

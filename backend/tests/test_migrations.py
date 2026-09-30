@@ -67,4 +67,5 @@ def test_spec_tables_present() -> None:
         "backtests",  # SPEC §8 /api/backtests
         "screener_presets",  # SPEC §9 screener presets
         "notifications",  # in-app alert notifications
+        "result_filings",  # exchange results filings (XBRL) ledger
     } == MODEL_TABLES

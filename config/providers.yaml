@@ -11,6 +11,7 @@ providers:
     shareholding:       [nse, screener]
     fin_annual:         [screener, yfinance]
     fin_quarterly:      [screener, yfinance]
+    results_filings:    [nse]       # results filing list + XBRL documents (results_watch)
     index_constituents: [nse]
     surveillance:       [nse]
   rate_limits:            # requests per second / per minute (verify against current broker docs)
@@ -60,5 +61,13 @@ providers:
       NIFTYAUTO: ind_niftyautolist.csv
       NIFTYMETAL: ind_niftymetallist.csv
       NIFTYREALTY: ind_niftyrealtylist.csv
+    results:                   # financial results filings (XBRL), read by results_watch
+      index_path: "/api/corporates-financial-results"   # ?index=equities&symbol=..&period=..
+      periods: [Quarterly, Annual]
+      xbrl_hosts: [nsearchives.nseindia.com, archives.nseindia.com, www.nseindia.com]
+      max_xbrl_bytes: 20000000
+      quarter_days: {min: 80, max: 100}    # context spans (days) classified as a quarter
+      year_days: {min: 350, max: 380}      # ... and as a fiscal year
+      available_after_ist: "15:30"  # disseminated at/after the close → usable from the next day
   oauth_state_ttl_s: 600  # broker login must complete within this many seconds
   history_years: 10

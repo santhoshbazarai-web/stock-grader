@@ -54,3 +54,11 @@ class BacktestStatus(StrEnum):
     RUNNING = "running"
     DONE = "done"
     FAILED = "failed"
+
+
+class FilingStatus(StrEnum):
+    """A results filing (XBRL) in the ingestion ledger."""
+
+    PENDING = "pending"  # listed by the exchange, not yet downloaded
+    PARSED = "parsed"  # stored into fin_quarterly / fin_annual
+    FAILED = "failed"  # download or parse failed (retried up to results_watch.max_attempts)

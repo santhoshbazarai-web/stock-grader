@@ -14,6 +14,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import Provider, load_config
 from app.data.gaps import DbGapRecorder
+from app.data.providers.base import ProviderUnavailable
+from app.data.providers.nse import RESULTS_COLUMNS
 from app.data.router import DataRouter
 from app.db.models import Base
 from app.jobs.runner import JobContext
@@ -61,6 +63,23 @@ class FakeNse:
     surveillance_frame: pd.DataFrame | None = None
     constituents: dict[str, pd.DataFrame] = field(default_factory=dict)
     holdings: dict[str, pd.DataFrame] = field(default_factory=dict)
+    # results filings: symbol → listing rows (see RESULTS_COLUMNS); url → document bytes
+    filings: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    documents: dict[str, bytes] = field(default_factory=dict)
+    filing_requests: list[str] = field(default_factory=list)
+    document_requests: list[str] = field(default_factory=list)
+
+    def results_filings(self, symbol: str) -> pd.DataFrame:
+        self.filing_requests.append(symbol)
+        if symbol not in self.filings:
+            raise ProviderUnavailable(f"no results list for {symbol}")
+        return pd.DataFrame(self.filings[symbol], columns=RESULTS_COLUMNS).astype(object)
+
+    def results_document(self, url: str) -> bytes:
+        self.document_requests.append(url)
+        if url not in self.documents:
+            raise ProviderUnavailable(f"not found: {url}")
+        return self.documents[url]
 
     def corporate_actions(self, symbol: str, start: date, end: date) -> pd.DataFrame:
         self.action_requests.append((symbol, start, end))
@@ -137,5 +156,6 @@ def env(migrated_engine: Engine, redis_client: Redis) -> Iterator[Env]:
     with migrated_engine.begin() as conn:
         tables = ", ".join(Base.metadata.tables)
         conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
-    for key in redis_client.scan_iter("job-lock:*"):
-        redis_client.delete(key)
+    for pattern in ("job-lock:*", "results-index:*"):
+        for key in redis_client.scan_iter(pattern):
+            redis_client.delete(key)

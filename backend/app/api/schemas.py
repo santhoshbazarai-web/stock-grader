@@ -7,7 +7,7 @@ from fastapi import Path
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.core.config import GradeKey, ZoneKey
-from app.db.enums import AlertType, BacktestStatus, JobStatus
+from app.db.enums import AlertType, BacktestStatus, FilingStatus, JobStatus
 from app.reports.dto import StockReport
 from app.reports.overrides import Overrides
 
@@ -115,6 +115,52 @@ class UploadSummary(BaseModel):
     shareholding_rows: int
     data_gaps: list[str]
     warnings: list[str]
+
+
+class XbrlFileResult(BaseModel):
+    filename: str
+    status: FilingStatus
+    periods: list[str] = Field(description='e.g. ["quarter 2024-03-31", "year 2024-03-31"]')
+    statement_type: Literal["consolidated", "standalone"] | None
+    announcement_date: date | None = Field(
+        description="Board-meeting date + 1 day (an upload carries no dissemination time)"
+    )
+    warnings: list[str]
+    error: str | None
+
+
+class XbrlUploadSummary(BaseModel):
+    symbol: str
+    files: list[XbrlFileResult]
+
+
+class ResultFilingOut(BaseModel):
+    id: int
+    symbol: str
+    exchange: str
+    document: str
+    period_start: date | None
+    period_end: date | None
+    statement_type: Literal["consolidated", "standalone"] | None
+    audited: bool | None
+    is_bank: bool | None
+    disseminated_at: datetime | None
+    announcement_date: date | None
+    status: FilingStatus
+    attempts: int
+    error: str | None
+    periods: list[str] | None
+    warnings: list[str] | None
+    parsed_at: datetime | None
+    updated_at: datetime
+
+
+class FilingsSummary(BaseModel):
+    pending: int
+    parsed: int
+    failed: int
+    symbols: int = Field(description="Instruments with at least one parsed filing")
+    last_parsed_at: datetime | None
 
 
 ConfigFileName = Literal["providers", "valuation", "sectors", "scoring", "technical", "jobs"]

@@ -1,5 +1,7 @@
 """NSE public data: delivery % (``sec_bhavdata_full``), index constituents (niftyindices CSV),
-surveillance lists (ASM long/short term, GSM, F&O ban), corporate actions and shareholding.
+surveillance lists (ASM long/short term, GSM, F&O ban), corporate actions, shareholding, and
+financial-results filings (the list per symbol and each XBRL document, parsed by
+``app.data.xbrl``).
 
 NSE's JSON APIs reject clients without a browser-like session: :class:`NseSession` sends
 browser headers, visits the homepage first to collect cookies (re-visiting after
@@ -19,6 +21,8 @@ import time
 from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any
+from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import requests
@@ -27,6 +31,7 @@ from app.core.config import NseConfig, Provider, ProvidersConfig
 from app.core.rate_limiter import Limiter
 from app.data.canonical import labels_for, pick
 from app.data.providers.base import ProviderError, ProviderUnavailable
+from app.data.xbrl import audited_from_text, statement_type_from_text
 from app.db.enums import CorporateActionType, SurveillanceList
 
 logger = logging.getLogger(__name__)
@@ -63,6 +68,16 @@ CA_COLUMNS = [
     "record_date",
     "description",
 ]
+RESULTS_COLUMNS = [
+    "url",
+    "period_start",
+    "period_end",
+    "statement_type",
+    "audited",
+    "is_bank",
+    "disseminated_at",
+]
+IST = ZoneInfo("Asia/Kolkata")
 SHP_PARTIAL = (
     "NSE shareholding master has promoter/public split only; FII, DII, MF and pledge need a "
     "Screener upload or the XBRL filing"
@@ -355,12 +370,77 @@ def parse_shareholding(payload: Any) -> pd.DataFrame:
     return df.sort_index()
 
 
+def _parse_datetime(value: Any) -> datetime | None:
+    """NSE timestamps ("11-Jan-2024 16:45:12") are IST."""
+    text = str(value or "").strip()
+    for fmt in ("%d-%b-%Y %H:%M:%S", "%d-%b-%Y %H:%M", "%d-%m-%Y %H:%M:%S", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(text, fmt).replace(tzinfo=IST)
+        except ValueError:
+            continue
+    return None
+
+
+def xbrl_url_allowed(url: str, hosts: list[str]) -> bool:
+    """Documents come from a third-party payload: fetch only https URLs on NSE's hosts."""
+    parts = urlsplit(url)
+    return parts.scheme == "https" and (parts.hostname or "").lower() in hosts
+
+
+def _flag_yn(value: Any) -> bool | None:
+    text = str(value or "").strip().lower()
+    return True if text in ("y", "yes") else False if text in ("n", "no") else None
+
+
+def parse_results_index(payload: Any, hosts: list[str]) -> tuple[pd.DataFrame, list[str]]:
+    """``corporates-financial-results`` → one row per XBRL document (deduplicated by URL).
+
+    Uses ``xbrl`` (document URL), ``fromDate``/``toDate``, ``consolidated``, ``audited``,
+    ``bank`` and the dissemination time (``broadCastDate``, else ``exchdisstime``, else
+    ``filingDate``). Filings without an XBRL document, or whose URL is not an https URL on
+    ``hosts``, are skipped with a warning."""
+    rows: dict[str, dict[str, Any]] = {}
+    warnings: list[str] = []
+    for rec in _records(payload):
+        period = f"{rec.get('fromDate')}..{rec.get('toDate')}"
+        url = str(rec.get("xbrl") or "").strip()
+        if not url.lower().endswith(".xml"):
+            warnings.append(f"no XBRL document for {period} ({url or 'none'})")
+            continue
+        if not xbrl_url_allowed(url, hosts):
+            warnings.append(f"skipped XBRL URL outside {hosts}: {url}")
+            continue
+        disseminated = next(
+            (
+                ts
+                for key in ("broadCastDate", "exchdisstime", "filingDate")
+                if (ts := _parse_datetime(rec.get(key))) is not None
+            ),
+            None,
+        )
+        basis = statement_type_from_text(str(rec.get("consolidated") or ""))
+        rows.setdefault(
+            url,
+            {
+                "url": url,
+                "period_start": _parse_date(rec.get("fromDate")),
+                "period_end": _parse_date(rec.get("toDate")),
+                "statement_type": basis.value if basis else None,
+                "audited": audited_from_text(str(rec.get("audited") or "")),
+                "is_bank": _flag_yn(rec.get("bank")),
+                "disseminated_at": disseminated,
+            },
+        )
+    df = pd.DataFrame(list(rows.values()), columns=RESULTS_COLUMNS).astype(object)
+    return df.where(df.notna(), None), warnings
+
+
 # ───────────────────────── provider ─────────────────────────
 
 
 class NseProvider:
     """Implements DeliveryProvider, ConstituentsProvider, SurveillanceProvider,
-    CorporateActionsProvider and ShareholdingProvider."""
+    CorporateActionsProvider, ShareholdingProvider and ResultsFilingsProvider."""
 
     name = Provider.NSE
 
@@ -429,6 +509,35 @@ class NseProvider:
         df = parse_shareholding(payload if payload is not None else [])
         df.attrs["warnings"] = [SHP_PARTIAL]
         return df
+
+    def results_filings(self, symbol: str) -> pd.DataFrame:
+        """Every results filing NSE lists for ``symbol`` (all ``results.periods``)."""
+        self._http.begin_call()
+        cfg = self._cfg.results
+        frames, warnings = [], []
+        for period in cfg.periods:
+            payload = self._http.get_json(
+                f"{self._cfg.base_url}{cfg.index_path}",
+                params={"index": "equities", "symbol": symbol.strip().upper(), "period": period},
+            )
+            df, w = parse_results_index(payload if payload is not None else [], cfg.xbrl_hosts)
+            frames.append(df)
+            warnings += w
+        out = pd.concat(frames, ignore_index=True).drop_duplicates("url", ignore_index=True)
+        out.attrs["warnings"] = warnings
+        return out
+
+    def results_document(self, url: str) -> bytes:
+        cfg = self._cfg.results
+        if not xbrl_url_allowed(url, cfg.xbrl_hosts):
+            raise ProviderUnavailable(f"XBRL URL not on an allowed host: {url}")
+        self._http.begin_call()
+        resp = self._http.get(url)
+        if resp is None:
+            raise ProviderUnavailable(f"XBRL document not found: {url}")
+        if len(resp.content) > cfg.max_xbrl_bytes:
+            raise ProviderUnavailable(f"XBRL document larger than {cfg.max_xbrl_bytes} bytes")
+        return resp.content
 
 
 def build_nse_provider(config: ProvidersConfig, limiter: Limiter | None) -> NseProvider:

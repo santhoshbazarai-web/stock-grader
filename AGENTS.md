@@ -19,7 +19,7 @@ All formulas, thresholds and weights live in `config/*.yaml`. **Never hard-code 
 - Cache / rate limiting: Redis
 - Frontend: Next.js 15 (App Router, TypeScript), Tailwind, shadcn/ui, TradingView `lightweight-charts`, Recharts for scorecards
 - Broker SDKs: `fyers-apiv3`, `kiteconnect`
-- Other data: `yfinance`, NSE public archives (bhavcopy, index constituents, ASM/GSM lists), Screener.in Excel export (manual upload)
+- Other data: `yfinance`, NSE public archives (bhavcopy, index constituents, ASM/GSM lists), NSE/BSE results XBRL filings (primary fundamentals), Screener.in Excel export (optional manual upload)
 - Packaging: Docker Compose (`api`, `worker`, `web`, `db`, `redis`)
 - Tests: pytest (+ hypothesis where useful), Playwright for 3–4 critical UI flows
 
@@ -34,6 +34,7 @@ backend/
       providers/    # base.py (Protocol), fyers.py, kite.py, yf.py, nse.py, screener_import.py
       router.py     # picks provider per dataset using config/providers.yaml priority + fallback
       adjust.py     # split/bonus adjustment
+      xbrl.py       # exchange results XBRL → canonical rows (pure); results_store/_ingest.py write them
     fundamentals/   # metrics.py, forensic.py, banking.py
     valuation/      # dcf.py, reverse_dcf.py, bands.py, relative.py, epv.py, sector_models.py, blend.py
     technical/      # stage.py, rs.py, structure.py, zones.py, avwap.py, volume_profile.py, risk.py

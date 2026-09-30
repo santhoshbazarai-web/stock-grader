@@ -1,5 +1,7 @@
 // Dashboard, screener, watchlist & alerts, settings (SPEC §9). Needs the demo data
 // (python -m app.devtools.demo). Never saves config: the dev server edits the real config/.
+import path from "node:path";
+
 import { expect, test } from "@playwright/test";
 
 import { login } from "./helpers";
@@ -109,6 +111,35 @@ test("broker Connect goes through the OAuth login; callbacks show a banner", asy
 test("uploads list shows stored Screener datasets", async ({ page }) => {
   await login(page, "/settings");
   await expect(page.getByRole("table", { name: "Uploaded fundamentals" })).toContainText("DEMOIT");
+});
+
+test("XBRL results filings: upload, per-file outcome, ledger filter", async ({ page }) => {
+  const fixtures = path.resolve(__dirname, "../../backend/tests/fixtures/xbrl");
+  await login(page, "/settings");
+  const form = page.getByRole("form", { name: "Upload XBRL filings" });
+  await form.locator("input[type=file]").setInputFiles([
+    path.join(fixtures, "acme_q4fy24_consolidated.xml"),
+    path.join(fixtures, "acme_q2fy25_standalone.xml"),
+  ]);
+  await form.getByLabel("XBRL symbol").fill("ACME");
+  await form.getByRole("button", { name: "Upload filings" }).click();
+  const outcome = page.getByRole("status").filter({ hasText: "ACME: 2 of 2 stored" });
+  await expect(outcome).toContainText("Q 2024-03-31 + FY 2024-03-31, consolidated, usable from 2024-05-11");
+  await expect(outcome).toContainText("Q 2024-09-30, standalone, usable from 2024-10-25");
+
+  // a document for another company is refused, file by file
+  await form.locator("input[type=file]").setInputFiles(path.join(fixtures, "acme_q4fy24_consolidated.xml"));
+  await form.getByLabel("XBRL symbol").fill("DEMOIT");
+  await form.getByRole("button", { name: "Upload filings" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "DEMOIT: 0 of 1 stored" })).toContainText(
+    "failed: document is for ACME, not DEMOIT",
+  );
+
+  const table = page.getByRole("table", { name: "Results filings" });
+  await page.getByRole("button", { name: "Stored", exact: true }).click();
+  await expect(table).toContainText("ACME");
+  await expect(table).not.toContainText("Failed");
+  await expect(page.getByLabel("Filings summary")).toContainText(/filings? stored for/);
 });
 
 test("notifications: test message reaches the bell, which marks it read", async ({ page }) => {

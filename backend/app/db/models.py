@@ -35,6 +35,7 @@ from app.db.enums import (
     BacktestStatus,
     Broker,
     CorporateActionType,
+    FilingStatus,
     JobStatus,
     StatementType,
     SurveillanceList,
@@ -57,6 +58,7 @@ __all__ = [
     "Notification",
     "PriceDaily",
     "Report",
+    "ResultFiling",
     "Score",
     "ScreenerPreset",
     "Shareholding",
@@ -220,6 +222,38 @@ class FinQuarterly(_FinancialsCommon, Base):
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     instrument_id: Mapped[int] = _instrument_fk()
+
+
+class ResultFiling(TimestampMixin, Base):
+    """Ledger of exchange results filings (XBRL): what the exchange lists, and whether each
+    document was downloaded and stored. ``document`` is the XBRL URL, or ``upload:<sha256>``
+    for an uploaded file. Figures land in fin_quarterly / fin_annual with ``source='nse'``."""
+
+    __tablename__ = "result_filings"
+    __upsert_key__ = ("instrument_id", "document")
+    __table_args__ = (
+        UniqueConstraint("instrument_id", "document"),
+        Index("ix_result_filings_status", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    instrument_id: Mapped[int] = _instrument_fk()
+    exchange: Mapped[str] = mapped_column(String(16))  # nse | upload
+    document: Mapped[str] = mapped_column(String(512))
+    period_start: Mapped[date | None]
+    period_end: Mapped[date | None]
+    statement_type: Mapped[StatementType | None] = mapped_column(str_enum(StatementType))
+    audited: Mapped[bool | None]
+    is_bank: Mapped[bool | None]
+    # When the exchange published it, and the first day a close-based signal may use it.
+    disseminated_at: Mapped[datetime | None]
+    announcement_date: Mapped[date | None]
+    status: Mapped[FilingStatus] = mapped_column(str_enum(FilingStatus))
+    attempts: Mapped[int] = mapped_column(Integer, server_default="0")
+    error: Mapped[str | None] = mapped_column(Text)
+    periods: Mapped[list[str] | None]  # e.g. ["quarter 2024-03-31", "year 2024-03-31"]
+    warnings: Mapped[list[str] | None]
+    parsed_at: Mapped[datetime | None]
 
 
 class Shareholding(SourcedMixin, Base):

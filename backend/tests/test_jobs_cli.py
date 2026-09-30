@@ -1,5 +1,6 @@
 """`python -m app.jobs` CLI and the worker's scheduler."""
 
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -11,6 +12,7 @@ from app.core.config import JobName, load_config
 from app.db.models import JobRun
 from app.jobs.cli import main
 from app.jobs.registry import REGISTRY
+from app.jobs.runner import JobContext
 from app.jobs.worker import build_scheduler
 from tests.conftest import REPO_CONFIG_DIR
 from tests.jobs_support import Env, action, ohlcv
@@ -95,3 +97,26 @@ def test_scheduler_registers_ready_jobs_with_config_triggers(env: Env) -> None:
     fire = trigger.get_next_fire_time(None, pd.Timestamp("2024-06-14 12:00", tz=tz))
     assert (fire.hour, fire.minute, fire.weekday()) == (18, 15, 4)  # Friday 18:15 IST
     assert jobs["eod_prices"].max_instances == 1 and jobs["eod_prices"].coalesce is True
+
+
+def test_xbrl_inspect_needs_no_database_or_secrets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.delenv("FERNET_KEY", raising=False)
+    monkeypatch.delenv("APP_PASSWORD", raising=False)
+
+    def no_context() -> JobContext:
+        raise AssertionError("xbrl-inspect must not build a job context")
+
+    doc = Path(__file__).parent / "fixtures" / "xbrl" / "acme_q4fy24_consolidated.xml"
+    assert main(["xbrl-inspect", str(doc)], context_factory=no_context) == 0
+    out = capsys.readouterr().out
+    assert "OneD" in out and "used: quarter" in out and "used: balance_sheet" in out
+    assert "dimensional, ignored" in out
+    assert "revenue                      4,800.00" in out
+    assert "EmployeeBenefitExpense  [OneD]" in out  # an unmapped element, listed for review
+
+    bad = tmp_path / "bad.xml"
+    bad.write_bytes(b"<html/>")
+    assert main(["xbrl-inspect", str(bad)], context_factory=no_context) == 1
+    assert "not an XBRL instance" in capsys.readouterr().err

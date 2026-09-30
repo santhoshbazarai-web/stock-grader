@@ -15,7 +15,7 @@ jobs:
     alerts_intraday: "*/5 9-15 * * mon-fri"  # the job itself trims to market hours (P14)
     shareholding: "30 20 * * *"              # runs only inside shareholding_season
     index_constituents: "0 7 1 * *"
-    results_watch: "0 21 * * *"              # runs only inside results_season
+    results_watch: "0 21 * * *"              # XBRL results filings (all year; see results_watch)
     refresh_queue: "* * * * *"               # drains POST /api/stocks/{symbol}/refresh requests
     backtests: "* * * * *"                   # runs queued POST /api/backtests requests
   universe_index: NIFTY500    # symbols = current members of this index + watchlist
@@ -44,6 +44,10 @@ jobs:
     stt_sell: 0.001
     execution_lag_days: 1     # signals use data to the rebalance close; trade N sessions later
     equity_curve_points: weekly
+  results_watch:              # exchange results filings (XBRL) → fin_quarterly / fin_annual
+    max_downloads_per_run: 300  # XBRL documents per run; a 10-year backfill spreads over nights
+    index_recheck_days: 7       # outside results_season, re-read each symbol's filing list weekly
+    max_attempts: 3             # a filing that fails to download/parse this often stays failed
   results_season:             # quarterly results: within 45 days (60 for Q4) of quarter end
     months: [1, 2, 4, 5, 7, 8, 10, 11]
     days: [1, 31]

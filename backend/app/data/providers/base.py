@@ -74,6 +74,8 @@ class FundamentalsProvider(Protocol):
 # - corporate_actions:  ex_date, action_type (CorporateActionType value), ratio_old, ratio_new,
 #                       dividend_per_share, record_date, description
 # - shareholding:       index = period end; canonical shareholding fields + filing_date
+# - results_filings:    url, period_start, period_end, statement_type, audited, is_bank,
+#                       disseminated_at (tz-aware; when the exchange published the filing)
 
 
 @runtime_checkable
@@ -109,3 +111,14 @@ class ShareholdingProvider(Protocol):
     name: Provider
 
     def shareholding(self, symbol: str) -> pd.DataFrame: ...
+
+
+@runtime_checkable
+class ResultsFilingsProvider(Protocol):
+    """Exchange financial-results filings: the list for a symbol, and each XBRL document."""
+
+    name: Provider
+
+    def results_filings(self, symbol: str) -> pd.DataFrame: ...
+
+    def results_document(self, url: str) -> bytes: ...

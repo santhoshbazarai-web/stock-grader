@@ -19,6 +19,7 @@ from app.data.providers.base import (
     DeliveryProvider,
     ProviderError,
     ProviderUnavailable,
+    ResultsFilingsProvider,
     ShareholdingProvider,
     SurveillanceProvider,
 )
@@ -28,6 +29,7 @@ from app.data.providers.nse import (
     NseSession,
     build_nse_provider,
     parse_ca_subject,
+    parse_results_index,
 )
 from app.db.enums import CorporateActionType
 from tests.conftest import REPO_CONFIG_DIR
@@ -42,6 +44,7 @@ GSM = f"{CFG.base_url}/api/reportGSM"
 CA = f"{CFG.base_url}/api/corporates-corporateActions"
 SHP = f"{CFG.base_url}/api/corporate-share-holdings-master"
 N500 = f"{CFG.niftyindices_url}/IndexConstituent/ind_nifty500list.csv"
+RESULTS = f"{CFG.base_url}{CFG.results.index_path}"
 
 
 def text(name: str) -> str:
@@ -125,6 +128,7 @@ def test_protocols() -> None:
         SurveillanceProvider,
         CorporateActionsProvider,
         ShareholdingProvider,
+        ResultsFilingsProvider,
     ):
         assert isinstance(p, proto)
 
@@ -334,6 +338,62 @@ def test_shareholding_maps_canonical_fields(log: Log) -> None:
     assert latest["filing_date"] == date(2024, 4, 19)
     assert df.loc["2023-09-30", "filing_date"] is None  # "-" → missing, not a guess
     assert "FII" in df.attrs["warnings"][0]
+
+
+# ───────────── results filings (XBRL) ─────────────
+
+
+def test_parse_results_index() -> None:
+    payload = json.loads(text("financial_results_acme.json"))
+    df, warnings = parse_results_index(payload, CFG.results.xbrl_hosts)
+    assert len(df) == 2
+    cons, stand = df.to_dict("records")
+    assert cons["url"].endswith("10052024040200_WEB.xml")
+    assert (cons["period_start"], cons["period_end"]) == (date(2024, 1, 1), date(2024, 3, 31))
+    assert (cons["statement_type"], cons["audited"], cons["is_bank"]) == (
+        "consolidated", True, False,
+    )  # fmt: skip
+    # broadCastDate wins over exchdisstime / filingDate; NSE times are IST
+    assert cons["disseminated_at"].isoformat() == "2024-05-10T16:05:30+05:30"
+    assert stand["statement_type"] == "standalone"  # "Non-Consolidated"
+    assert any("no XBRL document for 01-Oct-2023" in w for w in warnings)
+    assert any("evil.example.com" in w for w in warnings)  # not an https NSE host
+
+
+def test_results_filings_requests_every_period_and_dedupes(http: responses.RequestsMock) -> None:
+    body = text("financial_results_acme.json")
+    http.add(responses.GET, HOME, body="<html/>")
+    seen: list[str] = []
+
+    def cb(request: PreparedRequest) -> tuple[int, dict[str, str], str]:
+        seen.append((request.url or "").split("period=")[1])
+        return 200, {"Content-Type": "application/json"}, body
+
+    http.add_callback(responses.GET, RESULTS, callback=cb)
+    limiter = CountingLimiter()
+    df = nse(limiter).results_filings("acme")
+    assert seen == CFG.results.periods and len(df) == 2  # same filings under both: deduped
+    assert "symbol=ACME" in (http.calls[1].request.url or "")
+    # the router pays for the first request; the session for the rest (homepage + 2nd period)
+    assert len(limiter.calls) == len(CFG.results.periods)
+
+
+def test_results_document_guards(http: responses.RequestsMock) -> None:
+    ok = "https://nsearchives.nseindia.com/corporate/xbrl/A.xml"
+    big = "https://nsearchives.nseindia.com/corporate/xbrl/BIG.xml"
+    http.add(responses.GET, ok, body=b"<xbrl/>")
+    http.add(responses.GET, big, body=b"x" * (CFG.results.max_xbrl_bytes + 1))
+    http.add(responses.GET, "https://nsearchives.nseindia.com/corporate/xbrl/GONE.xml", status=404)
+    p = nse()
+    assert p.results_document(ok) == b"<xbrl/>"
+    for url, message in (
+        (big, "larger than"),
+        ("https://nsearchives.nseindia.com/corporate/xbrl/GONE.xml", "not found"),
+        ("https://evil.example.com/A.xml", "not on an allowed host"),
+        ("http://nsearchives.nseindia.com/corporate/xbrl/A.xml", "not on an allowed host"),
+    ):
+        with pytest.raises(ProviderUnavailable, match=message):
+            p.results_document(url)
 
 
 def test_factory() -> None:

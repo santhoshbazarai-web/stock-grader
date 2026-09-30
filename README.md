@@ -103,6 +103,31 @@ add-on; without it the provider reports `unavailable` and the router uses the ne
 The NSE instruments dump (symbol → instrument token) is cached in Redis for
 `instruments_cache_hours`.
 
+## Fundamentals: exchange results filings (XBRL)
+
+Every listed company files its quarterly and annual results with NSE and BSE as an XBRL
+document (SEBI's Ind AS results format). These filings are the primary source of fundamentals;
+a Screener export is an optional top-up.
+
+- **Nightly job:** the worker's `results_watch` job reads each stock's filing list from NSE
+  and downloads new documents into `fin_quarterly` / `fin_annual`.
+  - Q4 filings also give the fiscal year's P&L, balance sheet and cash flow.
+  - Download backlog lives in the `result_filings` table.
+- **Backfill:** 10 years of history take a few nights at `max_downloads_per_run` (300, in
+  `jobs.yaml`). To fetch one stock now: `python -m app.jobs run results_watch --symbols TCS`.
+- **Real announcement dates:** each filing is dated by when NSE published it. A filing
+  published after the 15:30 close counts from the next day, so backtests only use results the
+  market had seen.
+- **Precedence:** figures from filings win. A Screener upload never overwrites them; it only
+  fills what filings lack (SG&A, years before XBRL filing began).
+- **Settings → Results filings** shows the backlog, failed documents (with Retry), and takes
+  XBRL files uploaded by hand. Use uploads for BSE-only companies, or when NSE can't be reached;
+  the XBRL link is on each company's results page on either exchange.
+- **Checking the mapping:** element names can change with new taxonomy years. Before relying
+  on a new kind of filing, run
+  `python -m app.jobs xbrl-inspect filing.xml`. It prints what was read and the numeric
+  elements the mapping ignores. Add names to `backend/app/data/canonical.py`.
+
 ## Other data sources
 
 - **yfinance** (`data/providers/yf.py`): price fallback (`TCS.NS`, index tickers from
@@ -110,11 +135,13 @@ The NSE instruments dump (symbol → instrument token) is cached in Redis for
   split-adjusted even unadjusted, so the provider reverses that to return raw prices. Annual
   statements cover only ~4 years; results carry a `limited history` warning in `reasons`.
 - **NSE** (`data/providers/nse.py`): delivery % from `sec_bhavdata_full`, index constituents
-  (niftyindices CSV), ASM/GSM + F&O ban lists, corporate actions, shareholding. Browser headers,
+  (niftyindices CSV), ASM/GSM + F&O ban lists, corporate actions, shareholding, and the results
+  filing list + XBRL documents (parsed by `data/xbrl.py`). Browser headers,
   homepage cookie warm-up (refreshed after `nse.cookie_ttl_s` or on 401/403), `rate_limits.nse`.
-- **Screener** (`data/providers/screener_import.py`): parses the Excel export's "Data Sheet"
-  into `fin_annual` / `fin_quarterly` / `shareholding` (you state consolidated vs standalone at
-  upload) and records data gaps for what the export lacks.
+- **Screener** (optional; `data/providers/screener_import.py`): parses the Excel export's "Data
+  Sheet" into `fin_annual` / `fin_quarterly` / `shareholding` (you state consolidated vs
+  standalone at upload), filling only what the XBRL filings don't cover, and records data gaps
+  for what the export lacks.
 
 Every source's labels map onto one canonical schema in `backend/app/data/canonical.py`;
 the generated table is in [`docs/CANONICAL_FIELDS.md`](docs/CANONICAL_FIELDS.md).
@@ -131,6 +158,8 @@ python -m app.jobs run eod_prices --symbols TCS,INFY     # one job now (add --fu
 python -m app.jobs run nse_bhavcopy --date 2024-03-28
 python -m app.jobs run shareholding --force              # ignore the filing-season window
 python -m app.jobs verify-adjustment --symbol INFY       # raw vs adjusted around splits/bonuses
+python -m app.jobs run results_watch --symbols TCS       # fetch a stock's results filings now
+python -m app.jobs xbrl-inspect filing.xml               # what the XBRL parser reads (no DB)
 ```
 
 In Docker: `docker compose run --rm worker python -m app.jobs run eod_prices --symbols TCS`.
@@ -139,7 +168,8 @@ Prices are stored raw and split/bonus-adjusted (`adj_*`, `data/adjust.py`); adju
 recomputed whenever new bars or corporate actions arrive. `valuation_scores` builds every
 report in two passes: the first collects each stock's multiples as sector peers, the second
 builds the reports. `refresh_queue` handles `POST /api/stocks/{symbol}/refresh` requests.
-`backtests` runs queued backtest requests (below).
+`backtests` runs queued backtest requests (below). `results_watch` ingests exchange results
+filings (above).
 
 ## API
 
@@ -162,7 +192,9 @@ curl -H "Authorization: Bearer $TOKEN" localhost:8000/api/stocks/TCS/report
 | `GET/POST/DELETE /api/stocks/{symbol}/overrides` | User assumptions and manual inputs; POST recomputes |
 | `GET /api/screener` | Filter by grade / zone / sector / action / EP / buy-zone distance / mcap, and sort |
 | `GET/POST/DELETE /api/watchlist`, `/api/alerts` | Watchlist; in-app price alerts (no broker orders) |
-| `POST /api/uploads/screener` | Screener.in Excel export (state consolidated / standalone) |
+| `POST /api/uploads/screener` | Screener.in Excel export (state consolidated / standalone); optional top-up |
+| `POST /api/uploads/xbrl` | Results XBRL documents (NSE/BSE) for one stock, several at once |
+| `GET /api/filings`, `/api/filings/summary`, `POST /api/filings/{id}/retry` | Results filings ledger |
 | `GET /api/config`, `PUT /api/config` | View the YAML; replace one file, validated first |
 | `POST /api/backtests`, `GET /api/backtests/{id}` | Queue a backtest / poll it (engine: P15) |
 | `GET /api/jobs` | Job history, data freshness, open data gaps, refresh queue |
@@ -178,7 +210,7 @@ Sign in with `APP_PASSWORD`. Every page is behind the login (SPEC §9).
 | `/screener` | Filter by grade, zone, sector, action, EP score, % above the buy zone and market cap. Every column sorts. Filters live in the URL, so any view is linkable, and can be saved as named presets on the server |
 | `/watchlist` | Watchlist (unknown symbols are added and picked up by the data jobs) and in-app price alerts (enters buy zone / crosses FV / top band / invalidation), which can be paused or deleted. Alerts never place orders |
 | `/backtests` | Queue a backtest (grades × zones × holding period, a date range, optionally a symbol list) and follow its progress; `/backtests/{id}` shows the results (below) |
-| `/settings` | **Brokers:** status, plus Connect / Reconnect for configured brokers (Fyers or Kite OAuth, via the API; the callback returns here with a banner). **Config:** a YAML editor for each `config/*.yaml`, validated as you type exactly as at startup; only a valid file can be saved. **Uploads:** import a Screener.in export (you choose consolidated or standalone), which rebuilds the report, and a list of uploaded datasets |
+| `/settings` | **Brokers:** status, plus Connect / Reconnect for configured brokers (Fyers or Kite OAuth, via the API; the callback returns here with a banner). **Config:** a YAML editor for each `config/*.yaml`, validated as you type exactly as at startup; only a valid file can be saved. **Results filings:** the XBRL ledger (stored / pending / failed, with Retry) and an upload for XBRL documents. **Screener uploads (optional):** import a Screener.in export (you choose consolidated or standalone) to fill what filings lack; both rebuild the report |
 | `/stocks/{SYMBOL}` | The stock report (below) |
 
 Broker tokens expire daily (Kite at 06:00 IST), so reconnect from Settings each morning. The
@@ -229,7 +261,7 @@ What the results depend on:
   `index_constituents` records it from the day it first runs; load older constituents for
   longer tests. A run over a period with no membership says so instead of reporting 0%.
 - **Symbol lists:** a symbol list is quick to run but biased by survivorship.
-- **Announcement dates:** statements without an announcement date (such as Screener uploads)
+- **Announcement dates:** statements without an announcement date (Screener-only periods)
   are excluded, and counted in the caveats.
 - **Benchmark:** the Nifty 500 TRI is used when its prices are stored, else the price index.
   The price index understates the benchmark by the dividend yield.
@@ -282,7 +314,7 @@ demo.
 - watchlist and alert changes
 - live config validation (it never saves)
 - the broker Connect redirect and callback banner
-- the uploads list
+- the uploads list, and XBRL results filings upload (per-file outcome, refused mismatches)
 - backtest form validation, queueing and history; with
   `E2E_BACKTEST_CMD="cd backend && uv run python -m app.jobs run backtests"` set, it also
   runs the job and checks the results page (metrics, equity curve, grade × zone table)

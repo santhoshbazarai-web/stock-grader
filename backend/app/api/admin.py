@@ -1,8 +1,10 @@
-"""Screener uploads, YAML config view/edit, backtest requests, job history (SPEC §8)."""
+"""Screener and XBRL uploads, the results filings ledger, YAML config view/edit, backtest
+requests, job history (SPEC §8)."""
 
 import os
 import shutil
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -20,16 +22,21 @@ from app.api.schemas import (
     ConfigSaved,
     ConfigUpdate,
     ConfigView,
+    FilingsSummary,
     Freshness,
     JobRunOut,
     JobsView,
+    ResultFilingOut,
     UploadedDataset,
     UploadSummary,
+    XbrlFileResult,
+    XbrlUploadSummary,
 )
 from app.core.config import ConfigError, get_config, load_config
 from app.data.gaps import SessionGapRecorder
 from app.data.providers.screener_import import ScreenerFormatError, import_screener
-from app.db.enums import BacktestStatus, StatementType
+from app.data.results_ingest import ensure_uploaded_row, ingest
+from app.db.enums import BacktestStatus, FilingStatus, StatementType
 from app.db.models import (
     Backtest,
     DataGap,
@@ -40,6 +47,7 @@ from app.db.models import (
     JobRun,
     PriceDaily,
     Report,
+    ResultFiling,
     Shareholding,
     TechnicalSnapshot,
 )
@@ -47,6 +55,8 @@ from app.jobs.common import ensure_instruments
 from app.jobs.refresh import queued
 
 router = APIRouter()
+
+XBRL_UPLOAD_MAX_FILES = 80  # 20 years of quarterly filings in one request
 
 CONFIG_FILES = ("providers", "valuation", "sectors", "scoring", "technical", "jobs")
 
@@ -101,6 +111,148 @@ def upload_screener(
         data_gaps=sorted({f"{g.dataset}: {g.field or '(all)'}" for g in summary.gaps}),
         warnings=summary.warnings,
     )
+
+
+@router.post(
+    "/uploads/xbrl",
+    tags=["uploads"],
+    status_code=status.HTTP_201_CREATED,
+    responses={413: {"description": "File too large"}, 422: {"description": "Not XML"}},
+)
+def upload_xbrl(
+    session: SessionDep,
+    settings: SettingsDep,
+    config: ConfigDep,
+    files: Annotated[
+        list[UploadFile],
+        File(description="Results XBRL documents (.xml) from NSE or BSE, one per filing"),
+    ],
+    symbol: Annotated[str, Form(pattern=SYMBOL_PATTERN)],
+) -> XbrlUploadSummary:
+    """Import exchange results filings by hand, for filings the ``results_watch`` job cannot
+    download (e.g. BSE-only companies, or while NSE is unreachable). Each document is parsed
+    like a downloaded one; its basis (standalone / consolidated) and period come from the
+    document. With no dissemination time, the announcement date is the board-meeting date +
+    1 day. A document naming another company is refused. Each file is reported separately."""
+    if not 1 <= len(files) <= XBRL_UPLOAD_MAX_FILES:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, f"send 1 to {XBRL_UPLOAD_MAX_FILES} files"
+        )
+    sym = symbol.upper()
+    iid = ensure_instruments(session, [sym])[sym]
+    results = []
+    for f in files:
+        name = f.filename or "upload.xml"
+        if not name.lower().endswith(".xml"):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"{name}: expected .xml")
+        content = f.file.read(settings.upload_max_bytes + 1)
+        if len(content) > settings.upload_max_bytes:
+            raise HTTPException(
+                status.HTTP_413_CONTENT_TOO_LARGE,
+                f"{name}: larger than {settings.upload_max_bytes} bytes",
+            )
+        row = ensure_uploaded_row(session, instrument_id=iid, content=content)
+        ingest(session, row, symbol=sym, content=content, cfg=config.providers.nse.results,
+               gaps=SessionGapRecorder(session), now=datetime.now(UTC))  # fmt: skip
+        session.commit()
+        results.append(
+            XbrlFileResult(
+                filename=name,
+                status=row.status,
+                periods=row.periods or [],
+                statement_type=row.statement_type.value if row.statement_type else None,
+                announcement_date=row.announcement_date,
+                warnings=row.warnings or [],
+                error=row.error,
+            )
+        )
+    return XbrlUploadSummary(symbol=sym, files=results)
+
+
+@router.get("/filings", tags=["uploads"])
+def list_filings(
+    session: SessionDep,
+    symbol: Annotated[str | None, Query(pattern=SYMBOL_PATTERN)] = None,
+    status_: Annotated[FilingStatus | None, Query(alias="status")] = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+) -> list[ResultFilingOut]:
+    """The exchange results filings ledger (``results_watch`` and XBRL uploads), most
+    recently updated first."""
+    q = (
+        select(ResultFiling, Instrument.symbol)
+        .join(Instrument, Instrument.id == ResultFiling.instrument_id)
+        .order_by(ResultFiling.updated_at.desc(), ResultFiling.id.desc())
+        .limit(limit)
+    )
+    if symbol:
+        q = q.where(Instrument.symbol == symbol.upper())
+    if status_:
+        q = q.where(ResultFiling.status == status_)
+    return [_filing_out(r, sym) for r, sym in session.execute(q).all()]
+
+
+def _filing_out(r: ResultFiling, symbol: str) -> ResultFilingOut:
+    return ResultFilingOut(
+        id=r.id,
+        symbol=symbol,
+        exchange=r.exchange,
+        document=r.document,
+        period_start=r.period_start,
+        period_end=r.period_end,
+        statement_type=r.statement_type.value if r.statement_type else None,
+        audited=r.audited,
+        is_bank=r.is_bank,
+        disseminated_at=r.disseminated_at,
+        announcement_date=r.announcement_date,
+        status=r.status,
+        attempts=r.attempts,
+        error=r.error,
+        periods=r.periods,
+        warnings=r.warnings,
+        parsed_at=r.parsed_at,
+        updated_at=r.updated_at,
+    )
+
+
+@router.get("/filings/summary", tags=["uploads"])
+def filings_summary(session: SessionDep) -> FilingsSummary:
+    counts = dict(
+        session.execute(
+            select(ResultFiling.status, func.count()).group_by(ResultFiling.status)
+        ).all()
+    )
+    return FilingsSummary(
+        pending=counts.get(FilingStatus.PENDING, 0),
+        parsed=counts.get(FilingStatus.PARSED, 0),
+        failed=counts.get(FilingStatus.FAILED, 0),
+        symbols=session.scalar(
+            select(func.count(func.distinct(ResultFiling.instrument_id))).where(
+                ResultFiling.status == FilingStatus.PARSED
+            )
+        )
+        or 0,
+        last_parsed_at=session.scalar(select(func.max(ResultFiling.parsed_at))),
+    )
+
+
+@router.post(
+    "/filings/{filing_id}/retry",
+    tags=["uploads"],
+    responses={404: {"description": "Not found"}, 409: {"description": "Uploaded file"}},
+)
+def retry_filing(filing_id: int, session: SessionDep) -> ResultFilingOut:
+    """Put a failed exchange filing back in the queue: ``results_watch`` downloads it again on
+    its next run (attempts restart at 0). Uploaded files cannot be re-downloaded: upload again."""
+    row = session.get(ResultFiling, filing_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"no filing {filing_id}")
+    if row.exchange == "upload":
+        raise HTTPException(status.HTTP_409_CONFLICT, "uploaded file: upload it again instead")
+    row.status, row.attempts, row.error = FilingStatus.PENDING, 0, None
+    session.commit()
+    session.refresh(row)
+    symbol = session.scalar(select(Instrument.symbol).where(Instrument.id == row.instrument_id))
+    return _filing_out(row, symbol or "")
 
 
 @router.get("/uploads/screener", tags=["uploads"])

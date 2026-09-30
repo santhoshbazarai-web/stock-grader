@@ -22,6 +22,10 @@ Promoters / FIIs / DIIs / Public / No. of Shareholders) is parsed when present.
 
 The export does not say whether figures are consolidated or standalone, so the uploader must
 state it (rule 5: consolidated first; standalone is flagged when served).
+
+Exchange results filings (XBRL, ``results_watch``) are the primary source of fundamentals; an
+upload never overwrites a period they stored, it only fills fields they lack (e.g. ``sga``) and
+periods they don't cover (history before XBRL filing began).
 """
 
 import io
@@ -49,6 +53,7 @@ from app.data.canonical import (
 )
 from app.data.gaps import GapRecord, GapRecorder
 from app.data.providers.base import ProviderUnavailable
+from app.data.results_store import merge_upsert
 from app.db.base import Base
 from app.db.enums import StatementType
 from app.db.models import FinAnnual, FinQuarterly, Instrument, Shareholding
@@ -288,7 +293,12 @@ def import_screener(
             df, table, instrument_id=instrument_id, source=SOURCE, fetched_at=fetched_at,
             extra_cols=cols,
         )  # fmt: skip
-        counts[table] = upsert(session, model, rows)
+        if model is FinAnnual or model is FinQuarterly:
+            # Periods already stored from exchange filings (XBRL) keep those figures; the
+            # upload only fills what the filings lack (see app.data.results_store).
+            counts[table] = merge_upsert(session, model, rows, source=SOURCE)
+        else:
+            counts[table] = upsert(session, model, rows)
 
     recorded: list[GapRecord] = []
     fin_tables: tuple[tuple[Table, Dataset], ...] = (

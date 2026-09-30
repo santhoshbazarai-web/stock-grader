@@ -22,8 +22,9 @@ Non-goals (MVP): auto-trading, multi-user SaaS, intraday signals, F&O analytics.
      ├── Fyers API v3   (prices, indices, LTP)
      ├── Kite Connect   (prices fallback, LTP)
      ├── yfinance       (fundamentals partial, price fallback)
-     ├── NSE archives   (bhavcopy+delivery, index constituents, ASM/GSM, corp actions, shareholding)
-     └── Screener export (10-yr fundamentals, manual upload)
+     ├── NSE archives   (bhavcopy+delivery, index constituents, ASM/GSM, corp actions, shareholding,
+     │                   results filings: XBRL → 10-yr fundamentals)
+     └── Screener export (optional manual upload: fills fields the filings lack)
 ```
 2.1 Services (docker-compose)
 Service	Purpose
@@ -55,11 +56,33 @@ Corporate actions (split/bonus/dividend)	NSE	yfinance actions	—	Needed for adj
 Index constituents (Nifty 500, sectors)	niftyindices.com CSV	—	—	Monthly refresh
 ASM / GSM / F&O ban lists	NSE	—	—	Daily; knock-out filter
 Shareholding (promoter, pledge, FII, DII, MF)	NSE/BSE filings	Screener export	—	Quarterly
-Annual financials (10 yrs)	Screener Excel upload	yfinance (≈4 yrs only)	NSE/BSE XBRL (Phase 9)	yfinance alone is not enough for 10-yr metrics
-Quarterly results	Screener export	yfinance	NSE results XBRL	Keyed by announcement date
+Annual financials (10 yrs)	NSE/BSE results XBRL (Q4 / annual filings)	Screener Excel upload (fills gaps)	yfinance (≈4 yrs only)	Keyed by announcement date
+Quarterly results	NSE/BSE results XBRL	yfinance (while the filing is unavailable)	Screener export	Keyed by announcement date
 Risk-free rate (10-yr G-sec)	config value, updated weekly	RBI/CCIL	—	
 Sector classification	NSE industry	config override	—	Drives sector model
 NSE endpoints need a browser-like session (cookies from the homepage + headers) and polite rate limiting. Use archive CSVs where possible and cache aggressively. Respect each source's terms of use. The Screener import is for personal use only.
+Implementation notes (results XBRL, `data/xbrl.py`, `data/results_store.py`, `jobs/fundamentals.py::results_watch`; parameters in `providers.yaml` → `nse.results` and `jobs.yaml` → `results_watch`):
+- **Source:** every quarterly/annual result is filed with NSE and BSE as an XBRL instance in the SEBI/BSE Ind AS results taxonomy (prefix `in-bse-fin`). NSE's `corporates-financial-results` list gives each filing's document URL, period, basis (consolidated / non-consolidated), audit status and dissemination time.
+- **Contexts:**
+  - The quarter is the non-dimensional duration context ending on the reporting date whose length is in `quarter_days`.
+  - The fiscal year (Q4 / annual filings only) is one whose length is in `year_days`; it becomes the `fin_annual` row, with the balance sheet from the instant context on the same date and the cash flow from the year context.
+  - Comparatives (other end dates), 6/9-month year-to-date, and segment (dimensional) contexts are ignored: a period's first-reported numbers are its point-in-time truth.
+- **Mapping:** element names live only in `canonical.py` (`labels["nse"]`, `XBRL_SUMS`, `XBRL_INFO`, `XBRL_BANK_EXTRA`); the namespace year is ignored. Amounts are absolute rupees → ₹ crore; per-share stays ₹; `pure` percentages ×100.
+  - `ebit` = PBT + finance cost; `ebitda` = PBT + finance cost + D&A − other income.
+  - `shares_diluted_cr` = PAT / diluted EPS; book value per share = equity / shares.
+  - Split lines (COGS, borrowings, cash, investments, receivables, net block, tax) are the sum of the lines filed; the field is NULL if none is filed.
+  - Capex, asset sales and dividends are stored as magnitudes.
+  - Bank filings (marked by `InterestEarned`) fill `extra` for `fundamentals/banking.py`; period-end balances (NPAs, CRAR, advances, deposits, investments) reported only in the Q4 quarter context also apply to the fiscal year.
+  - SG&A is not in the results format (a data gap; a Screener upload can fill it).
+- **Announcement date (rule 4):** the exchange's dissemination time; at or after `available_after_ist` (the close) it counts from the next day. An uploaded document has no dissemination time, so its date is the board-meeting date + 1 day. A row keeps the earliest date it has had, so a revised filing, or a quarter first stored from yfinance with its first-seen date, never moves it later.
+- **Precedence:** a filing overwrites the columns it has values for (`source='nse'`) and never blanks others. A Screener upload fills only the empty columns of periods a filing stored, and leaves their source and date alone.
+- **Ingestion:** `result_filings` is the ledger (one row per document, pending → parsed / failed).
+  - `results_watch` re-reads every symbol's list in results season, or weekly (`index_recheck_days`) outside it.
+  - It downloads at most `max_downloads_per_run` documents per run, newest period first, back to `providers.history_years`, and retries failures up to `max_attempts`.
+  - Documents are fetched only over https from `xbrl_hosts`, capped at `max_xbrl_bytes`, and parsed with `defusedxml`.
+  - A document naming another symbol, or with no stated basis, is refused (rule 5).
+  - If a symbol's list can't be read in season, new quarters come from yfinance with their first-seen date and a `results_filing` data gap, which is resolved when the filing is stored.
+- **Checking the mapping:** `python -m app.jobs xbrl-inspect <file.xml>` prints the contexts used, the canonical values, and the numeric elements the mapping ignores.
 3.3 Broker authentication
 Fyers: OAuth flow. `GET /api/brokers/fyers/login` redirects to Fyers, which calls back `GET /api/brokers/fyers/callback?auth_code=…`. The backend exchanges the code for an access token, encrypts it and stores it with its expiry. Tokens expire daily, so the UI shows a "Reconnect" banner when a token is stale.
 Kite: `GET /api/brokers/kite/login` redirects to Kite, which calls back with `request_token`. The backend calls `generate_session`, then encrypts and stores the token. It also expires daily.
@@ -328,7 +351,9 @@ POST	`/api/stocks/{symbol}/overrides`	User assumptions (g1, margins, WACC, secto
 GET	`/api/screener`	Filters: grade, zone, sector, distance_to_buy_zone, EP score, mcap
 GET/POST/DELETE	`/api/watchlist`	
 GET/POST/DELETE	`/api/alerts`	Price enters buy zone / crosses FV / Top band
-POST	`/api/uploads/screener`	Upload a Screener Excel export
+POST	`/api/uploads/screener`	Upload a Screener Excel export (optional; fills fields the XBRL filings lack)
+POST	`/api/uploads/xbrl`	Upload results XBRL documents (NSE/BSE) for one symbol; per-file outcome
+GET	`/api/filings`, `/api/filings/summary`; POST `/api/filings/{id}/retry`	Results filings ledger
 GET	`/api/brokers/status`	Token validity per broker
 GET	`/api/brokers/{fyers	kite}/login`, `/callback`
 GET	`/api/config` / PUT	View or edit YAML-backed config (validated)
@@ -337,7 +362,7 @@ GET	`/api/jobs`	Job run history, data freshness
 StockReport DTO (abridged)
 ```json
 {
-  "symbol": "XYZ", "cmp": 0, "as_of": "date", "sources": {"prices": "fyers", "fundamentals": "screener"},
+  "symbol": "XYZ", "cmp": 0, "as_of": "date", "sources": {"prices": "fyers", "fundamentals": "nse"},
   "levels": {"baseline": 0, "fair_value": 0, "top_band": 0, "mos_pct": 0, "confidence": "high|medium|low"},
   "zone": "discount", "buy_zone": {"low": 0, "high": 0, "basis": ["demand zone", "AVWAP 52wL"]},
   "invalidation": 0, "rr_to_fv": 0, "rr_to_top": 0,
@@ -426,7 +451,7 @@ Job	Schedule	Work
 `alerts_intraday`	Every 5 min, 09:15–15:30	LTP via Fyers/Kite and evaluate alerts
 `shareholding`	Daily 20:30 during filing season	New filings
 `index_constituents`	1st of the month	Nifty 500 + sector index membership
-`results_watch`	Daily in results season	Flag stocks with new quarterly results so fundamentals get refreshed (via Screener upload / yfinance)
+`results_watch`	Daily 21:00	Exchange results filings (XBRL) → fin_quarterly / fin_annual: new filings in results season, a 10-yr backfill over the first nights; yfinance fallback while NSE is unreachable
 Every job writes to `job_runs`, uses a Redis lock so it doesn't run twice, and is idempotent (upserts).
 ---
 11. Backtest rules

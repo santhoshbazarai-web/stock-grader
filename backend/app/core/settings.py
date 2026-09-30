@@ -3,6 +3,7 @@
 Tunable model parameters live in ``config/*.yaml`` (see ``app.core.config``), never here.
 """
 
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -30,7 +31,7 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+psycopg://stockgrader:stockgrader@localhost:5432/stockgrader"
     redis_url: str = "redis://localhost:6379/0"
-    config_dir: Path = Field(default=_REPO_ROOT / "config")
+    config_dir: Path = Field(default=_REPO_ROOT / "config")  # CONFIG_DIR
     log_level: str = "INFO"
     # Browser-facing URL of the web app; broker OAuth callbacks redirect back here.
     web_url: str = "http://localhost:3000"
@@ -110,6 +111,12 @@ class Settings(BaseSettings):
 
 
 MIN_PROD_PASSWORD = 12
+
+
+def config_dir_from_env() -> Path:
+    """``CONFIG_DIR`` or the repo's config/, without requiring the secrets ``Settings`` needs
+    (for offline tools such as ``python -m app.jobs xbrl-inspect``)."""
+    return Path(os.environ.get("CONFIG_DIR") or _REPO_ROOT / "config")
 
 
 @lru_cache

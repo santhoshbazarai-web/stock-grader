@@ -5,6 +5,7 @@
     python -m app.jobs run nse_bhavcopy --date 2024-03-28
     python -m app.jobs run shareholding --force
     python -m app.jobs verify-adjustment --symbol INFY
+    python -m app.jobs xbrl-inspect path/to/results.xml   # check the XBRL element mapping
 
 Exit codes: 0 success/skipped, 1 failed, 2 unknown or not-yet-implemented job.
 """
@@ -13,6 +14,7 @@ import argparse
 import sys
 from collections.abc import Callable, Sequence
 from datetime import date
+from pathlib import Path
 
 import pandas as pd
 from sqlalchemy import select
@@ -52,7 +54,25 @@ def _parser() -> argparse.ArgumentParser:
         "verify-adjustment", help="check stored prices of a symbol around its splits/bonuses"
     )
     verify.add_argument("--symbol", required=True)
+    inspect = sub.add_parser(
+        "xbrl-inspect", help="show what the results XBRL parser reads from a filing (no DB)"
+    )
+    inspect.add_argument("path", type=Path, help="an NSE/BSE results XBRL document (.xml)")
     return p
+
+
+def xbrl_inspect(path: Path) -> int:
+    from app.core.config import load_config
+    from app.core.settings import config_dir_from_env
+    from app.data.xbrl import XbrlFormatError, describe
+
+    try:
+        cfg = load_config(config_dir_from_env()).providers.nse.results
+        print(describe(path.read_bytes(), cfg))
+    except (OSError, XbrlFormatError) as exc:
+        print(f"{path}: {exc}", file=sys.stderr)
+        return 1
+    return 0
 
 
 def _list(ctx: JobContext) -> int:
@@ -140,6 +160,8 @@ def verify_adjustment(ctx: JobContext, symbol: str) -> int:
 
 def main(argv: Sequence[str] | None = None, context_factory: ContextFactory | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.command == "xbrl-inspect":
+        return xbrl_inspect(args.path)
     ctx = (context_factory or _default_context)()
     if args.command == "list":
         return _list(ctx)

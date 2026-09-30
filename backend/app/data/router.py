@@ -44,6 +44,7 @@ from app.data.providers.base import (
     PriceProvider,
     ProviderError,
     ProviderUnavailable,
+    ResultsFilingsProvider,
     ShareholdingProvider,
     SurveillanceProvider,
 )
@@ -219,6 +220,24 @@ class DataRouter:
             ShareholdingProvider,
             lambda p: p.shareholding(symbol),
             symbol=symbol,
+        )
+
+    def results_filings(self, symbol: str) -> RouteResult[pd.DataFrame]:
+        return self.fetch(
+            Dataset.RESULTS_FILINGS,
+            ResultsFilingsProvider,
+            lambda p: p.results_filings(symbol),
+            symbol=symbol,
+        )
+
+    def results_document(self, url: str, symbol: str) -> RouteResult[bytes]:
+        """One XBRL document. No data gap on failure: the caller keeps a per-filing ledger."""
+        return self.fetch(
+            Dataset.RESULTS_FILINGS,
+            ResultsFilingsProvider,
+            lambda p: p.results_document(url),
+            symbol=symbol,
+            record_gap=False,
         )
 
     # ───────────── generic routing ─────────────
