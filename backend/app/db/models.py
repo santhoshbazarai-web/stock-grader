@@ -192,6 +192,9 @@ class FinAnnual(_FinancialsCommon, Base):
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     instrument_id: Mapped[int] = _instrument_fk()
     fiscal_year: Mapped[int]  # FY ending, e.g. 2025 for Apr-2024..Mar-2025
+    # P&L summed from the year's four quarterly results because no annual figures were filed
+    # (or parsed) for it: SPEC §3.6 step 5. See fin_line_items rows with derived = true.
+    is_derived: Mapped[bool] = mapped_column(Boolean, server_default="false")
     sga: Mapped[float | None]
     # balance sheet
     total_assets: Mapped[float | None]

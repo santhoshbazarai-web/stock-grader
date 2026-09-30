@@ -161,6 +161,12 @@ Implementation notes (results XBRL, `data/xbrl.py`, `data/results_store.py`, `da
 - **Wide rows:** `fin_quarterly` / `fin_annual` are rebuilt from the latest versions of every period a filing touched (analysis uses the latest version). A quarter needs its P&L; a year row is written when its P&L is known, or updated when it exists.
   - `announcement_date` is the earliest date any figure of the period was usable. It is also never later than one already stored, so a quarter first seen via yfinance keeps the real, earlier filing date once the filing arrives.
   - Precedence: filed values overwrite what they cover and never blank other columns. A Screener upload fills only the empty columns of periods a filing stored, and leaves their source and date alone.
+- **FY derived from quarters (§3.6 step 5):** after each filing, every fiscal year containing a quarter it touched is checked. If all four quarters are stored and the year has no filed P&L (e.g. the Q4 filing had no year context, or the annual filing failed), each P&L amount reported in all four quarters is summed from their latest versions.
+  - The sums are stored as year line items with `derived = true`, source `derived`, and `usable_from` = the day the last quarter became usable.
+  - `fin_annual.is_derived` is set, and the report lists those years under data gaps.
+  - EPS is not summed; balances come from the Q4 quarter (`carry_to_year`); balance sheet and cash flow stay empty.
+  - The year end is the company's filed year-end month, else `nse.results.default_fy_end_month`.
+  - A later filed annual figure becomes the latest version even when it equals the sum.
 - **Backtests:** `backtest/pit.py::versioned_frame` turns each period's line items into one row per date a figure became usable, carrying the latest version known by then, so a restatement is seen only from its own date (§3.6 step 2). Periods without line items keep their stored row.
 - **Announcement date (rule 4):** the exchange's dissemination time; at or after `available_after_ist` (the close) it counts from the next day. An uploaded document has no dissemination time, so its date is the board-meeting date + 1 day.
 - **Ingestion:** `result_filings` is the ledger (one row per document, pending → parsed / failed).

@@ -150,6 +150,7 @@ def _delete(path: list[str]) -> Mutator:
         ("providers", _delete(["nse", "results"]), "results"),
         ("providers", _set(["nse", "results", "rounding_levels", "lakh"], 0), "greater than 0"),
         ("providers", _delete(["nse", "results", "min_plausible_shares"]), "min_plausible"),
+        ("providers", _set(["nse", "results", "default_fy_end_month"], 13), "less than or equal"),
         ("providers", _delete(["priority", "results_filings"]), "missing datasets"),
         # valuation
         ("valuation", _set(["risk_free_rate"], 6.5), "less than or equal to 1"),

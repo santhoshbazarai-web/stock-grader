@@ -197,3 +197,119 @@ def test_rounding_noise_and_reparsing_add_no_versions(acme: Env) -> None:
     with acme.session() as s:
         after = s.scalar(select(FinLineItem.id).order_by(FinLineItem.id.desc()).limit(1))
     assert after == before  # nothing rewritten: same figures, same versions
+
+
+# ───────────── FY derived from quarters (SPEC §3.6 step 5) ─────────────
+
+
+def results_doc(start: str, end: str, periods: dict[tuple[str, str], dict[str, float]]) -> bytes:
+    """A consolidated results filing for the reporting period start..end with the given
+    duration contexts ((start, end) → element → ₹ crore)."""
+    ctxs, facts = [], []
+    for i, ((s_, e_), values) in enumerate(periods.items()):
+        cid = f"C{i}"
+        ctxs.append(f'<xbrli:context id="{cid}"><xbrli:entity><xbrli:identifier scheme="x">'
+                    f"500999</xbrli:identifier></xbrli:entity><xbrli:period><xbrli:startDate>"
+                    f"{s_}</xbrli:startDate><xbrli:endDate>{e_}</xbrli:endDate></xbrli:period>"
+                    "</xbrli:context>")  # fmt: skip
+        facts += [f'<f:{n} contextRef="{cid}" unitRef="INR" decimals="-5">{round(v * CR)}</f:{n}>'
+                  for n, v in values.items()]  # fmt: skip
+    info = "".join(
+        f'<f:{n} contextRef="C0">{v}</f:{n}>'
+        for n, v in (("Symbol", "ACME"), ("NatureOfReportStandaloneConsolidated", "Consolidated"),
+                     ("DateOfStartOfReportingPeriod", start), ("DateOfEndOfReportingPeriod", end))
+    )  # fmt: skip
+    return (
+        '<?xml version="1.0"?><xbrli:xbrl xmlns:xbrli="http://www.xbrl.org/2003/instance" '
+        'xmlns:iso4217="http://www.xbrl.org/2003/iso4217" '
+        'xmlns:f="http://www.bseindia.com/xbrl/fin/2020-03-31/in-bse-fin">'
+        '<xbrli:unit id="INR"><xbrli:measure>iso4217:INR</xbrli:measure></xbrli:unit>'
+        + "".join(ctxs)
+        + info
+        + "".join(facts)
+        + "</xbrli:xbrl>"
+    ).encode()
+
+
+QUARTERS_FY25 = [  # (start, end, revenue, PBT, PAT, published), ₹ crore
+    ("2024-04-01", "2024-06-30", 1000.0, 200.0, 150.0, datetime(2024, 7, 20, 12, 0, tzinfo=IST)),
+    ("2024-07-01", "2024-09-30", 1100.0, 220.0, 165.0, datetime(2024, 10, 22, 12, 0, tzinfo=IST)),
+    ("2024-10-01", "2024-12-31", 1200.0, 240.0, 180.0, datetime(2025, 1, 21, 12, 0, tzinfo=IST)),
+    ("2025-01-01", "2025-03-31", 1300.0, 260.0, 195.0, datetime(2025, 5, 6, 12, 0, tzinfo=IST)),
+]
+FY25 = date(2025, 3, 31)
+
+
+def quarterly_only(env: Env, quarters: list[tuple[Any, ...]]) -> None:
+    env.nse.filings["ACME"] = []
+    for i, (start, end, rev, pbt, pat, when) in enumerate(quarters):
+        url = f"{ARCH}/ACME_FY25_Q{i + 1}.xml"
+        env.nse.filings["ACME"].append(listing(url, start, end, when))
+        env.nse.documents[url] = results_doc(start, end, {(start, end): {
+            "RevenueFromOperations": rev, "ProfitBeforeTax": pbt,
+            "ProfitOrLossAttributableToOwnersOfParent": pat, "OtherIncome": 10.0}})  # fmt: skip
+
+
+def test_a_year_without_an_annual_filing_is_summed_from_its_quarters_and_flagged(env: Env) -> None:
+    quarterly_only(env, QUARTERS_FY25)
+    run(env)
+    rev = versions(env, FY25, PeriodType.YEAR, "revenue")
+    assert rev == [(1, pytest.approx(1000 + 1100 + 1200 + 1300), None, date(2025, 5, 6))]
+    with env.session() as s:
+        derived_pat = (FinLineItem.derived.is_(True)) & (FinLineItem.item_code == "pat")
+        item = s.scalars(select(FinLineItem).where(derived_pat)).one()
+        year = s.scalars(select(FinAnnual).where(FinAnnual.period_end == FY25)).one()
+    assert (item.source, item.value_inr, item.filing_id) == ("derived", 690 * CR, None)
+    assert item.tag == "sum of quarters 2024-06-30, 2024-09-30, 2024-12-31, 2025-03-31"
+    assert year.is_derived and year.fiscal_year == 2025
+    assert (year.revenue, year.pat, year.other_income) == (4600, 690, 40)
+    assert year.announcement_date == date(2025, 5, 6)  # when the last quarter was published
+    assert year.eps_diluted is None  # EPS is not summed across quarters
+    assert year.ebitda is None  # finance cost and D&A were not filed, so not derivable
+
+
+def test_a_later_annual_filing_supersedes_the_derived_year(env: Env) -> None:
+    quarterly_only(env, QUARTERS_FY25)
+    run(env)
+    annual = f"{ARCH}/ACME_FY25_ANNUAL.xml"  # audited annual results, filed later
+    env.nse.filings["ACME"].append(
+        listing(annual, "2024-04-01", "2025-03-31", datetime(2025, 5, 28, 12, 0, tzinfo=IST))
+    )
+    year_values = {
+        "RevenueFromOperations": 4600.0,
+        "ProfitBeforeTax": 920.0,
+        "ProfitOrLossAttributableToOwnersOfParent": 690.0,
+    }
+    env.nse.documents[annual] = results_doc(
+        "2024-04-01", "2025-03-31", {("2024-04-01", "2025-03-31"): year_values}
+    )
+    run(env)
+    # the filed figure equals the derived sum, yet it is the latest version: filed beats derived
+    rev = versions(env, FY25, PeriodType.YEAR, "revenue")
+    assert [(v, d) for v, _, _, d in rev] == [(1, date(2025, 5, 6)), (2, date(2025, 5, 28))]
+    assert rev[1][2] == annual
+    with env.session() as s:
+        year = s.scalars(select(FinAnnual).where(FinAnnual.period_end == FY25)).one()
+    assert not year.is_derived and year.revenue == pytest.approx(4600)
+    assert year.announcement_date == date(2025, 5, 6)  # first known: the derived total
+
+
+def test_no_derivation_with_a_missing_quarter_or_a_filed_year(env: Env) -> None:
+    quarterly_only(env, QUARTERS_FY25[:3])  # the Jan-Mar quarter is missing
+    run(env)
+    assert versions(env, FY25, PeriodType.YEAR, "revenue") == []
+    with env.session() as s:
+        assert s.scalars(select(FinAnnual)).all() == []
+    # a Q4 filing that states the year: its own figures, nothing derived
+    env.nse.filings["ACME"] = [
+        listing(Q4FY24, "2024-01-01", "2024-03-31", datetime(2024, 5, 10, 16, 5, tzinfo=IST))
+    ]
+    env.nse.documents[Q4FY24] = (FIX / "acme_q4fy24_consolidated.xml").read_bytes()
+    run(env)
+    with env.session() as s:
+        assert s.scalars(select(FinLineItem).where(FinLineItem.derived.is_(True))).all() == []
+        assert (
+            not s.scalars(select(FinAnnual).where(FinAnnual.period_end == date(2024, 3, 31)))
+            .one()
+            .is_derived
+        )

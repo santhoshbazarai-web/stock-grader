@@ -164,6 +164,9 @@ class NseResultsConfig(_Strict):
     # differs by more than both of these (filings round to lakhs or crores differently).
     restatement_tolerance_rel: Fraction
     restatement_tolerance_inr: Annotated[float, Field(ge=0)]
+    # Fiscal-year end month used to sum four quarters into a year when a company has no filed
+    # annual figures yet to show its own year end (SPEC §3.6 step 5).
+    default_fy_end_month: Annotated[int, Field(ge=1, le=12)]
 
     @model_validator(mode="after")
     def _check(self) -> Self:

@@ -80,5 +80,6 @@ providers:
       # the rounding gap between a lakh-rounded and a crore-rounded filing of the same figure.
       restatement_tolerance_rel: 0.0005
       restatement_tolerance_inr: 5000000
+      default_fy_end_month: 3   # April-March; a company's own filed years override it
   oauth_state_ttl_s: 600  # broker login must complete within this many seconds
   history_years: 10

@@ -32,7 +32,7 @@ def test_every_canonical_field_is_a_column(table: str) -> None:
 def test_every_value_column_is_canonical(table: str) -> None:
     bookkeeping = {
         "id", "instrument_id", "period_end", "source", "fetched_at", "statement_type",
-        "announcement_date", "filing_date", "fiscal_year", "extra",
+        "announcement_date", "filing_date", "fiscal_year", "extra", "is_derived",
     }  # fmt: skip
     columns = set(Base.metadata.tables[table].c.keys()) - bookkeeping
     assert columns == set(fields_for(table))  # type: ignore[arg-type]

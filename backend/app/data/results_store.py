@@ -22,7 +22,8 @@ from collections.abc import Iterable, Mapping
 from datetime import UTC, date, datetime, time
 from typing import Any, cast
 
-from sqlalchemy import delete, insert, select
+import pandas as pd
+from sqlalchemy import delete, func, insert, select
 from sqlalchemy.orm import Session
 
 from app.core.config import NseResultsConfig, Provider
@@ -112,6 +113,19 @@ def record_line_items(
                 "tag": item.tag[:512],
                 "map_version": filing.map_version,
             }
+    return _apply_versions(session, instrument_id, basis, observations, cfg)
+
+
+def _apply_versions(
+    session: Session,
+    instrument_id: int,
+    basis: StatementType,
+    observations: dict[tuple[Any, ...], dict[str, Any]],
+    cfg: NseResultsConfig,
+) -> set[tuple[date, PeriodType]]:
+    """Merge new observations (key → row) into each key's version timeline (see
+    :func:`record_line_items`). A filed figure after a derived one is always a new version, so
+    the latest version is filed even when it confirms the derived sum."""
     if not observations:
         return set()
     ends = {k[0] for k in observations}
@@ -129,13 +143,15 @@ def record_line_items(
     fresh: list[dict[str, Any]] = []
     for key, obs in observations.items():
         old = existing.get(key, [])
-        timeline = [_as_dict(r) for r in old if r.filing_id != obs["filing_id"] or r.derived]
+        timeline = [_as_dict(r) for r in old if not _replaced_by(r, obs)]
         timeline.append(obs)
         timeline.sort(key=lambda r: (r["usable_from"] is None, r["usable_from"] or date.max,
                                      r["announced_at"] or _FAR, r["filing_id"] or 0))  # fmt: skip
         kept: list[dict[str, Any]] = []
         for r in timeline:
-            if kept and _same(kept[-1]["value_inr"], r["value_inr"], r["unit"], cfg):
+            confirms_derived = bool(kept) and kept[-1]["derived"] and not r["derived"]
+            if kept and not confirms_derived and _same(kept[-1]["value_inr"], r["value_inr"],
+                                                       r["unit"], cfg):  # fmt: skip
                 continue
             kept.append(r)
         for version, r in enumerate(kept, start=1):
@@ -150,6 +166,13 @@ def record_line_items(
     if fresh:
         session.execute(insert(FinLineItem), fresh)
     return {(k[0], k[1]) for k in observations}
+
+
+def _replaced_by(r: FinLineItem, obs: Mapping[str, Any]) -> bool:
+    """Re-parsing the same filing, or re-deriving a year, replaces its own earlier figure."""
+    if obs["derived"]:
+        return bool(r.derived)
+    return not r.derived and r.filing_id == obs["filing_id"]
 
 
 def _as_dict(r: FinLineItem) -> dict[str, Any]:
@@ -234,9 +257,98 @@ def rebuild_wide(
             row["extra"] = extra
         if table == "fin_annual":
             row["fiscal_year"] = fiscal_year(datetime.combine(end, time()))
+            year = latest_items(session, instrument_id, basis, end).get(PeriodType.YEAR, {})
+            row["is_derived"] = any(
+                r.derived for code, (r, _) in year.items() if code in ("revenue", "pat", "pbt")
+            )
         upsert(session, model, [row])
         written.append(f"{'quarter' if table == 'fin_quarterly' else 'year'} {end}")
     return written
+
+
+def _quarter_ends(fy_end: date) -> list[date]:
+    """The four quarter ends of the fiscal year ending ``fy_end`` (month ends)."""
+    stamp = pd.Timestamp(fy_end)
+    return [(stamp - pd.offsets.MonthEnd(3 * k)).date() for k in range(4)]
+
+
+def _fy_end_month(session: Session, instrument_id: int, cfg: NseResultsConfig) -> int:
+    """The company's fiscal-year end month, from its filed (not derived) years."""
+    month = session.scalar(
+        select(func.extract("month", FinLineItem.period_end))
+        .where(
+            FinLineItem.instrument_id == instrument_id,
+            FinLineItem.period_type == PeriodType.YEAR,
+            FinLineItem.derived.is_(False),
+        )
+        .group_by(func.extract("month", FinLineItem.period_end))
+        .order_by(func.count().desc())
+        .limit(1)
+    )
+    return int(month) if month is not None else cfg.default_fy_end_month
+
+
+def derive_years(
+    session: Session,
+    *,
+    instrument_id: int,
+    basis: StatementType,
+    quarters: set[date],
+    cfg: NseResultsConfig,
+    xmap: XbrlMap,
+) -> set[tuple[date, PeriodType]]:
+    """SPEC §3.6 step 5: sum a fiscal year's P&L from its four quarters when no annual figures
+    were filed for it (e.g. its Q4 filing is missing or failed).
+
+    For each fiscal year containing one of ``quarters``: if all four quarters are stored and
+    the year has no filed P&L, every P&L amount item reported in all four quarters is summed
+    from their latest versions. It is stored as a year line item with ``derived = true``,
+    source ``derived``, and ``usable_from`` = the day the last of those quarter figures became
+    usable. Per-share items (EPS) are not summed; balances come from the Q4 quarter
+    (``carry_to_year``). A later filed annual figure supersedes it as a new version."""
+    month = _fy_end_month(session, instrument_id, cfg)
+    years = set()
+    for q in quarters:
+        stamp = pd.Timestamp(q)
+        year = stamp.year if stamp.month <= month else stamp.year + 1
+        years.add((pd.Timestamp(year=year, month=month, day=1) + pd.offsets.MonthEnd(0)).date())
+    observations: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for fy_end in sorted(years):
+        ends = _quarter_ends(fy_end)
+        latest = {e: latest_items(session, instrument_id, basis, e) for e in ends}
+        per_quarter = [latest[e].get(PeriodType.QUARTER, {}) for e in ends]
+        filed_year = latest[fy_end].get(PeriodType.YEAR, {})
+        if any(not q for q in per_quarter) or any(
+            not r.derived and xmap.items[c].statement == "pl" for c, (r, _) in filed_year.items()
+        ):
+            continue
+        for code, spec in xmap.items.items():
+            if spec.statement != "pl" or spec.unit != "amount":
+                continue
+            rows = [q[code][0] for q in per_quarter if code in q]
+            if len(rows) < 4:
+                continue
+            dates = [r.usable_from for r in rows]
+            key = (fy_end, PeriodType.YEAR, LineStatement.PL, code)
+            observations[key] = {
+                "instrument_id": instrument_id,
+                "isin": rows[0].isin,
+                "period_end": fy_end,
+                "period_type": PeriodType.YEAR,
+                "statement": LineStatement.PL,
+                "basis": basis,
+                "item_code": code,
+                "value_inr": float(sum(r.value_inr for r in rows)),
+                "unit": spec.unit,
+                "source": "derived",
+                "filing_id": None,
+                "announced_at": None,
+                "usable_from": None if None in dates else max(d for d in dates if d),
+                "derived": True,
+                "tag": "sum of quarters " + ", ".join(e.isoformat() for e in reversed(ends)),
+                "map_version": max((r.map_version or 0) for r in rows) or None,
+            }
+    return _apply_versions(session, instrument_id, basis, observations, cfg)
 
 
 def store_filing(
@@ -259,6 +371,9 @@ def store_filing(
         session, instrument_id=instrument_id, basis=statement_type, filing=filing,
         filing_row=filing_row, usable_from=announcement, cfg=cfg, xmap=xmap,
     )  # fmt: skip
+    quarters = {end for end, ptype in touched if ptype is PeriodType.QUARTER}
+    touched |= derive_years(session, instrument_id=instrument_id, basis=statement_type,
+                            quarters=quarters, cfg=cfg, xmap=xmap)  # fmt: skip
     written = rebuild_wide(session, instrument_id=instrument_id, basis=statement_type,
                            touched=touched, xmap=xmap, fetched_at=fetched_at)  # fmt: skip
     own = {f"quarter {filing.period_end}", f"year {filing.period_end}"}

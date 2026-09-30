@@ -63,7 +63,7 @@ def load_financials(
     """Consolidated first; standalone only if there is no consolidated statement (rule 5)."""
     cols = [*fields_for(table), "announcement_date", "extra"]  # type: ignore[arg-type]
     if table == "fin_annual":
-        cols.append("fiscal_year")
+        cols += ["fiscal_year", "is_derived"]
     for basis in (StatementType.CONSOLIDATED, StatementType.STANDALONE):
         rows: list[Any] = list(
             session.scalars(

@@ -227,6 +227,17 @@ def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> B
 
     # ── fundamentals ──
     annual, quarterly = data.annual, data.quarterly
+    if "is_derived" in annual.columns:  # SPEC §3.6 step 5: flagged, never silently mixed in
+        derived = sorted(
+            int(fy) for fy, flag in zip(annual["fiscal_year"], annual["is_derived"], strict=True)
+            if flag is True or flag == 1
+        )  # fmt: skip
+        if derived:
+            data_gaps.append(
+                "FY" + ", FY".join(str(fy) for fy in derived) + ": P&L summed from the four "
+                "quarterly results (no annual filing parsed); no EPS, balance sheet or cash "
+                "flow for those years"
+            )
     metrics: dict[str, Metric] = {}
     am = pd.DataFrame()
     if annual.empty:
