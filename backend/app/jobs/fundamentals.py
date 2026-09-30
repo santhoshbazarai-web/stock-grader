@@ -81,13 +81,37 @@ def results_watch(ctx: JobContext, options: JobOptions) -> JobOutcome:
        the ``fin_quarterly`` providers (yfinance) with ``announcement_date`` = the day first
        seen — never earlier than the real one — and a data gap until its filing is stored.
     """
-    jcfg, ncfg = ctx.config.jobs.results_watch, ctx.config.providers.nse.results
+    jcfg = ctx.config.jobs.results_watch
     today = ctx.today()
     in_season = ctx.config.jobs.results_season.contains(today.month, today.day)
     recheck_all = in_season or options.force or bool(options.symbols)
-    oldest = cutoff(today, ctx.config.providers.history_years)
     symbols = universe(ctx, options)
+    listing = list_results(ctx, symbols, recheck_all=recheck_all,
+                           fallback=in_season or options.force)  # fmt: skip
+    downloads = download_results(ctx, symbols, limit=jcfg.max_downloads_per_run)
+    session = ctx.session_factory()
+    try:
+        pending_left = session.scalar(
+            select(func.count())
+            .select_from(ResultFiling)
+            .where(ResultFiling.status == FilingStatus.PENDING)
+        )
+    finally:
+        session.close()
+    details: dict[str, Any] = {**listing, **downloads, "pending_left": pending_left}
+    details.pop("fallback_written")
+    return JobOutcome(downloads["parsed"] + listing["fallback_written"], details)
 
+
+def list_results(
+    ctx: JobContext, symbols: list[str], *, recheck_all: bool, fallback: bool
+) -> dict[str, Any]:
+    """Step 1 of results_watch: read each symbol's NSE filing list into the ledger (outside
+    ``recheck_all``, a symbol at most every ``index_recheck_days``). With ``fallback``, a symbol
+    whose list can't be read gets new quarters from yfinance, flagged as a data gap."""
+    jcfg = ctx.config.jobs.results_watch
+    today = ctx.today()
+    oldest = cutoff(today, ctx.config.providers.history_years)
     listed, index_failed, fallback_written, flagged = 0, [], 0, []
     for symbol in symbols:
         key = f"results-index:{symbol}"
@@ -96,7 +120,7 @@ def results_watch(ctx: JobContext, options: JobOptions) -> JobOutcome:
         res = ctx.router.results_filings(symbol)
         if res.data is None:
             index_failed.append(symbol)
-            if in_season or options.force:
+            if fallback:
                 n = _fallback_quarters(ctx, symbol, today)
                 fallback_written += n
                 if n:
@@ -104,7 +128,14 @@ def results_watch(ctx: JobContext, options: JobOptions) -> JobOutcome:
             continue
         listed += _list_filings(ctx, symbol, res.data, oldest)
         ctx.redis.set(key, 1, ex=jcfg.index_recheck_days * 86400)
+    return {"listed_new": listed, "index_failed": index_failed,
+            "fallback_flagged": flagged, "fallback_written": fallback_written}  # fmt: skip
 
+
+def download_results(ctx: JobContext, symbols: list[str], *, limit: int) -> dict[str, Any]:
+    """Step 2 of results_watch: download and store pending documents (and failed ones below
+    ``max_attempts``), newest period first, at most ``limit``."""
+    jcfg, ncfg = ctx.config.jobs.results_watch, ctx.config.providers.nse.results
     downloaded, parsed, failed = 0, 0, {}
     session = ctx.session_factory()
     try:
@@ -124,7 +155,7 @@ def results_watch(ctx: JobContext, options: JobOptions) -> JobOutcome:
                 ResultFiling.period_end.desc().nulls_last(),
                 ResultFiling.disseminated_at.desc().nulls_last(),
             )
-            .limit(jcfg.max_downloads_per_run)
+            .limit(limit)
         ).all()
     finally:
         session.close()
@@ -156,26 +187,7 @@ def results_watch(ctx: JobContext, options: JobOptions) -> JobOutcome:
             session.commit()
         finally:
             session.close()
-
-    session = ctx.session_factory()
-    try:
-        pending_left = session.scalar(
-            select(func.count())
-            .select_from(ResultFiling)
-            .where(ResultFiling.status == FilingStatus.PENDING)
-        )
-    finally:
-        session.close()
-    details: dict[str, Any] = {
-        "listed_new": listed,
-        "downloaded": downloaded,
-        "parsed": parsed,
-        "failed": dict(list(failed.items())[:50]),
-        "pending_left": pending_left,
-        "index_failed": index_failed,
-        "fallback_flagged": flagged,
-    }
-    return JobOutcome(parsed + fallback_written, details)
+    return {"downloaded": downloaded, "parsed": parsed, "failed": dict(list(failed.items())[:50])}
 
 
 def _list_filings(ctx: JobContext, symbol: str, listing: pd.DataFrame, oldest: date) -> int:

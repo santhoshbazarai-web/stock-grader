@@ -848,6 +848,20 @@ class AnnualReportsJobConfig(_Strict):
     first_fiscal_year: PositiveInt  # NSE lists annual reports from about this year
 
 
+class PipelineConfig(_Strict):
+    """On-demand per-symbol pipeline (SPEC §3.7)."""
+
+    poll_interval_s: PositiveFloat  # the worker checks for queued runs this often
+    stale_after_s: PositiveInt  # a running run without a heartbeat this long is resumed
+    max_attempts: PositiveInt  # a run interrupted this often is failed
+    max_report_age_hours: PositiveFloat  # a stored report older than this is not "fresh"
+    max_xbrl_downloads: PositiveInt  # results XBRL documents fetched per run
+    max_annual_reports: PositiveInt  # annual-report PDFs read per run (gap filler)
+    sse_poll_s: PositiveFloat  # the progress stream checks the run this often
+    sse_heartbeat_s: PositiveFloat  # a keep-alive comment is sent at least this often
+    sse_max_minutes: PositiveFloat  # a progress stream ends after this long
+
+
 class BacktestConfig(_Strict):
     benchmark: str
     benchmark_tri: str | None = None
@@ -872,6 +886,7 @@ class JobsConfig(_Strict):
     backtest: BacktestConfig
     results_watch: ResultsWatchJobConfig
     annual_reports: AnnualReportsJobConfig
+    pipeline: PipelineConfig
     shareholding_season: Season
     results_season: Season
 

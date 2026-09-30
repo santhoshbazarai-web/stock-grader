@@ -27,7 +27,7 @@ REGISTRY: dict[JobName, JobSpec] = {
         JobSpec(JobName.SHAREHOLDING, "Shareholding filings (in season)", shareholding),
         JobSpec(JobName.INDEX_CONSTITUENTS, "Index membership + instruments", index_constituents),
         JobSpec(JobName.RESULTS_WATCH, "Flag new quarterly results (in season)", results_watch),
-        JobSpec(JobName.REFRESH_QUEUE, "On-demand symbol refreshes from the API", refresh_queue),
+        JobSpec(JobName.REFRESH_QUEUE, "Queued on-demand pipeline runs (fallback)", refresh_queue),
         JobSpec(JobName.BACKTESTS, "Run queued backtests (SPEC §11)", backtests),
         JobSpec(
             JobName.ANNUAL_REPORTS,

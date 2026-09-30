@@ -11,12 +11,12 @@ jobs:
     eod_prices: "15 18 * * mon-fri"
     nse_bhavcopy: "45 18 * * mon-fri"
     technicals: "15 19 * * mon-fri"
-    valuation_scores: "45 19 * * mon-fri"
+    valuation_scores: "30 23 * * *"          # nightly precompute: after results and shareholding
     alerts_intraday: "*/5 9-15 * * mon-fri"  # the job itself trims to market hours (P14)
     shareholding: "30 20 * * *"              # runs only inside shareholding_season
     index_constituents: "0 7 1 * *"
     results_watch: "0 21 * * *"              # XBRL results filings (all year; see results_watch)
-    refresh_queue: "* * * * *"               # drains POST /api/stocks/{symbol}/refresh requests
+    refresh_queue: "* * * * *"               # queued pipeline runs, if the worker loop missed any
     backtests: "* * * * *"                   # runs queued POST /api/backtests requests
     annual_reports: "30 22 * * 6"            # annual-report PDFs for BS/CF gaps (Saturdays)
     symbol_master: "15 7 * * *"              # NSE/BSE/Fyers symbol masters + aliases (daily)
@@ -50,6 +50,16 @@ jobs:
     max_downloads_per_run: 300  # XBRL documents per run; a 10-year backfill spreads over nights
     index_recheck_days: 7       # outside results_season, re-read each symbol's filing list weekly
     max_attempts: 3             # a filing that fails to download/parse this often stays failed
+  pipeline:                   # on-demand per-symbol pipeline (SPEC §3.7)
+    poll_interval_s: 1          # the worker picks up a queued run within a second
+    stale_after_s: 300          # no heartbeat for 5 min: the worker died, another resumes it
+    max_attempts: 3
+    max_report_age_hours: 20    # a report built more than 20 h ago is rebuilt on request
+    max_xbrl_downloads: 60      # a new stock's 10-year XBRL backfill over several requests
+    max_annual_reports: 2       # PDFs are large; the weekly annual_reports job does the rest
+    sse_poll_s: 0.5
+    sse_heartbeat_s: 15
+    sse_max_minutes: 30
   annual_reports:             # annual-report PDF gap filler (SPEC §3.6 step 3)
     max_downloads_per_run: 25   # PDFs are large; a backfill spreads over weeks
     max_attempts: 3

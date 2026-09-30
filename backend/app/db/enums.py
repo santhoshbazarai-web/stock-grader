@@ -102,3 +102,21 @@ class AliasKind(StrEnum):
     BSE_SYMBOL = "bse_symbol"  # BSE's short symbol, when it differs from NSE's
     BSE_NAME = "bse_name"  # BSE's company name, when it differs from NSE's
     USER = "user"  # added by the owner
+
+
+class PipelineStatus(StrEnum):
+    """An on-demand pipeline run (SPEC §3.7)."""
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    DONE = "done"  # a report was stored (possibly with warnings from optional steps)
+    FAILED = "failed"  # a required step failed: no new report
+
+
+class StepStatus(StrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    OK = "ok"
+    WARNING = "warning"  # finished, with something missing (listed in the report's data gaps)
+    FAILED = "failed"
+    SKIPPED = "skipped"

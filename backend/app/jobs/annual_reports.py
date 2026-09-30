@@ -59,7 +59,7 @@ def gap_years(ctx: JobContext, iid: int, years: list[int]) -> list[int]:
     ]  # fmt: skip
 
 
-def annual_reports(ctx: JobContext, options: JobOptions) -> JobOutcome:
+def annual_reports(ctx: JobContext, options: JobOptions, *, limit: int | None = None) -> JobOutcome:
     """1. **Gaps.** For each symbol, the completed fiscal years (back to
        ``providers.history_years`` and ``first_fiscal_year``) missing a required balance-sheet
        or cash-flow item.
@@ -111,7 +111,7 @@ def annual_reports(ctx: JobContext, options: JobOptions) -> JobOutcome:
                    & (AnnualReport.attempts < jcfg.max_attempts)),
             )
             .order_by(AnnualReport.fiscal_year.desc().nulls_last(), AnnualReport.id)
-            .limit(jcfg.max_downloads_per_run)
+            .limit(limit or jcfg.max_downloads_per_run)
         ).all()  # fmt: skip
     finally:
         session.close()

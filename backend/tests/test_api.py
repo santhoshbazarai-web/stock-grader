@@ -24,7 +24,6 @@ from app.db.models import (
     SymbolAlias,
     UserOverride,
 )
-from app.jobs.refresh import PENDING_KEY, QUEUE_KEY
 from app.main import create_app
 from tests.api_support import app_client
 from tests.conftest import REPO_CONFIG_DIR
@@ -42,9 +41,8 @@ XBRL_FIX = Path(__file__).parent / "fixtures" / "xbrl"
 
 @pytest.fixture
 def client(db: Session, redis_client: Redis) -> Iterator[TestClient]:
-    redis_client.delete(QUEUE_KEY, PENDING_KEY, "auth:fail:testclient")
+    redis_client.delete("auth:fail:testclient")
     yield from app_client(db)
-    redis_client.delete(QUEUE_KEY, PENDING_KEY)
 
 
 @pytest.fixture
@@ -97,6 +95,11 @@ SPEC_PATHS = {
     ("get", "/api/stocks/{symbol}/coverage"),
     # SPEC v0.2 §3.5: aliases the search finds a stock by
     ("get", "/api/stocks/{symbol}/aliases"),
+    # SPEC v0.2 §3.7: on-demand pipeline
+    ("post", "/api/pipeline"),
+    ("get", "/api/pipeline"),
+    ("get", "/api/pipeline/{run_id}"),
+    ("get", "/api/pipeline/{run_id}/events"),
     ("post", "/api/stocks/{symbol}/aliases"),
     ("delete", "/api/stocks/{symbol}/aliases/{alias_id}"),
 }
@@ -194,14 +197,17 @@ def test_report_errors(client: TestClient, db: Session) -> None:
     assert res.status_code == 409 and "adjusted" in res.json()["detail"]
 
 
-def test_refresh_enqueues_once(client: TestClient, redis_client: Redis) -> None:
+def test_refresh_starts_one_pipeline_run_per_symbol(client: TestClient) -> None:
     a = client.post("/api/stocks/tcs/refresh")
-    assert a.status_code == 202 and a.json() == {"symbol": "TCS", "queued": True, "queue_length": 1}
+    assert a.status_code == 202
+    first = a.json()
+    assert (first["symbol"], first["queued"], first["queue_length"]) == ("TCS", True, 1)
     b = client.post("/api/stocks/TCS/refresh").json()
-    assert b == {"symbol": "TCS", "queued": False, "queue_length": 1}
+    assert (b["queued"], b["queue_length"], b["run_id"]) == (False, 1, first["run_id"])
     client.post("/api/stocks/INFY/refresh")
-    assert redis_client.lrange(QUEUE_KEY, 0, -1) == [b"TCS", b"INFY"]
     assert client.get("/api/jobs").json()["refresh_queue"] == ["TCS", "INFY"]
+    run = client.get(f"/api/pipeline/{first['run_id']}").json()
+    assert (run["status"], run["trigger"]) == ("queued", "refresh")
 
 
 def test_sensitivity(client: TestClient, seeded: Session) -> None:

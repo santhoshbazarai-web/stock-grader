@@ -73,4 +73,5 @@ def test_spec_tables_present() -> None:
         "pdf_line_candidates",  # ... and its review queue
         "symbols",  # SPEC v0.2 §3.4-3.5: ISIN symbol master
         "symbol_aliases",
+        "pipeline_runs",  # SPEC v0.2 §3.4, §3.7: on-demand pipeline progress
     } == MODEL_TABLES

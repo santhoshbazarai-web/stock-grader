@@ -2,13 +2,14 @@
 overrides."""
 
 from dataclasses import asdict
+from datetime import UTC, datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import ConfigDep, RedisDep, SessionDep
+from app.api.deps import ConfigDep, SessionDep
 from app.api.schemas import (
     AliasIn,
     AliasOut,
@@ -21,10 +22,10 @@ from app.api.schemas import (
 from app.data import prices
 from app.data.search import search as symbol_search
 from app.db.enums import AliasKind
-from app.db.models import Instrument, SymbolAlias, UserOverride
+from app.db.models import Instrument, PipelineRun, SymbolAlias, UserOverride
 from app.db.models import Symbol as SymbolMaster
 from app.db.upsert import upsert
-from app.jobs.refresh import enqueue_refresh
+from app.pipeline.runner import TERMINAL, active_symbols, start_run
 from app.reports.data import load_overrides
 from app.reports.dto import StockReport
 from app.reports.history import FundamentalsHistory, load_history
@@ -159,12 +160,21 @@ def report(
 
 
 @router.post("/{symbol}/refresh", status_code=status.HTTP_202_ACCEPTED)
-def refresh(symbol: Symbol, redis: RedisDep) -> RefreshQueued:
-    """Enqueue a data refresh. Within a minute the worker re-fetches prices, corporate actions,
-    results and shareholding for the symbol and rebuilds its report. Unknown symbols are
-    accepted, so this also adds a new stock."""
-    queued, length = enqueue_refresh(redis, symbol)
-    return RefreshQueued(symbol=symbol.upper(), queued=queued, queue_length=length)
+def refresh(symbol: Symbol, session: SessionDep, config: ConfigDep) -> RefreshQueued:
+    """Re-fetch the stock's data and rebuild its report: starts (or joins) an on-demand
+    pipeline run even when the stored report is fresh (SPEC §3.7). Unknown symbols are
+    accepted when the symbol master knows them (or is not built yet), so this also adds a new
+    stock."""
+    existing = session.scalar(
+        select(PipelineRun.id).where(PipelineRun.symbol == symbol.upper(),
+                                     PipelineRun.status.not_in(TERMINAL))
+    )  # fmt: skip
+    run, _ = start_run(session, symbol, trigger="refresh", force=True,
+                       cfg=config.jobs.pipeline, now=datetime.now(UTC))  # fmt: skip
+    assert run is not None
+    session.commit()
+    return RefreshQueued(symbol=symbol.upper(), queued=existing is None,
+                         queue_length=len(active_symbols(session)), run_id=run.id)  # fmt: skip
 
 
 @router.get("/{symbol}/valuation/sensitivity", responses=_NOT_FOUND)

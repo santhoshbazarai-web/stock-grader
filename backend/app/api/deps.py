@@ -1,5 +1,7 @@
 """FastAPI dependencies (overridable in tests via ``app.dependency_overrides``)."""
 
+from collections.abc import Callable
+from contextlib import AbstractContextManager
 from functools import lru_cache
 from typing import Annotated
 
@@ -89,6 +91,17 @@ def get_kite_auth(
 
 
 SessionDep = Annotated[Session, Depends(get_session)]
+
+
+def get_stream_sessions() -> Callable[[], AbstractContextManager[Session]]:
+    """Short-lived sessions for a long-running response (the pipeline's SSE stream polls the
+    database; it must not hold one session open for minutes)."""
+    return get_session_factory()
+
+
+StreamSessionsDep = Annotated[
+    Callable[[], AbstractContextManager[Session]], Depends(get_stream_sessions)
+]
 RedisDep = Annotated[Redis, Depends(get_redis)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 ConfigDep = Annotated[AppConfig, Depends(get_config)]

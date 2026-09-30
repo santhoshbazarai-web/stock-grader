@@ -64,8 +64,9 @@ class AliasIn(BaseModel):
 
 class RefreshQueued(BaseModel):
     symbol: str
-    queued: bool = Field(description="False when the symbol was already waiting")
-    queue_length: int
+    queued: bool = Field(description="False when a run for the symbol was already waiting")
+    queue_length: int = Field(description="Pipeline runs queued or running")
+    run_id: int = Field(description="Follow it on GET /api/pipeline/{run_id}/events")
 
 
 class Sensitivity(BaseModel):
@@ -290,7 +291,7 @@ class JobsView(BaseModel):
     runs: list[JobRunOut]
     freshness: Freshness
     open_data_gaps: int
-    refresh_queue: list[str]
+    refresh_queue: list[str] = Field(description="Symbols with a pipeline run queued or running")
 
 
 class ScreenerFilters(BaseModel):
@@ -414,3 +415,44 @@ class CoverageGridOut(BaseModel):
     years: list[int]
     fy_end_month: int
     bases: list[CoverageBasis]
+
+
+# ───────────── on-demand pipeline (SPEC v0.2 §3.7) ─────────────
+
+
+class PipelineStep(BaseModel):
+    name: str
+    label: str
+    optional: bool
+    status: Literal["pending", "running", "ok", "warning", "failed", "skipped"]
+    message: str | None
+    started_at: datetime | None
+    finished_at: datetime | None
+
+
+class PipelineRunOut(BaseModel):
+    id: int
+    symbol: str
+    trigger: str
+    status: Literal["queued", "running", "done", "failed"]
+    steps: list[PipelineStep]
+    version: int
+    attempts: int
+    error: str | None
+    report_as_of: date | None
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+
+
+class PipelineRequest(BaseModel):
+    symbol: str = Field(pattern=SYMBOL_PATTERN)
+    force: bool = Field(default=False, description="Run even when the stored report is fresh")
+
+
+class PipelineStart(BaseModel):
+    symbol: str
+    fresh: bool = Field(description="The stored report is up to date: no run was started")
+    reason: str
+    report_as_of: date | None
+    run: PipelineRunOut | None

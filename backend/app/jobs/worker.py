@@ -6,6 +6,7 @@ scheduled. Each trigger goes through ``run_job`` (Redis lock + ``job_runs`` row)
 """
 
 import logging
+import threading
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.blocking import BlockingScheduler
@@ -16,6 +17,7 @@ from app.core.logging import configure_logging
 from app.core.settings import get_settings
 from app.jobs.registry import REGISTRY
 from app.jobs.runner import JobContext, JobSpec, run_job
+from app.pipeline.runner import worker_loop
 
 logger = logging.getLogger(__name__)
 
@@ -51,10 +53,18 @@ def main() -> None:
     settings = get_settings()
     configure_logging(settings.log_level)
     config = get_config()  # fail fast on invalid env or config/*.yaml
-    scheduler = build_scheduler(build_context(settings, config), config)
+    ctx = build_context(settings, config)
+    scheduler = build_scheduler(ctx, config)
     for job in scheduler.get_jobs():
         logger.info("scheduled %s: %s", job.id, job.trigger)
-    scheduler.start()
+    stop = threading.Event()
+    pipeline = threading.Thread(target=worker_loop, args=(ctx, stop), name="pipeline",
+                                daemon=True)  # fmt: skip
+    pipeline.start()  # on-demand pipeline runs (SPEC §3.7), picked up within poll_interval_s
+    try:
+        scheduler.start()
+    finally:
+        stop.set()
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
-"""``valuation_scores`` (SPEC §10) and ``refresh_queue`` jobs: build and store reports.
+"""``valuation_scores`` (SPEC §10; the nightly precompute) and ``refresh_queue`` (queued
+on-demand pipeline runs, SPEC §3.7) jobs: build and store reports.
 
 ``valuation_scores`` runs in two passes so relative valuation can use this run's peers:
 1. load every symbol and build its report without peers, collecting each stock's
@@ -12,8 +13,7 @@ from collections import defaultdict
 
 from app.data import prices
 from app.jobs.common import universe
-from app.jobs.refresh import pop_refresh
-from app.jobs.runner import JobContext, JobOptions, JobOutcome, run_job
+from app.jobs.runner import JobContext, JobOptions, JobOutcome
 from app.reports.build import build_report
 from app.reports.data import StockData, load_stock_data
 from app.reports.dto import PeerStats
@@ -77,31 +77,14 @@ def valuation_scores(ctx: JobContext, options: JobOptions) -> JobOutcome:
 
 
 # Per-symbol data jobs re-run by an on-demand refresh, in order.
-REFRESH_JOBS = ("corporate_actions", "eod_prices", "results_watch", "shareholding")
-
-
 def refresh_queue(ctx: JobContext, options: JobOptions) -> JobOutcome:
-    from app.core.config import JobName
-    from app.jobs.registry import REGISTRY
-    from app.reports.service import refresh_report
+    """Run queued on-demand pipeline runs (SPEC §3.7). The worker's pipeline thread normally
+    takes them within a second; this scheduled job is the fallback (and runs them from
+    ``python -m app.jobs run refresh_queue``)."""
+    from app.pipeline.runner import run_pending
 
-    done: list[str] = []
-    failed: dict[str, str] = {}
-    while (symbol := pop_refresh(ctx.redis)) is not None:
-        sub = JobOptions(symbols=(symbol,), force=True)
-        for name in REFRESH_JOBS:
-            run_job(REGISTRY[JobName(name)], ctx, sub)
-        session = ctx.session_factory()
-        try:
-            refresh_report(session, symbol, ctx.config)
-            session.commit()
-            done.append(symbol)
-        except Exception as exc:
-            session.rollback()
-            logger.exception("refresh failed for %s", symbol)
-            failed[symbol] = f"{type(exc).__name__}: {exc}"
-        finally:
-            session.close()
-    if not done and not failed:
-        return JobOutcome(0, {}, skipped_reason="queue empty")
-    return JobOutcome(len(done), {"refreshed": done, "failed": failed})
+    done = run_pending(ctx)
+    if not done:
+        return JobOutcome(0, {}, skipped_reason="no queued pipeline runs")
+    return JobOutcome(sum(1 for _, st in done if st.value == "done"),
+                      {"runs": {str(i): st.value for i, st in done}})  # fmt: skip

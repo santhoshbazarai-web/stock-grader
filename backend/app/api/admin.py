@@ -53,7 +53,7 @@ from app.db.models import (
     TechnicalSnapshot,
 )
 from app.jobs.common import ensure_instruments
-from app.jobs.refresh import queued
+from app.pipeline.runner import active_symbols
 
 router = APIRouter()
 
@@ -462,7 +462,8 @@ def jobs(
     job: str | None = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 50,
 ) -> JobsView:
-    """Job run history (newest first), data freshness, open data gaps, pending refreshes."""
+    """Job run history (newest first), data freshness, open data gaps, symbols with a pipeline
+    run queued or running."""
     q = select(JobRun).order_by(JobRun.started_at.desc(), JobRun.id.desc()).limit(limit)
     if job:
         q = q.where(JobRun.job_name == job)
@@ -479,5 +480,8 @@ def jobs(
         select(func.count()).select_from(DataGap).where(DataGap.resolved_at.is_(None))
     )
     return JobsView(
-        runs=runs, freshness=freshness, open_data_gaps=gaps or 0, refresh_queue=queued(redis)
+        runs=runs,
+        freshness=freshness,
+        open_data_gaps=gaps or 0,
+        refresh_queue=active_symbols(session),
     )

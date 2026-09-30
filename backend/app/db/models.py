@@ -41,6 +41,7 @@ from app.db.enums import (
     JobStatus,
     LineStatement,
     PeriodType,
+    PipelineStatus,
     ReviewStatus,
     StatementType,
     SurveillanceList,
@@ -65,6 +66,7 @@ __all__ = [
     "JobRun",
     "Notification",
     "PdfLineCandidate",
+    "PipelineRun",
     "PriceDaily",
     "Report",
     "ResultFiling",
@@ -583,6 +585,37 @@ class Score(ComputedMixin, Base):
     action: Mapped[str | None] = mapped_column(String(32))
     sub_scores: Mapped[dict[str, Any] | None]
     reasons: Mapped[list[str]] = mapped_column(server_default="[]")
+
+
+class PipelineRun(TimestampMixin, Base):
+    """One on-demand pipeline run for a symbol (SPEC §3.7). ``steps`` holds each step's
+    ``{name, label, optional, status, message, started_at, finished_at}``; a run is resumed from
+    its first unfinished step. ``version`` increases on every change (the SSE endpoint streams
+    each new version); ``heartbeat_at`` lets another worker take over a run whose worker died."""
+
+    __tablename__ = "pipeline_runs"
+    __upsert_key__ = ("id",)
+    __table_args__ = (
+        Index("ix_pipeline_runs_status", "status", "created_at"),
+        Index("ix_pipeline_runs_symbol", "symbol", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    instrument_id: Mapped[int | None] = mapped_column(
+        ForeignKey("instruments.id", ondelete="CASCADE")
+    )
+    symbol: Mapped[str] = mapped_column(String(32))
+    trigger: Mapped[str] = mapped_column(String(16))  # user | refresh | nightly | results
+    force: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    status: Mapped[PipelineStatus] = mapped_column(str_enum(PipelineStatus))
+    steps: Mapped[list[Any]]
+    version: Mapped[int] = mapped_column(Integer, server_default="0")
+    attempts: Mapped[int] = mapped_column(Integer, server_default="0")
+    error: Mapped[str | None] = mapped_column(Text)
+    report_as_of: Mapped[date | None]
+    started_at: Mapped[datetime | None]
+    heartbeat_at: Mapped[datetime | None]
+    finished_at: Mapped[datetime | None]
 
 
 class Report(ComputedMixin, Base):
