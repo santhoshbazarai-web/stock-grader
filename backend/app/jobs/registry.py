@@ -8,6 +8,7 @@ from app.jobs.fundamentals import results_watch, shareholding
 from app.jobs.market import corporate_actions, eod_prices, index_constituents, nse_bhavcopy
 from app.jobs.reports import refresh_queue, valuation_scores
 from app.jobs.runner import JobSpec
+from app.jobs.symbols import symbol_master
 from app.jobs.technicals import technicals
 
 REGISTRY: dict[JobName, JobSpec] = {
@@ -33,5 +34,6 @@ REGISTRY: dict[JobName, JobSpec] = {
             "Annual-report PDFs for BS/CF gaps (§3.6 step 3)",
             annual_reports,
         ),
+        JobSpec(JobName.SYMBOL_MASTER, "NSE/BSE/Fyers symbol master + aliases", symbol_master),
     )
 }

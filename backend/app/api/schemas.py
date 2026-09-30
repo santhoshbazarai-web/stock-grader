@@ -28,6 +28,40 @@ class InstrumentOut(_Out):
     is_index: bool
 
 
+class SearchHitOut(BaseModel):
+    """A company found by ``GET /api/stocks/search`` (SPEC §3.5)."""
+
+    symbol: str | None = Field(description="NSE symbol; null for a BSE-only company")
+    name: str | None
+    isin: str | None
+    bse_code: str | None
+    series: str | None
+    sector: str | None
+    industry: str | None
+    is_index: bool
+    in_universe_index: bool = Field(description="A current member of the universe index "
+                                    "(jobs.universe_index, Nifty 500)")  # fmt: skip
+    active: bool = Field(description="False: missing from the latest exchange masters")
+    match: Literal["symbol", "name", "isin", "bse_code", "fyers_symbol", "former_symbol",
+                   "former_name", "bse_symbol", "bse_name", "user"] = Field(
+        description="What matched")  # fmt: skip
+    matched: str = Field(description="The symbol, code, name or alias that matched")
+    exact: bool
+    score: float = Field(description="pg_trgm similarity 0-1 (0 for an exact code match)")
+
+
+class AliasOut(BaseModel):
+    id: int
+    alias: str
+    kind: str
+    source: str
+    valid_until: date | None
+
+
+class AliasIn(BaseModel):
+    alias: str = Field(min_length=2, max_length=200)
+
+
 class RefreshQueued(BaseModel):
     symbol: str
     queued: bool = Field(description="False when the symbol was already waiting")

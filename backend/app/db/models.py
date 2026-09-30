@@ -26,12 +26,14 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    literal_column,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, ComputedMixin, SourcedMixin, TimestampMixin, str_enum
 from app.db.enums import (
     AlertType,
+    AliasKind,
     BacktestStatus,
     Broker,
     CorporateActionType,
@@ -42,6 +44,7 @@ from app.db.enums import (
     ReviewStatus,
     StatementType,
     SurveillanceList,
+    SymbolStatus,
     Timeframe,
 )
 
@@ -69,11 +72,21 @@ __all__ = [
     "ScreenerPreset",
     "Shareholding",
     "SurveillanceFlag",
+    "Symbol",
+    "SymbolAlias",
     "TechnicalSnapshot",
     "UserOverride",
     "ValuationSnapshot",
     "WatchlistItem",
 ]
+
+
+def _trgm(name: str, column: str) -> Index:
+    """pg_trgm GIN index on lower(column), for fuzzy search (SPEC §3.5). ``fastupdate`` off:
+    these tables change rarely, and a pending list makes the planner avoid the index."""
+    expr = func.lower(literal_column(column)).label(f"lower_{column}")
+    return Index(name, expr, postgresql_using="gin", postgresql_ops={expr.name: "gin_trgm_ops"},
+                 postgresql_with={"fastupdate": "off"})  # fmt: skip
 
 
 def _instrument_fk() -> Mapped[int]:
@@ -86,7 +99,12 @@ def _instrument_fk() -> Mapped[int]:
 class Instrument(SourcedMixin, Base):
     __tablename__ = "instruments"
     __upsert_key__ = ("symbol",)
-    __table_args__ = (UniqueConstraint("symbol"), UniqueConstraint("isin"))
+    __table_args__ = (
+        UniqueConstraint("symbol"),
+        UniqueConstraint("isin"),
+        _trgm("ix_instruments_symbol_trgm", "symbol"),  # symbol search (SPEC §3.5)
+        _trgm("ix_instruments_name_trgm", "name"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, Identity(), primary_key=True)
     symbol: Mapped[str] = mapped_column(String(32))  # NSE trading symbol, e.g. "RELIANCE"
@@ -99,6 +117,64 @@ class Instrument(SourcedMixin, Base):
     listing_date: Mapped[date | None]
     face_value: Mapped[float | None]
     is_active: Mapped[bool] = mapped_column(Boolean, server_default="true")
+
+
+class Symbol(TimestampMixin, Base):
+    """Symbol master (SPEC v0.2 §3.5): one row per ISIN, joining NSE ``EQUITY_L``, the BSE scrip
+    master and the Fyers symbol master. ``instrument_id`` links companies listed on NSE to
+    their instrument (history is keyed there); BSE-only companies have none.
+
+    Search uses pg_trgm GIN indexes on lower(name) here, on symbol_aliases.alias and on
+    instruments.symbol / name; they are created in migration b5f6a7c8d9e0 (expression indexes
+    are not declared on the models)."""
+
+    __tablename__ = "symbols"
+    __upsert_key__ = ("isin",)
+    __table_args__ = (
+        UniqueConstraint("isin"),
+        Index("ix_symbols_nse_symbol", "nse_symbol"),
+        Index("ix_symbols_bse_code", "bse_code"),
+        Index("ix_symbols_fyers_symbol", "fyers_symbol"),
+        Index("ix_symbols_instrument_id", "instrument_id"),
+        _trgm("ix_symbols_name_trgm", "name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, Identity(), primary_key=True)
+    isin: Mapped[str] = mapped_column(String(12))
+    instrument_id: Mapped[int | None] = mapped_column(
+        ForeignKey("instruments.id", ondelete="SET NULL")
+    )
+    name: Mapped[str] = mapped_column(String(200))
+    nse_symbol: Mapped[str | None] = mapped_column(String(32))
+    nse_series: Mapped[str | None] = mapped_column(String(8))
+    bse_code: Mapped[str | None] = mapped_column(String(10))  # e.g. "500180"
+    bse_id: Mapped[str | None] = mapped_column(String(32))  # BSE's short symbol
+    fyers_symbol: Mapped[str | None] = mapped_column(String(48))  # e.g. "NSE:HDFCBANK-EQ"
+    listing_date: Mapped[date | None]
+    face_value: Mapped[float | None]
+    status: Mapped[SymbolStatus] = mapped_column(str_enum(SymbolStatus))
+    sources: Mapped[list[str]]  # masters that list it: nse, bse, fyers
+    last_seen: Mapped[date | None]  # the last master refresh that listed it
+
+
+class SymbolAlias(Base):
+    """Other names a company is found by: former symbols and names (NSE change files), BSE's
+    symbol and name, and aliases the owner adds."""
+
+    __tablename__ = "symbol_aliases"
+    __upsert_key__ = ("symbol_id", "kind", "alias")
+    __table_args__ = (
+        UniqueConstraint("symbol_id", "kind", "alias"),
+        _trgm("ix_symbol_aliases_alias_trgm", "alias"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, Identity(), primary_key=True)
+    symbol_id: Mapped[int] = mapped_column(ForeignKey("symbols.id", ondelete="CASCADE"))
+    alias: Mapped[str] = mapped_column(String(200))
+    kind: Mapped[AliasKind] = mapped_column(str_enum(AliasKind))
+    source: Mapped[str] = mapped_column(String(16))  # nse | bse | user
+    valid_until: Mapped[date | None]  # when it stopped being the symbol / name
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
 # ───────────────────────── prices ─────────────────────────

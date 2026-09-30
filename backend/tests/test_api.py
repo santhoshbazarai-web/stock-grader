@@ -13,8 +13,17 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_config
 from app.core.settings import get_settings
-from app.db.enums import FilingStatus
-from app.db.models import Backtest, FinAnnual, JobRun, ResultFiling, UserOverride
+from app.db.enums import AliasKind, FilingStatus, SymbolStatus
+from app.db.models import (
+    Backtest,
+    FinAnnual,
+    Instrument,
+    JobRun,
+    ResultFiling,
+    Symbol,
+    SymbolAlias,
+    UserOverride,
+)
 from app.jobs.refresh import PENDING_KEY, QUEUE_KEY
 from app.main import create_app
 from tests.api_support import app_client
@@ -86,6 +95,10 @@ SPEC_PATHS = {
     ("get", "/api/review/annual-reports/summary"),
     ("post", "/api/review/annual-reports/{candidate_id}"),
     ("get", "/api/stocks/{symbol}/coverage"),
+    # SPEC v0.2 §3.5: aliases the search finds a stock by
+    ("get", "/api/stocks/{symbol}/aliases"),
+    ("post", "/api/stocks/{symbol}/aliases"),
+    ("delete", "/api/stocks/{symbol}/aliases/{alias_id}"),
 }
 
 
@@ -124,12 +137,40 @@ def test_docs_are_served(client: TestClient) -> None:
 def test_search(client: TestClient, seeded: Session) -> None:
     res = client.get("/api/stocks/search", params={"q": "syn"}).json()
     assert [r["symbol"] for r in res] == ["SYNTH"]
+    assert res[0]["match"] in ("symbol", "name") and not res[0]["exact"]
+    exact = client.get("/api/stocks/search", params={"q": "synth"}).json()[0]
+    assert (exact["symbol"], exact["exact"], exact["match"]) == ("SYNTH", True, "symbol")
     by_name = client.get("/api/stocks/search", params={"q": "Ltd"}).json()
     assert {r["symbol"] for r in by_name} == {"SYNTH", "BANKCO"}  # indices excluded
     with_idx = client.get("/api/stocks/search", params={"q": "NIFTY", "include_indices": True})
     assert [r["symbol"] for r in with_idx.json()] == ["NIFTY500"]
     assert client.get("/api/stocks/search", params={"q": ""}).status_code == 422
-    assert client.get("/api/stocks/search", params={"q": "%"}).json() == []  # LIKE escaped
+    assert client.get("/api/stocks/search", params={"q": "%"}).json() == []
+
+
+def test_aliases(client: TestClient, seeded: Session) -> None:
+    iid = seeded.scalar(select(Instrument.id).where(Instrument.symbol == "SYNTH"))
+    assert client.get("/api/stocks/SYNTH/aliases").status_code == 404  # not in the master yet
+    seeded.add(Symbol(isin="INE000S01010", name="Synthetic Ltd", nse_symbol="SYNTH",
+                      instrument_id=iid, status=SymbolStatus.ACTIVE, sources=["nse"]))  # fmt: skip
+    seeded.commit()
+    made = client.post("/api/stocks/synth/aliases", json={"alias": "  Syntho   Corp "})
+    assert made.status_code == 201 and made.json()["alias"] == "Syntho Corp"
+    assert made.json()["kind"] == "user"
+    again = client.post("/api/stocks/SYNTH/aliases", json={"alias": "Syntho Corp"})
+    assert again.json()["id"] == made.json()["id"]  # idempotent
+    hit = client.get("/api/stocks/search", params={"q": "syntho corp"}).json()[0]
+    assert (hit["symbol"], hit["match"], hit["matched"]) == ("SYNTH", "user", "Syntho Corp")
+    listed = client.get("/api/stocks/SYNTH/aliases").json()
+    assert [a["alias"] for a in listed] == ["Syntho Corp"]
+    sid = seeded.scalar(select(Symbol.id))
+    seeded.add(SymbolAlias(symbol_id=sid, alias="Old Synth", kind=AliasKind.FORMER_NAME,
+                           source="nse"))  # fmt: skip
+    seeded.commit()
+    old = seeded.scalar(select(SymbolAlias.id).where(SymbolAlias.alias == "Old Synth"))
+    assert client.delete(f"/api/stocks/SYNTH/aliases/{old}").status_code == 409
+    assert client.delete(f"/api/stocks/SYNTH/aliases/{made.json()['id']}").status_code == 204
+    assert client.delete(f"/api/stocks/SYNTH/aliases/{made.json()['id']}").status_code == 404
 
 
 def test_report_builds_once_then_serves_stored(client: TestClient, seeded: Session) -> None:

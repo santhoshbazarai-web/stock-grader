@@ -1,21 +1,28 @@
-"""Stock endpoints (SPEC §8): search, report, refresh, DCF sensitivity, user overrides."""
+"""Stock endpoints (SPEC §8): search, aliases, report, refresh, DCF sensitivity, user
+overrides."""
 
+from dataclasses import asdict
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import case, delete, or_, select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import ConfigDep, RedisDep, SessionDep
 from app.api.schemas import (
-    InstrumentOut,
+    AliasIn,
+    AliasOut,
     OverridesResponse,
     RefreshQueued,
+    SearchHitOut,
     Sensitivity,
     Symbol,
 )
 from app.data import prices
-from app.db.models import Instrument, UserOverride
+from app.data.search import search as symbol_search
+from app.db.enums import AliasKind
+from app.db.models import Instrument, SymbolAlias, UserOverride
+from app.db.models import Symbol as SymbolMaster
 from app.db.upsert import upsert
 from app.jobs.refresh import enqueue_refresh
 from app.reports.data import load_overrides
@@ -52,29 +59,87 @@ def _rebuild(session: Session, symbol: str, config: ConfigDep) -> StockReport:
 @router.get("/search")
 def search(
     session: SessionDep,
-    q: Annotated[str, Query(min_length=1, max_length=64, description="Symbol or name")],
+    config: ConfigDep,
+    q: Annotated[
+        str,
+        Query(
+            min_length=1,
+            max_length=64,
+            description="NSE symbol, BSE code, ISIN, company name, or a former name",
+        ),
+    ],
     limit: Annotated[int, Query(ge=1, le=50)] = 20,
     include_indices: bool = False,
-) -> list[InstrumentOut]:
-    """Symbol search: exact symbol first, then symbol prefix, then name contains."""
-    term = q.strip()
-    up = term.upper()
-    like = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    stmt = (
-        select(Instrument)
-        .where(
-            Instrument.is_active.is_(True),
-            or_(Instrument.symbol.ilike(f"{like}%"), Instrument.name.ilike(f"%{like}%")),
-        )
-        .order_by(
-            case((Instrument.symbol == up, 0), (Instrument.symbol.ilike(f"{like}%"), 1), else_=2),
-            Instrument.symbol,
-        )
-        .limit(limit)
-    )
-    if not include_indices:
-        stmt = stmt.where(Instrument.is_index.is_(False))
-    return [InstrumentOut.model_validate(i) for i in session.scalars(stmt)]
+) -> list[SearchHitOut]:
+    """Fuzzy symbol search (SPEC §3.5, pg_trgm): exact code matches first (NSE symbol, BSE
+    code, ISIN, Fyers ticker, a former symbol), then Nifty 500 members, then the rest by
+    similarity. Names and aliases (former names, BSE names, your own) match fuzzily."""
+    hits = symbol_search(session, q, cfg=config.providers.symbols.search,
+                         universe_index=config.jobs.universe_index, limit=limit,
+                         include_indices=include_indices)  # fmt: skip
+    return [SearchHitOut(**asdict(h)) for h in hits]
+
+
+def _master(session: Session, symbol: str) -> SymbolMaster:
+    master = session.scalar(
+        select(SymbolMaster).join(Instrument, Instrument.id == SymbolMaster.instrument_id)
+        .where(Instrument.symbol == symbol.upper())
+    )  # fmt: skip
+    if master is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND,
+                            f"{symbol.upper()} is not in the symbol master yet (run the "
+                            "symbol_master job)")  # fmt: skip
+    return master
+
+
+def _alias_out(a: SymbolAlias) -> AliasOut:
+    return AliasOut(id=a.id, alias=a.alias, kind=a.kind.value, source=a.source,
+                    valid_until=a.valid_until)  # fmt: skip
+
+
+@router.get("/{symbol}/aliases", responses=_NOT_FOUND)
+def list_aliases(symbol: Symbol, session: SessionDep) -> list[AliasOut]:
+    """Names the stock is also found by: former symbols and names, BSE's, and your own."""
+    master = _master(session, symbol)
+    rows = session.scalars(select(SymbolAlias).where(SymbolAlias.symbol_id == master.id)
+                           .order_by(SymbolAlias.kind, SymbolAlias.alias))  # fmt: skip
+    return [_alias_out(a) for a in rows]
+
+
+@router.post("/{symbol}/aliases", status_code=status.HTTP_201_CREATED, responses=_NOT_FOUND)
+def add_alias(symbol: Symbol, body: AliasIn, session: SessionDep) -> AliasOut:
+    """Add your own alias (e.g. a nickname); search finds the stock by it."""
+    master = _master(session, symbol)
+    alias = " ".join(body.alias.split())
+    upsert(session, SymbolAlias, [{"symbol_id": master.id, "alias": alias,
+                                   "kind": AliasKind.USER, "source": "user",
+                                   "valid_until": None}], update=[])  # fmt: skip
+    row = session.scalars(select(SymbolAlias).where(
+        SymbolAlias.symbol_id == master.id, SymbolAlias.kind == AliasKind.USER,
+        SymbolAlias.alias == alias)).one()  # fmt: skip
+    session.commit()
+    return _alias_out(row)
+
+
+@router.delete(
+    "/{symbol}/aliases/{alias_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        404: {"description": "Unknown stock or alias"},
+        409: {"description": "Only your own aliases can be deleted"},
+    },
+)
+def delete_alias(symbol: Symbol, alias_id: int, session: SessionDep) -> None:
+    master = _master(session, symbol)
+    row = session.get(SymbolAlias, alias_id)
+    if row is None or row.symbol_id != master.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"no alias {alias_id} for {symbol}")
+    if row.kind is not AliasKind.USER:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "only aliases you added can be deleted; the others come from the "
+                            "exchange files")  # fmt: skip
+    session.delete(row)
+    session.commit()
 
 
 @router.get(

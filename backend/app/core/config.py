@@ -83,6 +83,7 @@ class Provider(StrEnum):
     YFINANCE = "yfinance"
     NSE = "nse"
     SCREENER = "screener"
+    BSE = "bse"
 
 
 class Dataset(StrEnum):
@@ -98,6 +99,7 @@ class Dataset(StrEnum):
     SURVEILLANCE = "surveillance"
     RESULTS_FILINGS = "results_filings"  # exchange results filings: index + XBRL documents
     ANNUAL_REPORTS = "annual_reports"  # annual-report list + PDF documents (gap filler)
+    SYMBOL_MASTER = "symbol_master"  # NSE / BSE / Fyers masters + NSE symbol and name changes
 
 
 class RateLimit(_Strict):
@@ -216,6 +218,14 @@ class NseAnnualReportsConfig(_Strict):
     confidence: PdfConfidenceConfig
 
 
+class NseSymbolFilesConfig(_Strict):
+    """Symbol-master files on ``archives_url`` (SPEC §3.5)."""
+
+    equity_list_path: str  # EQUITY_L.csv
+    symbol_changes_path: str
+    name_changes_path: str
+
+
 class NseConfig(_Strict):
     base_url: str
     archives_url: str
@@ -226,6 +236,30 @@ class NseConfig(_Strict):
     index_constituent_files: dict[str, str]
     results: NseResultsConfig
     annual_reports: NseAnnualReportsConfig
+    symbol_files: NseSymbolFilesConfig
+
+
+class BseConfig(_Strict):
+    """BSE public data (browser-like headers; ``referer`` is sent with every request)."""
+
+    api_url: str
+    referer: str
+    request_timeout_s: PositiveFloat
+    scrip_master_path: str  # active equity scrips, relative to api_url
+
+
+class SearchConfig(_Strict):
+    """Symbol search (SPEC §3.5): pg_trgm similarity of the query to symbols, names and
+    aliases. A match scores max(similarity, word_similarity) in 0-1."""
+
+    min_similarity: Fraction  # weaker matches are not returned
+    candidate_limit: PositiveInt  # matching terms read before grouping per company
+
+
+class SymbolsConfig(_Strict):
+    fyers_masters: list[str]  # Fyers public symbol-master CSVs (no login needed)
+    request_timeout_s: PositiveFloat
+    search: SearchConfig
 
 
 class ProvidersConfig(_Strict):
@@ -238,6 +272,8 @@ class ProvidersConfig(_Strict):
     instruments_cache_hours: PositiveFloat
     yfinance_index_tickers: dict[str, str]
     nse: NseConfig
+    bse: BseConfig
+    symbols: SymbolsConfig
     oauth_state_ttl_s: PositiveInt
     history_years: PositiveInt
 
@@ -751,6 +787,7 @@ class JobName(StrEnum):
     REFRESH_QUEUE = "refresh_queue"
     BACKTESTS = "backtests"
     ANNUAL_REPORTS = "annual_reports"
+    SYMBOL_MASTER = "symbol_master"
 
 
 class Season(_Strict):

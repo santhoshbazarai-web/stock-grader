@@ -27,6 +27,8 @@ from fyers_apiv3 import fyersModel
 from app.core.config import ApiLimits, Provider, ProvidersConfig
 from app.core.rate_limiter import Limiter
 from app.data.providers.base import IssuedToken, ProviderError, ProviderUnavailable
+from app.data.raw_store import RawStore, RawStoreError
+from app.data.symbol_master import FyersSymbol, parse_fyers_master
 
 logger = logging.getLogger(__name__)
 
@@ -185,7 +187,13 @@ class FyersProvider:
         limiter: Limiter | None = None,
         rate_limit_timeout_s: float = 0.0,
         client_factory: Callable[[str, str], FyersClient] = default_client_factory,
+        masters: list[str] | None = None,
+        masters_timeout_s: float = 30.0,
+        raw_store: RawStore | None = None,
     ) -> None:
+        self._masters = masters or []
+        self._masters_timeout_s = masters_timeout_s
+        self._raw = raw_store
         self._app_id = app_id
         self._token_source = token_source
         self._limits = limits
@@ -247,6 +255,13 @@ class FyersProvider:
 
     # ───────────── LTP ─────────────
 
+    def symbol_master(self) -> list[FyersSymbol]:
+        """The public symbol masters (FyersSymbolMasterProvider); no token needed."""
+        if not self._masters:
+            raise ProviderUnavailable("no Fyers symbol masters configured")
+        return fetch_fyers_masters(self._masters, timeout_s=self._masters_timeout_s,
+                                   raw_store=self._raw, throttle=self._throttle)  # fmt: skip
+
     def ltp(self, symbols: list[str]) -> dict[str, float]:
         """Last traded price keyed by the caller's symbols. Symbols Fyers rejects are omitted."""
         client = self._get_client()
@@ -267,11 +282,39 @@ class FyersProvider:
         return out
 
 
+def fetch_fyers_masters(
+    urls: list[str],
+    *,
+    timeout_s: float,
+    raw_store: RawStore | None = None,
+    throttle: Callable[[int], None] = lambda _: None,
+    get: Callable[..., requests.Response] = requests.get,
+) -> list[FyersSymbol]:
+    """Fyers' public symbol-master CSVs (no login), cached raw before parsing (§3.2a)."""
+    out: list[FyersSymbol] = []
+    for i, url in enumerate(urls):
+        throttle(i)
+        try:
+            resp = get(url, timeout=timeout_s)
+        except requests.RequestException as exc:
+            raise ProviderError(f"Fyers {url}: {type(exc).__name__}") from exc
+        if resp.status_code >= 400:
+            raise ProviderError(f"Fyers {url}: HTTP {resp.status_code}")
+        if raw_store is not None:
+            try:
+                raw_store.save("fyers", url.rsplit("/", 1)[-1], resp.content)
+            except RawStoreError as exc:
+                raise ProviderUnavailable(str(exc)) from exc
+        out += parse_fyers_master(resp.content.decode("utf-8", errors="replace"))
+    return out
+
+
 def build_fyers_provider(
     app_id: str | None,
     token_source: Callable[[], str | None],
     config: ProvidersConfig,
     limiter: Limiter | None,
+    raw_store: RawStore | None = None,
 ) -> FyersProvider | None:
     """``None`` when FYERS_APP_ID is not set (router then reports fyers as not configured)."""
     if not app_id:
@@ -282,4 +325,7 @@ def build_fyers_provider(
         config.api_limits[Provider.FYERS],
         limiter=limiter,
         rate_limit_timeout_s=config.retry.rate_limit_timeout_s,
+        masters=config.symbols.fyers_masters,
+        masters_timeout_s=config.symbols.request_timeout_s,
+        raw_store=raw_store,
     )

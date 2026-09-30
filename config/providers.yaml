@@ -13,6 +13,7 @@ providers:
     fin_quarterly:      [screener, yfinance]
     results_filings:    [nse]       # results filing list + XBRL documents (results_watch)
     annual_reports:     [nse]       # annual-report list + PDFs: balance sheet / cash flow gap filler
+    symbol_master:      [nse, bse, fyers]  # all three are read and joined on ISIN (symbol_master)
     index_constituents: [nse]
     surveillance:       [nse]
   rate_limits:            # requests per second / per minute (verify against current broker docs)
@@ -20,6 +21,7 @@ providers:
     kite:     {per_sec: 3,  per_min: 150}
     yfinance: {per_sec: 2,  per_min: 60}
     nse:      {per_sec: 1,  per_min: 30}
+    bse:      {per_sec: 1,  per_min: 30}
   staleness_hours:
     daily_ohlcv: 30
     ltp: 0.1
@@ -82,6 +84,10 @@ providers:
       restatement_tolerance_rel: 0.0005
       restatement_tolerance_inr: 5000000
       default_fy_end_month: 3   # April-March; a company's own filed years override it
+    symbol_files:              # symbol master (SPEC §3.5), on archives_url
+      equity_list_path: "/content/equities/EQUITY_L.csv"
+      symbol_changes_path: "/content/equities/symbolchange.csv"
+      name_changes_path: "/content/equities/namechange.csv"
     annual_reports:            # annual-report PDFs: gap filler for BS / CF years (SPEC §3.6 step 3)
       index_path: "/api/annual-reports"   # ?index=equities&symbol=..
       hosts: [nsearchives.nseindia.com, archives.nseindia.com, www.nseindia.com]
@@ -105,5 +111,18 @@ providers:
         no_check_factor: 0.9
         check_tolerance_rel: 0.002   # total assets = equity + liabilities within 0.2%
         fallback_sum_factor: 0.9
+  bse:                         # BSE public data: the scrip master (symbol_master job)
+    api_url: "https://api.bseindia.com"
+    referer: "https://www.bseindia.com/"
+    request_timeout_s: 30
+    scrip_master_path: "/BseIndiaAPI/api/ListofScripData/w?Group=&Scripcode=&industry=&segment=Equity&status=Active"
+  symbols:                     # symbol master + search (SPEC §3.5)
+    fyers_masters:             # public CSVs; read only when Fyers is configured
+      - "https://public.fyers.in/sym_details/NSE_CM.csv"
+      - "https://public.fyers.in/sym_details/BSE_CM.csv"
+    request_timeout_s: 30
+    search:
+      min_similarity: 0.3      # pg_trgm score below 0.3 is not a match
+      candidate_limit: 200     # matching terms read per query before grouping by company
   oauth_state_ttl_s: 600  # broker login must complete within this many seconds
   history_years: 10

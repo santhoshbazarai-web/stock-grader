@@ -19,6 +19,7 @@ jobs:
     refresh_queue: "* * * * *"               # drains POST /api/stocks/{symbol}/refresh requests
     backtests: "* * * * *"                   # runs queued POST /api/backtests requests
     annual_reports: "30 22 * * 6"            # annual-report PDFs for BS/CF gaps (Saturdays)
+    symbol_master: "15 7 * * *"              # NSE/BSE/Fyers symbol masters + aliases (daily)
   universe_index: NIFTY500    # symbols = current members of this index + watchlist
   constituent_indices: [NIFTY500, NIFTY50, NIFTYBANK, NIFTYIT, NIFTYPHARMA, NIFTYFMCG,
                         NIFTYAUTO, NIFTYMETAL, NIFTYREALTY]

@@ -71,4 +71,6 @@ def test_spec_tables_present() -> None:
         "fin_line_items",  # SPEC v0.2 §3.4 long-format fundamentals
         "annual_reports",  # SPEC v0.2 §3.6 step 3: annual-report PDF ledger
         "pdf_line_candidates",  # ... and its review queue
+        "symbols",  # SPEC v0.2 §3.4-3.5: ISIN symbol master
+        "symbol_aliases",
     } == MODEL_TABLES

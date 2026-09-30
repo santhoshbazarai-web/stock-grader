@@ -87,3 +87,18 @@ class ReviewStatus(StrEnum):
     ACCEPTED = "accepted"  # the owner accepted the value as read
     CORRECTED = "corrected"  # the owner entered the right value
     REJECTED = "rejected"  # the owner rejected it: not stored
+
+
+class SymbolStatus(StrEnum):
+    """A company in the symbol master (SPEC v0.2 §3.5)."""
+
+    ACTIVE = "active"  # in today's NSE list or active on BSE
+    INACTIVE = "inactive"  # was listed; missing from the latest masters (delisted, suspended)
+
+
+class AliasKind(StrEnum):
+    FORMER_SYMBOL = "former_symbol"  # NSE symbol change
+    FORMER_NAME = "former_name"  # NSE name change
+    BSE_SYMBOL = "bse_symbol"  # BSE's short symbol, when it differs from NSE's
+    BSE_NAME = "bse_name"  # BSE's company name, when it differs from NSE's
+    USER = "user"  # added by the owner

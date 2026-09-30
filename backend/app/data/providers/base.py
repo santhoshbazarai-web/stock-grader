@@ -15,6 +15,7 @@ from typing import Protocol, runtime_checkable
 import pandas as pd
 
 from app.core.config import Provider
+from app.data.symbol_master import BseScrip, FyersSymbol, NameChange, NseListing, SymbolChange
 
 
 class ProviderError(Exception):
@@ -134,3 +135,32 @@ class AnnualReportsProvider(Protocol):
     def annual_reports(self, symbol: str) -> pd.DataFrame: ...
 
     def annual_report_document(self, url: str) -> bytes: ...
+
+
+# Symbol master (SPEC §3.5): each exchange / broker supplies its own file; the symbol_master
+# job reads all three and joins them on ISIN (app.data.symbol_master).
+
+
+@runtime_checkable
+class NseSymbolFilesProvider(Protocol):
+    name: Provider
+
+    def equity_list(self) -> list[NseListing]: ...
+
+    def symbol_changes(self) -> list[SymbolChange]: ...
+
+    def name_changes(self) -> list[NameChange]: ...
+
+
+@runtime_checkable
+class BseScripMasterProvider(Protocol):
+    name: Provider
+
+    def scrip_master(self) -> list[BseScrip]: ...
+
+
+@runtime_checkable
+class FyersSymbolMasterProvider(Protocol):
+    name: Provider
+
+    def symbol_master(self) -> list[FyersSymbol]: ...

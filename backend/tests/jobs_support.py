@@ -19,6 +19,16 @@ from app.data.providers.base import ProviderUnavailable
 from app.data.providers.nse import ANNUAL_REPORT_COLUMNS, RESULTS_COLUMNS
 from app.data.raw_store import RawStore
 from app.data.router import DataRouter
+from app.data.symbol_master import (
+    BseScrip,
+    FyersSymbol,
+    NameChange,
+    NseListing,
+    SymbolChange,
+    parse_nse_equity_list,
+    parse_nse_name_changes,
+    parse_nse_symbol_changes,
+)
 from app.db.models import Base
 from app.jobs.runner import JobContext
 from tests.conftest import REPO_CONFIG_DIR
@@ -55,6 +65,13 @@ class FakePrices:
     def ltp(self, symbols: list[str]) -> dict[str, float]:
         return {}
 
+    fyers_master: list[FyersSymbol] | None = None  # public symbol master (symbol_master job)
+
+    def symbol_master(self) -> list[FyersSymbol]:
+        if self.fyers_master is None:
+            raise ProviderUnavailable("Fyers master unavailable")
+        return self.fyers_master
+
 
 @dataclass
 class FakeNse:
@@ -74,6 +91,8 @@ class FakeNse:
     reports: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     report_documents: dict[str, bytes] = field(default_factory=dict)
     report_requests: list[str] = field(default_factory=list)
+    # symbol master: file name (tests/fixtures/symbols) → text; a missing file is unavailable
+    symbol_files: dict[str, str] = field(default_factory=dict)
 
     def results_filings(self, symbol: str) -> pd.DataFrame:
         self.filing_requests.append(symbol)
@@ -86,6 +105,20 @@ class FakeNse:
         if url not in self.documents:
             raise ProviderUnavailable(f"not found: {url}")
         return self.documents[url]
+
+    def _symbol_file(self, name: str) -> str:
+        if name not in self.symbol_files:
+            raise ProviderUnavailable(f"{name} unavailable")
+        return self.symbol_files[name]
+
+    def equity_list(self) -> list[NseListing]:
+        return parse_nse_equity_list(self._symbol_file("EQUITY_L.csv"))
+
+    def symbol_changes(self) -> list[SymbolChange]:
+        return parse_nse_symbol_changes(self._symbol_file("symbolchange.csv"))
+
+    def name_changes(self) -> list[NameChange]:
+        return parse_nse_name_changes(self._symbol_file("namechange.csv"))
 
     def annual_reports(self, symbol: str) -> pd.DataFrame:
         if symbol not in self.reports:
@@ -119,6 +152,17 @@ class FakeNse:
 
 
 @dataclass
+class FakeBse:
+    name: Provider = Provider.BSE
+    scrips: list[BseScrip] | None = None
+
+    def scrip_master(self) -> list[BseScrip]:
+        if self.scrips is None:
+            raise ProviderUnavailable("BSE unavailable")
+        return self.scrips
+
+
+@dataclass
 class FakeQuarterly:
     name: Provider = Provider.YFINANCE
     frames: dict[str, pd.DataFrame] = field(default_factory=dict)
@@ -149,6 +193,7 @@ class Env:
     nse: FakeNse
     quarterly: FakeQuarterly
     Session: sessionmaker[Session]
+    bse: FakeBse
 
     def session(self) -> Session:
         return self.Session()
@@ -158,10 +203,15 @@ class Env:
 def env(migrated_engine: Engine, redis_client: Redis, tmp_path: Path) -> Iterator[Env]:
     factory = sessionmaker(bind=migrated_engine, expire_on_commit=False)
     config = load_config(REPO_CONFIG_DIR)
-    prices, nse, quarterly = FakePrices(), FakeNse(), FakeQuarterly()
+    prices, nse, quarterly, bse = FakePrices(), FakeNse(), FakeQuarterly(), FakeBse()
     gaps = DbGapRecorder(factory)
     router = DataRouter(
-        {Provider.FYERS: prices, Provider.NSE: nse, Provider.YFINANCE: quarterly},
+        {
+            Provider.FYERS: prices,
+            Provider.NSE: nse,
+            Provider.YFINANCE: quarterly,
+            Provider.BSE: bse,
+        },
         config.providers,
         limiter=NoLimit(),
         gaps=gaps,
@@ -172,7 +222,7 @@ def env(migrated_engine: Engine, redis_client: Redis, tmp_path: Path) -> Iterato
         config, factory, router, redis_client, gaps, clock=lambda: NOW,
         raw_store=RawStore(tmp_path / "raw", clock=lambda: NOW),
     )  # fmt: skip
-    yield Env(ctx, prices, nse, quarterly, factory)
+    yield Env(ctx, prices, nse, quarterly, factory, bse)
     with migrated_engine.begin() as conn:
         tables = ", ".join(Base.metadata.tables)
         conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))

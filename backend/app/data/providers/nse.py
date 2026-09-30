@@ -33,6 +33,15 @@ from app.core.rate_limiter import Limiter
 from app.data.canonical import labels_for, pick
 from app.data.providers.base import ProviderError, ProviderUnavailable
 from app.data.raw_store import RawStore, RawStoreError
+from app.data.symbol_master import (
+    MasterFormatError,
+    NameChange,
+    NseListing,
+    SymbolChange,
+    parse_nse_equity_list,
+    parse_nse_name_changes,
+    parse_nse_symbol_changes,
+)
 from app.data.xbrl import audited_from_text, statement_type_from_text
 from app.db.enums import CorporateActionType, SurveillanceList
 
@@ -481,8 +490,8 @@ def _int(value: Any) -> int | None:
 
 class NseProvider:
     """Implements DeliveryProvider, ConstituentsProvider, SurveillanceProvider,
-    CorporateActionsProvider, ShareholdingProvider, ResultsFilingsProvider and
-    AnnualReportsProvider."""
+    CorporateActionsProvider, ShareholdingProvider, ResultsFilingsProvider,
+    AnnualReportsProvider and NseSymbolFilesProvider."""
 
     name = Provider.NSE
 
@@ -618,6 +627,43 @@ class NseProvider:
         if len(resp.content) > cfg.max_bytes:
             raise ProviderUnavailable(f"annual report larger than {cfg.max_bytes} bytes")
         return resp.content
+
+    # ───────────── symbol master (SPEC §3.5) ─────────────
+
+    def _archive_text(self, path: str, name: str) -> str:
+        resp = self._http.get(f"{self._cfg.archives_url}{path}")
+        if resp is None:
+            raise ProviderError(f"NSE {path} not found")
+        if self._raw is not None:  # cache before parsing (§3.2a)
+            try:
+                self._raw.save("nse", name, resp.content)
+            except RawStoreError as exc:
+                raise ProviderUnavailable(str(exc)) from exc
+        return resp.content.decode("utf-8", errors="replace")
+
+    def equity_list(self) -> list[NseListing]:
+        self._http.begin_call()
+        text = self._archive_text(self._cfg.symbol_files.equity_list_path, "EQUITY_L.csv")
+        try:
+            return parse_nse_equity_list(text)
+        except MasterFormatError as exc:
+            raise ProviderError(str(exc)) from exc
+
+    def symbol_changes(self) -> list[SymbolChange]:
+        self._http.begin_call()
+        text = self._archive_text(self._cfg.symbol_files.symbol_changes_path, "symbolchange.csv")
+        try:
+            return parse_nse_symbol_changes(text)
+        except MasterFormatError as exc:
+            raise ProviderError(str(exc)) from exc
+
+    def name_changes(self) -> list[NameChange]:
+        self._http.begin_call()
+        text = self._archive_text(self._cfg.symbol_files.name_changes_path, "namechange.csv")
+        try:
+            return parse_nse_name_changes(text)
+        except MasterFormatError as exc:
+            raise ProviderError(str(exc)) from exc
 
 
 def build_nse_provider(

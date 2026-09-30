@@ -9,6 +9,7 @@ from app.core.security import TokenCipher
 from app.core.settings import Settings
 from app.data.broker_tokens import BrokerTokenStore
 from app.data.gaps import DbGapRecorder
+from app.data.providers.bse import build_bse_provider
 from app.data.providers.fyers import build_fyers_provider
 from app.data.providers.kite import build_kite_provider
 from app.data.providers.kite_instruments import RedisInstrumentStore
@@ -31,7 +32,7 @@ def build_context(settings: Settings, config: AppConfig) -> JobContext:
     raw_store = RawStore(settings.raw_data_dir)
     candidates: dict[Provider, object | None] = {
         Provider.FYERS: build_fyers_provider(
-            settings.fyers_app_id, lambda: tokens.get_valid(Broker.FYERS), pc, limiter
+            settings.fyers_app_id, lambda: tokens.get_valid(Broker.FYERS), pc, limiter, raw_store
         ),
         Provider.KITE: build_kite_provider(
             settings.kite_api_key,
@@ -43,6 +44,7 @@ def build_context(settings: Settings, config: AppConfig) -> JobContext:
         Provider.YFINANCE: build_yfinance_provider(pc, limiter),
         Provider.NSE: build_nse_provider(pc, limiter, raw_store),
         Provider.SCREENER: ScreenerProvider(session_factory),
+        Provider.BSE: build_bse_provider(pc, limiter, raw_store),
     }
     providers = {k: v for k, v in candidates.items() if v is not None}
     gaps = DbGapRecorder(session_factory)
