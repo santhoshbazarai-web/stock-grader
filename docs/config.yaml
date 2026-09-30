@@ -3,22 +3,40 @@
 
 # ───────────────────────── providers.yaml ─────────────────────────
 providers:
+  enabled:
+    fyers: true
+    kite: false            # Kite Connect paid plan (₹500/mo) needed for prices; budget is ₹0
+    nse: true
+    bse: true
+    yfinance: true
+    market_lens: true      # reconciliation only; turn off if it breaks
+    screener_import: true  # manual gap-fill only
   priority:
-    daily_ohlcv:        [fyers, kite, yfinance]
-    index_ohlcv:        [fyers, kite, yfinance]
+    daily_ohlcv:        [fyers, kite, nse_bhavcopy, yfinance]
+    index_ohlcv:        [fyers, kite, niftyindices, yfinance]
     ltp:                [fyers, kite]
     delivery:           [nse]
-    corporate_actions:  [nse, yfinance]
-    shareholding:       [nse, screener]
-    fin_annual:         [screener, yfinance]
-    fin_quarterly:      [screener, yfinance]
-    index_constituents: [nse]
+    symbol_master:      [nse, bse, fyers]
+    corporate_actions:  [nse, bse, yfinance]
+    shareholding:       [nse, bse]
+    fin_results:        [nse_xbrl, bse_xbrl]
+    fin_gap_fill:       [annual_report_pdf, screener_import]
+    events:             [nse, bse]
+    index_constituents: [niftyindices]
     surveillance:       [nse]
+  reconcile_against:    [bse_xbrl, market_lens, yfinance]
+  reconcile_tolerance:  0.02
   rate_limits:            # requests per second / per minute (verify against current broker docs)
     fyers:    {per_sec: 8,  per_min: 180}
     kite:     {per_sec: 3,  per_min: 150}
     yfinance: {per_sec: 2,  per_min: 60}
     nse:      {per_sec: 1,  per_min: 30}
+    bse:      {per_sec: 1,  per_min: 30}
+    market_lens: {per_sec: 0.5, per_min: 15}
+  universe: NIFTY500
+  results_watch: {interval_min: 15, window: ["07:00", "23:00"]}
+  notify_if: {grade_change: true, zone_change: true, action_change: true, fv_change_pct: 5}
+  telegram: {enabled: true, commands: ["/grade", "/buyzone", "/status"]}
   staleness_hours:
     daily_ohlcv: 30
     ltp: 0.1

@@ -1,14 +1,41 @@
-SPEC — Stock Grader Web App (Indian Equities)
-Version 0.1 · Owner: Santhosh · Single-user personal research tool (see §12 Compliance)
+# SPEC — Stock Grader Web App (Indian Equities)
+
+Version 0.2 · Owner: Santhosh · Single-user personal research tool (see §12 Compliance)
+
 ---
-1. Goals
-For any NSE stock: Baseline, Fair value, Top band, Zone, Buy zone, Grade, Action — with reasons.
-Screener across Nifty 500 ranked by Grade × Zone.
-Watchlist + alerts when a stock enters its buy zone.
-Backtest: do A-grade + Discount entries beat Nifty 500?
+
+## 0. Decisions (v0.2) — these override anything below that conflicts
+
+| Topic | Decision |
+|---|---|
+| Users | Single user (owner only). No multi-user, no sharing of outputs |
+| Universe | Nifty 500 first (point-in-time membership kept); design tables for all NSE mainboard later. No SME |
+| Brokers | **Read-only, permanently.** No order, GTT or alert-creation code anywhere in the repo |
+| Broker role | Prices only. Brokers do **not** provide financial statements; fundamentals come from NSE/BSE filings |
+| Fyers | Primary price source. Uses the owner's existing Fyers API app (free) |
+| Zerodha | Optional. Kite Connect Personal (free) has **no historical or live data**; the paid plan (₹500/month) is needed for prices. Budget is ₹0, so the Kite adapter ships **disabled by default** behind `providers.kite.enabled: false` |
+| Claude connectors | The Zerodha/Fyers connectors inside Claude **cannot** be used by this app. The app authenticates with brokers itself via OAuth |
+| History | 10+ years. XBRL filings first; annual-report PDFs parsed for years/items XBRL lacks (older cash flows, full balance sheets) |
+| Fundamental refresh | Automatic, triggered by new results filings on NSE/BSE |
+| Hosting | Owner's home desktop via Docker. Redirect URIs on `http://127.0.0.1`. Remote/phone access only through Tailscale (no public exposure) |
+| Alerts | In-app + Telegram bot |
+| Budget | Free sources only. No paid data, no paid LLM API |
+| NSE Market Lens | NSE's beta screener (marketlens.nseindia.com). Used only as an optional **reconciliation** source, never primary: it is beta, undocumented and may change or be restricted |
+
+---
+
+## 1. Goals
+1. For any NSE stock: Baseline, Fair value, Top band, Zone, Buy zone, Grade, Action — with reasons.
+2. Screener across Nifty 500 ranked by Grade × Zone.
+3. Watchlist + alerts when a stock enters its buy zone.
+4. Backtest: do A-grade + Discount entries beat Nifty 500?
+
 Non-goals (MVP): auto-trading, multi-user SaaS, intraday signals, F&O analytics.
+
 ---
-2. Architecture
+
+## 2. Architecture
+
 ```
  Browser (Next.js)
      │  REST/JSON
@@ -25,16 +52,21 @@ Non-goals (MVP): auto-trading, multi-user SaaS, intraday signals, F&O analytics.
      ├── NSE archives   (bhavcopy+delivery, index constituents, ASM/GSM, corp actions, shareholding)
      └── Screener export (10-yr fundamentals, manual upload)
 ```
-2.1 Services (docker-compose)
-Service	Purpose
-`db`	Postgres 16
-`redis`	cache + rate limiter
-`api`	FastAPI, uvicorn
-`worker`	scheduled jobs + on-demand refresh queue
-`web`	Next.js
+
+### 2.1 Services (docker-compose)
+| Service | Purpose |
+|---|---|
+| `db` | Postgres 16 |
+| `redis` | cache + rate limiter |
+| `api` | FastAPI, uvicorn |
+| `worker` | scheduled jobs + on-demand refresh queue |
+| `web` | Next.js |
+
 ---
-3. Data layer
-3.1 Provider abstraction
+
+## 3. Data layer
+
+### 3.1 Provider abstraction
 ```python
 class PriceProvider(Protocol):
     def daily_ohlcv(self, symbol: str, start: date, end: date) -> pd.DataFrame: ...
@@ -45,175 +77,273 @@ class FundamentalsProvider(Protocol):
     def quarterly(self, symbol: str) -> pd.DataFrame: ...
 ```
 `data/router.py` resolves each dataset using the priority list in `config/providers.yaml`, falling through on error/empty/stale data, and records which provider served it (`source` column on every table).
-3.2 Dataset → source priority
-Dataset	Primary	Fallback 1	Fallback 2	Notes
-Daily OHLCV (stocks)	Fyers	Kite	yfinance `.NS`	≥ 10 yrs; Kite historical may need a paid add-on — verify
-Daily OHLCV (indices: Nifty 500, sectoral)	Fyers	Kite	yfinance (`^CRSLDX`, etc.)	For RS and beta
-LTP / quotes (alerts)	Fyers	Kite	—	Market hours only
-Delivery %	NSE `sec_bhavdata_full` daily CSV	—	—	Daily after 18:00 IST
-Corporate actions (split/bonus/dividend)	NSE	yfinance actions	—	Needed for adjustment
-Index constituents (Nifty 500, sectors)	niftyindices.com CSV	—	—	Monthly refresh
-ASM / GSM / F&O ban lists	NSE	—	—	Daily; knock-out filter
-Shareholding (promoter, pledge, FII, DII, MF)	NSE/BSE filings	Screener export	—	Quarterly
-Annual financials (10 yrs)	Screener Excel upload	yfinance (≈4 yrs only)	NSE/BSE XBRL (Phase 9)	yfinance alone is not enough for 10-yr metrics
-Quarterly results	Screener export	yfinance	NSE results XBRL	Keyed by announcement date
-Risk-free rate (10-yr G-sec)	config value, updated weekly	RBI/CCIL	—	
-Sector classification	NSE industry	config override	—	Drives sector model
+
+### 3.2 Dataset → source priority (v0.2)
+| Dataset | Primary | Fallback 1 | Fallback 2 | Reconcile against | Notes |
+|---|---|---|---|---|---|
+| Daily OHLCV (stocks) | Fyers | NSE bhavcopy archive (build history day-by-day) | yfinance `.NS` | — | Kite only if enabled (paid) |
+| Daily OHLCV (indices) | Fyers | niftyindices.com historical | yfinance | — | For RS and beta |
+| LTP (alerts) | Fyers | — | — | — | Market hours |
+| Delivery % | NSE `sec_bhavdata_full` | — | — | — | Daily after 18:00 |
+| Symbol master | NSE `EQUITY_L.csv` + BSE scrip master + Fyers symbol master | — | — | — | Joined on **ISIN** |
+| Corporate actions | NSE | BSE | yfinance | — | Split/bonus adjustment |
+| Index constituents | niftyindices.com CSV | — | — | — | Monthly, stored point-in-time |
+| Industry classification | NSE 4-level (macro/sector/industry/basic industry) | config override | — | — | Drives sector model + peers |
+| ASM/GSM/F&O ban | NSE | — | — | — | Daily knock-out |
+| Quarterly & annual results | **NSE XBRL** | **BSE XBRL** | — | Market Lens, yfinance | Keyed by announcement date |
+| Balance sheet / cash flow (historic years XBRL lacks) | Annual-report PDFs from NSE/BSE | — | — | XBRL totals | Semi-automated, see §3.6 |
+| Shareholding (promoter, pledge, FII, DII, MF) | NSE shareholding XBRL | BSE | — | — | Quarterly |
+| Pledge / SAST / insider trades (PIT) | NSE | BSE | — | — | Governance pillar |
+| Corporate announcements, board-meeting dates, auditor changes, credit ratings | NSE | BSE | — | — | Event feed + red flags |
+| Bulk / block deals | NSE | — | — | — | Participation signal |
+| Risk-free rate | config, weekly | — | — | — | Manual update |
+| Screener Excel | **Retired as primary.** Kept as an optional manual import for gap-filling and testing only | | | | |
+
 NSE endpoints need a browser-like session (cookies from the homepage + headers) and polite rate limiting. Use archive CSVs where possible and cache aggressively. Respect each source's terms of use. The Screener import is for personal use only.
-3.3 Broker authentication
-Fyers: OAuth flow. `GET /api/brokers/fyers/login` redirects to Fyers, which calls back `GET /api/brokers/fyers/callback?auth_code=…`. The backend exchanges the code for an access token, encrypts it and stores it with its expiry. Tokens expire daily, so the UI shows a "Reconnect" banner when a token is stale.
-Kite: `GET /api/brokers/kite/login` redirects to Kite, which calls back with `request_token`. The backend calls `generate_session`, then encrypts and stores the token. It also expires daily.
-Register the callback URLs in each broker's developer console. Keep API key and secret in `.env` only.
-If no broker token is valid, the price router falls through to yfinance automatically, and the UI shows the data source.
-3.4 Database tables (core)
+
+### 3.2a NSE/BSE fetching rules
+- Prefer archive and bulk files (`nsearchives.nseindia.com`, BSE download files) over page APIs.
+- Warm up a session from the homepage to get cookies, send browser-like headers, stay at ≤ 1 request/sec, and use exponential backoff on 401/403/429.
+- Cache every raw file on disk under `data/raw/<source>/<yyyy>/<mm>/<dd>/` before parsing, so you can re-parse without re-downloading.
+- Never run fetchers in parallel against the same host.
+- Market Lens: read-only JSON the page itself loads, used only in the reconciliation job, and switchable off via config.
+
+### 3.3 Broker authentication
+- **Fyers:** OAuth flow. `GET /api/brokers/fyers/login` redirects to Fyers, which calls back `GET /api/brokers/fyers/callback?auth_code=…`. The backend exchanges the code for an access token, encrypts it and stores it with its expiry. Tokens expire daily, so the UI shows a "Reconnect" banner when a token is stale.
+- **Kite:** `GET /api/brokers/kite/login` redirects to Kite, which calls back with `request_token`. The backend calls `generate_session`, then encrypts and stores the token. It also expires daily.
+- Register the callback URLs in each broker's developer console. Keep API key and secret in `.env` only.
+- If no broker token is valid, the price router falls through to the NSE bhavcopy archive and then yfinance automatically. The UI shows the data source.
+- **Settings → Brokers page:** one card per broker showing Connected (expires at HH:MM) / Expired / Disabled status and a **Connect** button that starts the OAuth flow in the same tab and returns to Settings. A morning Telegram reminder is sent at 08:45 if the Fyers token is expired.
+- No broker scopes beyond market data and profile are used, and nothing reads holdings, positions or funds.
+
+### 3.4 Database tables (core)
 `instruments`, `prices_daily` (adjusted + raw), `corporate_actions`, `delivery_daily`, `fin_annual`, `fin_quarterly`, `shareholding`, `index_membership`, `surveillance_flags`, `valuation_snapshots`, `technical_snapshots`, `scores`, `reports`, `watchlist`, `alerts`, `broker_tokens` (encrypted), `job_runs`, `data_gaps`, `user_overrides` (per-stock assumption overrides, e.g. custom growth rate).
+v0.2 adds `symbols` (ISIN master), `symbol_aliases`, `filings` (raw filing index), `fin_line_items` (long format: isin, period_end, period_type, statement, basis [consolidated/standalone], item_code, value_inr, source, filing_id, announced_at, version), `events`, `reconciliation_issues`, `pipeline_runs` (per-symbol progress), `notifications`.
+
+### 3.5 Symbol master & search
+- Build `symbols` nightly by joining NSE `EQUITY_L.csv`, the BSE scrip master and the Fyers symbol master on ISIN. Store NSE symbol, BSE code, Fyers symbol, company name, series, listing date and status.
+- `symbol_aliases` holds former names and symbols (from NSE name/symbol-change files), common short names, and user-added aliases.
+- Search uses Postgres `pg_trgm` fuzzy matching on symbol + name + aliases, ranked with exact symbol matches first, then Nifty 500 members, then trigram similarity.
+- The endpoint `/api/stocks/search?q=` returns within 100 ms.
+
+### 3.6 Financials pipeline (10+ years, free sources)
+1. **XBRL (primary).** Parse NSE and BSE financial-results XBRL (quarterly/annual P&L, half-yearly balance sheet, half-yearly cash flow where filed). Map taxonomy tags to canonical `item_code`s in a single versioned mapping file, `fundamentals/xbrl_map.yaml`, covering both Ind-AS and pre-Ind-AS tags.
+2. **Normalise.** Convert units (₹, lakhs, crores, millions) to ₹, sign conventions, and the fiscal year. Keep both consolidated and standalone. When a later filing restates a period, store it as a new `version`; analysis uses the latest version, while backtests use the version available at that date.
+3. **Annual-report PDFs (gap filler).** For years where XBRL lacks a full balance sheet or cash flow statement, fetch the annual report PDF from NSE/BSE, locate the statement pages by heading search, and extract tables with pdfplumber, falling back to camelot. Map rows to `item_code`s with a fuzzy label dictionary.
+   - Every PDF-derived value carries `source=annual_report_pdf` and a confidence score.
+   - Low-confidence rows go to a **review queue** in the UI, where the owner accepts or corrects them in one click.
+4. **Coverage report per stock.** Show a years × statements grid (P&L / BS / CF), coloured by source and gaps, on the stock page.
+5. **Derived annual figures.** When only quarterly/half-yearly data exists, build the FY total from its quarters and flag it as derived.
+
+### 3.7 On-demand pipeline (when you type a stock)
+1. The user selects a symbol. If `reports` holds a result that is fresher than both the latest price date and the latest filing date, return it instantly.
+2. Otherwise, enqueue a `pipeline_run` with these steps:
+   - `symbol` → `prices` → `corporate_actions/adjust` → `filings index` → `xbrl parse` → `pdf gap-fill` → `shareholding/events` → `reconcile` → `metrics` → `valuation` → `technical` → `scoring` → `report`
+3. The frontend subscribes to `/api/pipeline/{run_id}/events` (Server-Sent Events) and shows a step-by-step progress list. Each step shows success, warning or failure with its message.
+4. Steps are idempotent and resumable. A failure in an optional step (e.g. PDF gap-fill) still produces a report, with its `data_gaps` listed.
+5. Nifty 500 is pre-computed nightly, so it normally loads instantly.
+
+### 3.8 Results-driven refresh
+- `results_watch` job:
+  - Polls the NSE and BSE corporate-announcement and financial-results feeds every 15 min from 07:00 to 23:00 IST.
+  - Also reads the board-meeting calendar to know which companies to expect.
+  - When a new results filing appears for a universe stock, it enqueues that stock's pipeline.
+- Afterwards, the job compares the new report with the previous one. If the grade, zone, action or fair value changed by more than 5%, it creates a notification (in-app + Telegram), e.g. "XYZ Q2 results: Grade B→A, FV ₹1,240→₹1,390, zone Fair→Discount".
+
+### 3.9 Reconciliation
+- For each new period, compare sales, EBITDA, PAT, CFO, total assets and equity across XBRL (NSE), XBRL (BSE), Market Lens (optional) and PDF (if present).
+- A difference above 2% creates a `reconciliation_issue`, lowers valuation confidence and shows a banner on the stock page. Common causes are a consolidated/standalone mix-up, units, or a restatement.
+
+### 3.10 Home deployment
+- Runs with Docker Desktop (WSL2 on Windows). `restart: unless-stopped` on all services, and Postgres data on a named volume with a nightly `pg_dump` to a separate drive.
+- **Catch-up on startup:** the worker checks `job_runs`. If the machine was off or asleep during a scheduled job, it runs the missed jobs in order.
+- Web UI at `http://127.0.0.1:3000`. For phone access, use Tailscale (private network). Never port-forward the router.
+- Broker redirect URIs are `http://127.0.0.1:8000/api/brokers/{fyers|kite}/callback`, registered in each developer console. Check that the broker accepts localhost redirects; if not, use the Tailscale HTTPS hostname.
+- Telegram uses outbound-only calls to the Bot API, so no public IP or webhook is needed. The bot token and chat ID live in `.env`. The bot also answers `/grade SYMBOL` and `/buyzone` read-only queries via long-polling.
+
 ---
-4. Fundamental metrics (`fundamentals/metrics.py`)
+
+## 4. Fundamental metrics (`fundamentals/metrics.py`)
 Compute these over 10 years annually, plus TTM:
-Metric	Formula
-ROCE	EBIT / (Total assets − Current liabilities), average of opening and closing
-ROE	PAT / average equity
-ROIC	NOPAT / (Equity + Debt − Cash − Non-op investments)
-Sales / EBITDA / EPS CAGR	3, 5, 10 yr
-OPM	EBITDA / Sales
-CFO/EBITDA, CFO/PAT	Annual and 5-yr cumulative
-FCF	CFO − Capex (Capex = Purchase of fixed assets − Sale of fixed assets)
-FCF conversion	Σ5yr FCF / Σ5yr PAT
-Other income share	Other income / PBT
-D/E, Net debt / EBITDA, ICR	ICR = EBIT / Interest
-Debtor days	Receivables / Sales × 365
-Inventory days	Inventory / COGS × 365
-Payable days	Payables / COGS × 365
-CCC	Debtor days + Inventory days − Payable days
-Capex intensity	Capex / CFO
-Dilution	Share-count CAGR over 5 yr
-Accruals ratio	(PAT − CFO) / Average total assets
-Forensic scores (`forensic.py`):
-Piotroski F-score: the standard 9 tests.
-Beneish M-score: 8-variable model. A reading above −2.22 is a flag.
-Altman Z″: the emerging-markets version. Skip for financials.
-Banks/NBFCs (`banking.py`): NIM, CASA ratio, GNPA, NNPA, PCR, credit cost, CAR/CRAR, cost-to-income, RoA, RoE, loan growth.
+
+| Metric | Formula |
+|---|---|
+| ROCE | EBIT / (Total assets − Current liabilities), average of opening and closing |
+| ROE | PAT / average equity |
+| ROIC | NOPAT / (Equity + Debt − Cash − Non-op investments) |
+| Sales / EBITDA / EPS CAGR | 3, 5, 10 yr |
+| OPM | EBITDA / Sales |
+| CFO/EBITDA, CFO/PAT | Annual and 5-yr cumulative |
+| FCF | CFO − Capex (Capex = Purchase of fixed assets − Sale of fixed assets) |
+| FCF conversion | Σ5yr FCF / Σ5yr PAT |
+| Other income share | Other income / PBT |
+| D/E, Net debt / EBITDA, ICR | ICR = EBIT / Interest |
+| Debtor days | Receivables / Sales × 365 |
+| Inventory days | Inventory / COGS × 365 |
+| Payable days | Payables / COGS × 365 |
+| CCC | Debtor days + Inventory days − Payable days |
+| Capex intensity | Capex / CFO |
+| Dilution | Share-count CAGR over 5 yr |
+| Accruals ratio | (PAT − CFO) / Average total assets |
+
+**Forensic scores (`forensic.py`):**
+- Piotroski F-score: the standard 9 tests.
+- Beneish M-score: 8-variable model. A reading above −2.22 is a flag.
+- Altman Z″: the emerging-markets version. Skip for financials.
+
+**Banks/NBFCs (`banking.py`):** NIM, CASA ratio, GNPA, NNPA, PCR, credit cost, CAR/CRAR, cost-to-income, RoA, RoE, loan growth.
+
 ---
-5. Valuation (`valuation/`)
-5.1 FCFF DCF (`dcf.py`)
-FCFF = EBIT·(1−t) + D&A − Capex − ΔNWC
-Stages:
-Stage 1: years 1–5, growth = g1.
-Stage 2: years 6–10, growth fades linearly from g1 to g_T.
-Terminal value: FCFF₁₁ / (WACC − g_T).
-WACC:
-Ke = Rf + β·ERP (+ size premium from config).
-Kd = Interest / Average debt × (1 − t).
-Weights are at market value.
-β: 2-yr weekly regression against Nifty 500, Blume-adjusted (0.67·β + 0.33).
-g1 default = min(5-yr revenue CAGR, sector cap), overridable by the user.
-Output: per-share value = (EV − Net debt − Minority interest + Non-op investments) / diluted shares.
-Sensitivity grid: WACC ±2% in 0.5% steps × g_T from 4–7%.
-Scenarios: bear, base and bull by shifting g1, margins and WACC (deltas in `valuation.yaml`).
-5.2 Reverse DCF (`reverse_dcf.py`)
+
+## 5. Valuation (`valuation/`)
+
+### 5.1 FCFF DCF (`dcf.py`)
+- FCFF = EBIT·(1−t) + D&A − Capex − ΔNWC
+- Stages:
+  - Stage 1: years 1–5, growth = g1.
+  - Stage 2: years 6–10, growth fades linearly from g1 to g_T.
+  - Terminal value: FCFF₁₁ / (WACC − g_T).
+- WACC:
+  - Ke = Rf + β·ERP (+ size premium from config).
+  - Kd = Interest / Average debt × (1 − t).
+  - Weights are at market value.
+- β: 2-yr weekly regression against Nifty 500, Blume-adjusted (0.67·β + 0.33).
+- g1 default = min(5-yr revenue CAGR, sector cap), overridable by the user.
+- Output: per-share value = (EV − Net debt − Minority interest + Non-op investments) / diluted shares.
+- **Sensitivity grid:** WACC ±2% in 0.5% steps × g_T from 4–7%.
+- **Scenarios:** bear, base and bull by shifting g1, margins and WACC (deltas in `valuation.yaml`).
+
+### 5.2 Reverse DCF (`reverse_dcf.py`)
 Solve for the implied g1 such that DCF value = CMP, holding WACC and g_T at base. Use `scipy.optimize.brentq`. Output:
-`implied_growth`
-`gap = implied_growth − historical_5y_growth`
-5.3 Own-history bands (`bands.py`)
+- `implied_growth`
+- `gap = implied_growth − historical_5y_growth`
+
+### 5.3 Own-history bands (`bands.py`)
 For PE, EV/EBITDA and P/B, build a daily TTM multiple series over 5 and 10 years. Report the median, ±1σ and ±2σ, and convert each back to a price using current TTM earnings, EBITDA or book value. Exclude periods where earnings are ≤ 0.
-5.4 Relative (`relative.py`)
+
+### 5.4 Relative (`relative.py`)
 Use the sector median multiple, adjusted for ROCE and growth relative to peers:
-`adj_multiple = peer_median × (ROCE/peer_ROCE)^a × (growth/peer_growth)^b`
-`a` and `b` come from config.
-5.5 EPV & Graham (`epv.py`)
-EPV = normalised EBIT·(1−t) / WACC, adjusted for net cash.
-Graham number = √(22.5 × EPS × BVPS).
-5.6 Sector models (`sector_models.py`)
+- `adj_multiple = peer_median × (ROCE/peer_ROCE)^a × (growth/peer_growth)^b`
+- `a` and `b` come from config.
+
+### 5.5 EPV & Graham (`epv.py`)
+- EPV = normalised EBIT·(1−t) / WACC, adjusted for net cash.
+- Graham number = √(22.5 × EPS × BVPS).
+
+### 5.6 Sector models (`sector_models.py`)
 Driven by `config/sectors.yaml`:
-Banks/NBFC: justified P/B = (ROE − g)/(Ke − g) × BVPS; residual income model.
-Insurance: P/EV band; EV plus a VNB multiple (manual EV input allowed).
-Cyclicals: normalised mid-cycle EBITDA (7–10 yr median margin × current sales) × EV/EBITDA band median.
-Real estate: NAV (manual input) × discount.
-Holding companies: SOTP of listed holdings at market value × (1 − holding discount) + standalone business value.
-5.7 Blend (`blend.py`)
-Fair value = Σ(weight × method value), with weights per sector from `sectors.yaml`.
-Baseline = min(bear DCF, EPV, band −1σ price), then take the max of that and (0.8 × book value) for asset-heavy sectors only.
-Top band = max(bull DCF, band +1σ price), capped at band +2σ.
-MoS by provisional grade: A 15%, B 27.5%, C 40% (from config).
-Zones:
-Deep Discount: CMP < Baseline
-Discount: Baseline ≤ CMP < FV·(1−MoS)
-Fair: FV·(1−MoS) ≤ CMP ≤ FV·1.10
-Premium: FV·1.10 < CMP ≤ Top band
-Extreme Premium: CMP > Top band
+- **Banks/NBFC:** justified P/B = (ROE − g)/(Ke − g) × BVPS; residual income model.
+- **Insurance:** P/EV band; EV plus a VNB multiple (manual EV input allowed).
+- **Cyclicals:** normalised mid-cycle EBITDA (7–10 yr median margin × current sales) × EV/EBITDA band median.
+- **Real estate:** NAV (manual input) × discount.
+- **Holding companies:** SOTP of listed holdings at market value × (1 − holding discount) + standalone business value.
+
+### 5.7 Blend (`blend.py`)
+- **Fair value** = Σ(weight × method value), with weights per sector from `sectors.yaml`.
+- **Baseline** = min(bear DCF, EPV, band −1σ price), then take the max of that and (0.8 × book value) for asset-heavy sectors only.
+- **Top band** = max(bull DCF, band +1σ price), capped at band +2σ.
+- **MoS by provisional grade:** A 15%, B 27.5%, C 40% (from config).
+- **Zones:**
+  - Deep Discount: CMP < Baseline
+  - Discount: Baseline ≤ CMP < FV·(1−MoS)
+  - Fair: FV·(1−MoS) ≤ CMP ≤ FV·1.10
+  - Premium: FV·1.10 < CMP ≤ Top band
+  - Extreme Premium: CMP > Top band
+
 Report dispersion across methods. If the coefficient of variation exceeds 35%, raise a "low valuation confidence" flag.
+
 ---
-6. Technical engine (`technical/`)
-All calculations run on adjusted prices. The primary timeframe is weekly, with daily used for entry refinement.
-Module	Output
-`stage.py`	Weinstein stage 1–4 from the 30-week SMA slope + price position + volume
-`structure.py`	Swing points (fractal, N configurable), HH/HL/LH/LL labels, BOS, CHoCH, trend state
-`zones.py`	Demand/supply zones: base candles before an impulsive move (range > k·ATR). Zone = base high/low. Freshness = count of retests. Order blocks and FVGs. Dealing-range equilibrium (50%) and OTE (0.618–0.79)
-`avwap.py`	Anchored VWAP from the 52-wk low, the last results date and the last major swing low
-`volume_profile.py`	POC, VAH, VAL over the last 1 yr (weekly bins)
-`rs.py`	Mansfield RS vs Nifty 500 and vs sector index; RS percentile across the universe
-`momentum.py`	Weekly RSI(14), distance from 200-DMA z-score, 52-wk high proximity
-`participation.py`	Delivery % vs its own 50-day average; up-week vs down-week volume ratio; VCP detector (contracting pullbacks)
-`risk.py`	ATR(14) weekly, invalidation = below demand-zone low − 0.5·ATR, R:R to FV and to the Top band
-Buy zone = intersection of `[Baseline, FV·(1−MoS)]` (or `[FV·(1−MoS), FV]` for A-grade stocks) with the nearest fresh demand zone, AVWAP or POC below CMP. If they don't intersect, the buy zone is the nearest technical support within the valuation range. If there is none, the output is "No technical buy zone yet". Stage 4 means the buy zone is suppressed.
+
+## 6. Technical engine (`technical/`)
+All calculations run on adjusted prices. The primary timeframe is **weekly**, with daily used for entry refinement.
+
+| Module | Output |
+|---|---|
+| `stage.py` | Weinstein stage 1–4 from the 30-week SMA slope + price position + volume |
+| `structure.py` | Swing points (fractal, N configurable), HH/HL/LH/LL labels, BOS, CHoCH, trend state |
+| `zones.py` | Demand/supply zones: base candles before an impulsive move (range > k·ATR). Zone = base high/low. Freshness = count of retests. Order blocks and FVGs. Dealing-range equilibrium (50%) and OTE (0.618–0.79) |
+| `avwap.py` | Anchored VWAP from the 52-wk low, the last results date and the last major swing low |
+| `volume_profile.py` | POC, VAH, VAL over the last 1 yr (weekly bins) |
+| `rs.py` | Mansfield RS vs Nifty 500 and vs sector index; RS percentile across the universe |
+| `momentum.py` | Weekly RSI(14), distance from 200-DMA z-score, 52-wk high proximity |
+| `participation.py` | Delivery % vs its own 50-day average; up-week vs down-week volume ratio; VCP detector (contracting pullbacks) |
+| `risk.py` | ATR(14) weekly, invalidation = below demand-zone low − 0.5·ATR, R:R to FV and to the Top band |
+
+**Buy zone** = intersection of `[Baseline, FV·(1−MoS)]` (or `[FV·(1−MoS), FV]` for A-grade stocks) with the nearest fresh demand zone, AVWAP or POC below CMP. If they don't intersect, the buy zone is the nearest technical support within the valuation range. If there is none, the output is "No technical buy zone yet". Stage 4 means the buy zone is suppressed.
+
 ---
-7. Scoring (`scoring/`)
-7.1 Knock-outs (`knockouts.py`)
+
+## 7. Scoring (`scoring/`)
+
+### 7.1 Knock-outs (`knockouts.py`)
 A stock is capped at grade C if any of these apply:
-Promoter pledge > 10% (config)
-CFO negative in ≥ 3 of the last 5 years
-An auditor resignation in the last 2 years (manual flag or filing parse)
-On the ASM/GSM list
-Market cap < ₹500 Cr
-20-day average traded value < ₹5 Cr
-Beneish M > −1.78
-7.2 Pillars (0–100 each; sub-metrics scored by piecewise-linear maps in `scoring.yaml`)
-Pillar	Weight	Sub-metrics
-Quality	25	5-yr ROCE avg, ROCE trend, CFO/EBITDA, FCF conversion, Piotroski
-Growth	20	5-yr sales & EPS CAGR, last 4Q YoY EPS growth, acceleration
-Valuation	20	Zone position: (FV − CMP)/FV mapped to score; reverse-DCF gap
-Financial health	15	D/E, ICR, Net debt/EBITDA, CCC trend, Altman Z″
-Governance & ownership	10	Pledge, promoter trend, MF/FII/DII QoQ change, other-income share, RPT flag
-Technical	10	Stage, RS percentile, structure trend, delivery trend
+- Promoter pledge > 10% (config)
+- CFO negative in ≥ 3 of the last 5 years
+- An auditor resignation in the last 2 years (manual flag or filing parse)
+- On the ASM/GSM list
+- Market cap < ₹500 Cr
+- 20-day average traded value < ₹5 Cr
+- Beneish M > −1.78
+
+### 7.2 Pillars (0–100 each; sub-metrics scored by piecewise-linear maps in `scoring.yaml`)
+| Pillar | Weight | Sub-metrics |
+|---|---|---|
+| Quality | 25 | 5-yr ROCE avg, ROCE trend, CFO/EBITDA, FCF conversion, Piotroski |
+| Growth | 20 | 5-yr sales & EPS CAGR, last 4Q YoY EPS growth, acceleration |
+| Valuation | 20 | Zone position: (FV − CMP)/FV mapped to score; reverse-DCF gap |
+| Financial health | 15 | D/E, ICR, Net debt/EBITDA, CCC trend, Altman Z″ |
+| Governance & ownership | 10 | Pledge, promoter trend, MF/FII/DII QoQ change, other-income share, RPT flag |
+| Technical | 10 | Stage, RS percentile, structure trend, delivery trend |
+
 Banks use a bank-specific Quality and Health map (asset quality, NIM, CAR).
-7.3 Grade
-A+ ≥ 85, A ≥ 75, B ≥ 60, C ≥ 45, D < 45, then apply knock-out caps. Note the circular dependency: the grade decides the MoS, which decides the zone, which feeds the valuation pillar. Resolve it by computing a provisional grade that excludes the Valuation pillar to pick the MoS, then compute the final grade.
-7.4 Earned-premium score (`earned_premium.py`, 0–8)
+
+### 7.3 Grade
+A+ ≥ 85, A ≥ 75, B ≥ 60, C ≥ 45, D < 45, then apply knock-out caps. Note the circular dependency: the grade decides the MoS, which decides the zone, which feeds the valuation pillar. Resolve it by computing a **provisional grade that excludes the Valuation pillar** to pick the MoS, then compute the final grade.
+
+### 7.4 Earned-premium score (`earned_premium.py`, 0–8)
 One point for each condition met:
-Reverse-DCF implied growth ≤ 5-yr historical growth
-Last 2 quarters show YoY EPS growth accelerating
-ROCE is up versus 3 years ago
-OPM is up YoY with sales growth > 15% (operating leverage)
-MF + FII + DII holding is up QoQ
-Promoter holding is flat or up, with no new pledge
-RS percentile ≥ 80
-Stage 2 and within 10% of the 52-wk high
-7.5 Decision matrix (`decision.py`)
-Grade \ Zone	Deep Discount	Discount	Fair	Premium	Extreme Premium
-A+/A	Strong Buy*	Buy / Accumulate	Buy on Pullback → buy zone	EP ≥ 6: Momentum Entry; else Wait	Hold if owned; don't initiate
-B	Buy w/ confirmation	Accumulate slowly	Wait	Avoid	Book Profits
-C	Value-trap check	Watch	Avoid	Avoid	Avoid
-D	Avoid	Avoid	Avoid	Avoid	Avoid
-*Deep Discount on an A-grade stock always attaches a "Why is it cheap?" checklist (news, governance, regulatory action, one-off losses).
+1. Reverse-DCF implied growth ≤ 5-yr historical growth
+2. Last 2 quarters show YoY EPS growth accelerating
+3. ROCE is up versus 3 years ago
+4. OPM is up YoY with sales growth > 15% (operating leverage)
+5. MF + FII + DII holding is up QoQ
+6. Promoter holding is flat or up, with no new pledge
+7. RS percentile ≥ 80
+8. Stage 2 and within 10% of the 52-wk high
+
+### 7.5 Decision matrix (`decision.py`)
+| Grade \ Zone | Deep Discount | Discount | Fair | Premium | Extreme Premium |
+|---|---|---|---|---|---|
+| A+/A | Strong Buy* | Buy / Accumulate | Buy on Pullback → buy zone | EP ≥ 6: Momentum Entry; else Wait | Hold if owned; don't initiate |
+| B | Buy w/ confirmation | Accumulate slowly | Wait | Avoid | Book Profits |
+| C | Value-trap check | Watch | Avoid | Avoid | Avoid |
+| D | Avoid | Avoid | Avoid | Avoid | Avoid |
+
+\*Deep Discount on an A-grade stock always attaches a "Why is it cheap?" checklist (news, governance, regulatory action, one-off losses).
+
 Stage 4 overrides any Buy into Wait, with the reason "downtrend — wait for Stage 1 base".
+
 ---
-8. API (FastAPI)
-Method	Path	Purpose
-GET	`/api/stocks/search?q=`	Symbol search
-GET	`/api/stocks/{symbol}/report`	Full StockReport DTO
-POST	`/api/stocks/{symbol}/refresh`	Enqueue a data refresh
-GET	`/api/stocks/{symbol}/valuation/sensitivity`	DCF grid
-POST	`/api/stocks/{symbol}/overrides`	User assumptions (g1, margins, WACC, sector model)
-GET	`/api/screener`	Filters: grade, zone, sector, distance_to_buy_zone, EP score, mcap
-GET/POST/DELETE	`/api/watchlist`	
-GET/POST/DELETE	`/api/alerts`	Price enters buy zone / crosses FV / Top band
-POST	`/api/uploads/screener`	Upload a Screener Excel export
-GET	`/api/brokers/status`	Token validity per broker
-GET	`/api/brokers/{fyers	kite}/login`, `/callback`
-GET	`/api/config` / PUT	View or edit YAML-backed config (validated)
-POST	`/api/backtests` / GET `/api/backtests/{id}`	Run a backtest or fetch results
-GET	`/api/jobs`	Job run history, data freshness
-StockReport DTO (abridged)
+
+## 8. API (FastAPI)
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/stocks/search?q=` | Symbol search |
+| GET | `/api/stocks/{symbol}/report` | Full StockReport DTO |
+| POST | `/api/stocks/{symbol}/refresh` | Enqueue a data refresh |
+| GET | `/api/stocks/{symbol}/valuation/sensitivity` | DCF grid |
+| POST | `/api/stocks/{symbol}/overrides` | User assumptions (g1, margins, WACC, sector model) |
+| GET | `/api/screener` | Filters: grade, zone, sector, distance_to_buy_zone, EP score, mcap |
+| GET/POST/DELETE | `/api/watchlist` | |
+| GET/POST/DELETE | `/api/alerts` | Price enters buy zone / crosses FV / Top band |
+| POST | `/api/uploads/screener` | Upload a Screener Excel export |
+| GET | `/api/brokers/status` | Token validity per broker |
+| GET | `/api/brokers/{fyers|kite}/login`, `/callback` | OAuth |
+| GET | `/api/config` / PUT | View or edit YAML-backed config (validated) |
+| POST | `/api/backtests` / GET `/api/backtests/{id}` | Run a backtest or fetch results |
+| GET | `/api/jobs` | Job run history, data freshness |
+
+### StockReport DTO (abridged)
 ```json
 {
   "symbol": "XYZ", "cmp": 0, "as_of": "date", "sources": {"prices": "fyers", "fundamentals": "screener"},
@@ -226,49 +356,69 @@ StockReport DTO (abridged)
   "reasons": ["..."], "red_flags": ["..."], "data_gaps": ["..."], "thesis": "optional LLM text"
 }
 ```
+
 ---
-9. Frontend pages
-Dashboard: broker connection status, data freshness, top A-grade stocks in the buy zone, triggered alerts.
-Screener: a sortable table (symbol, sector, grade, zone, CMP, FV, % to buy zone, EP score, RS). Filters are saved as presets.
-Stock report, the core page:
-Header: CMP, grade badge, action badge, data sources.
-Zone gauge: a horizontal bar marking Baseline, Buy zone, FV and Top band, with a CMP marker.
-Chart: lightweight-charts weekly candles with overlays for demand/supply zones, AVWAPs, 30-wk SMA, POC, and valuation-level lines (Baseline, FV, Top band). Includes a daily/weekly toggle.
-Valuation panel: a method table, a DCF sensitivity heatmap, reverse-DCF readout, and editable assumptions that save as an override and recompute live.
-Scorecards: a six-pillar radar chart plus expandable sub-metrics, each with its reason.
-Fundamentals: 10-yr charts for sales, EBITDA, PAT, CFO, FCF, ROCE and CCC, plus a shareholding trend.
-Red flags and data gaps.
-Watchlist & alerts.
-Backtest: choose rules (grade set × zone set × holding period) and see the equity curve against Nifty 500, CAGR, max drawdown and hit rate.
-Settings: connect brokers, edit config (with a YAML validator), manage uploads.
+
+## 9. Frontend pages
+1. **Dashboard:** broker connection status, data freshness, top A-grade stocks in the buy zone, triggered alerts.
+2. **Screener:** a sortable table (symbol, sector, grade, zone, CMP, FV, % to buy zone, EP score, RS). Filters are saved as presets.
+3. **Stock report**, the core page:
+   - Header: CMP, grade badge, action badge, data sources.
+   - **Zone gauge:** a horizontal bar marking Baseline, Buy zone, FV and Top band, with a CMP marker.
+   - **Chart:** lightweight-charts weekly candles with overlays for demand/supply zones, AVWAPs, 30-wk SMA, POC, and valuation-level lines (Baseline, FV, Top band). Includes a daily/weekly toggle.
+   - **Valuation panel:** a method table, a DCF sensitivity heatmap, reverse-DCF readout, and editable assumptions that save as an override and recompute live.
+   - **Scorecards:** a six-pillar radar chart plus expandable sub-metrics, each with its reason.
+   - **Fundamentals:** 10-yr charts for sales, EBITDA, PAT, CFO, FCF, ROCE and CCC, plus a shareholding trend.
+   - **Red flags and data gaps.**
+4. **Watchlist & alerts.**
+5. **Backtest:** choose rules (grade set × zone set × holding period) and see the equity curve against Nifty 500, CAGR, max drawdown and hit rate.
+6. **Settings:** connect brokers, edit config (with a YAML validator), manage uploads.
+
 Auth: a single user with a password login (NextAuth credentials or FastAPI session) and HTTPS in deployment.
+
 ---
-10. Jobs (worker, IST)
-Job	Schedule	Work
-`eod_prices`	Weekdays 18:15	OHLCV for the universe + indices via the router
-`nse_bhavcopy`	Weekdays 18:45	Delivery %, surveillance lists, F&O ban
-`technicals`	Weekdays 19:15	Recompute technical snapshots
-`valuation_scores`	Weekdays 19:45	Recompute valuations, scores and reports for the universe
-`alerts_intraday`	Every 5 min, 09:15–15:30	LTP via Fyers/Kite and evaluate alerts
-`shareholding`	Daily 20:30 during filing season	New filings
-`index_constituents`	1st of the month	Nifty 500 + sector index membership
-`results_watch`	Daily in results season	Flag stocks with new quarterly results so fundamentals get refreshed (via Screener upload / yfinance)
+
+## 10. Jobs (worker, IST)
+| Job | Schedule | Work |
+|---|---|---|
+| `eod_prices` | Weekdays 18:15 | OHLCV for the universe + indices via the router |
+| `nse_bhavcopy` | Weekdays 18:45 | Delivery %, surveillance lists, F&O ban |
+| `technicals` | Weekdays 19:15 | Recompute technical snapshots |
+| `valuation_scores` | Weekdays 19:45 | Recompute valuations, scores and reports for the universe |
+| `alerts_intraday` | Every 5 min, 09:15–15:30 | LTP via Fyers/Kite and evaluate alerts |
+| `shareholding` | Daily 20:30 during filing season | New filings |
+| `index_constituents` | 1st of the month | Nifty 500 + sector index membership |
+| `symbol_master` | Daily 07:00 | Rebuild the ISIN-joined symbol master + aliases |
+| `results_watch` | Every 15 min, 07:00–23:00 | New results filings → per-stock pipeline → change notifications (§3.8) |
+| `events` | Every 30 min, 07:00–23:00 | Announcements, pledge/SAST, insider trades, bulk/block deals, ratings |
+| `reconcile` | After each pipeline | Cross-source checks (§3.9) |
+| `broker_token_check` | 08:45 weekdays | Telegram reminder if the Fyers token is expired |
+| `backup` | Daily 02:00 | pg_dump |
+| `catch_up` | On worker start | Run jobs missed while the machine was off |
+
 Every job writes to `job_runs`, uses a Redis lock so it doesn't run twice, and is idempotent (upserts).
+
 ---
-11. Backtest rules
-Monthly rebalance. The universe is point-in-time Nifty 500 membership (include delisted stocks where data exists).
-Fundamentals are used only after their announcement date. Prices are adjusted.
-Costs: 0.1% per side plus STT. Compare against Nifty 500 TRI where available.
-Report CAGR, max drawdown, hit rate and average holding period, broken down by grade × zone cell.
+
+## 11. Backtest rules
+- Monthly rebalance. The universe is point-in-time Nifty 500 membership (include delisted stocks where data exists).
+- Fundamentals are used only after their announcement date. Prices are adjusted.
+- Costs: 0.1% per side plus STT. Compare against Nifty 500 TRI where available.
+- Report CAGR, max drawdown, hit rate and average holding period, broken down by grade × zone cell.
+
 ---
-12. Compliance & safety
-The app is a personal research tool. Grades and targets are not published or distributed.
-Showing specific buy/sell calls or target prices publicly (including on YouTube) may fall under SEBI Research Analyst regulations and the finfluencer rules. Get registration and legal advice before doing so.
-The MVP is read-only on brokers. Any future alert or GTT creation requires explicit per-action confirmation.
+
+## 12. Compliance & safety
+- The app is a personal research tool. Grades and targets are *not* published or distributed.
+- Showing specific buy/sell calls or target prices publicly (including on YouTube) may fall under SEBI Research Analyst regulations and the finfluencer rules. Get registration and legal advice before doing so.
+- The MVP is read-only on brokers. Any future alert or GTT creation requires explicit per-action confirmation.
+
 ---
-13. Golden test set
+
+## 13. Golden test set
 Pick 10 stocks you know well, one per model type: a large private bank, an NBFC, an insurer, a large IT company, an FMCG company, a metal cyclical, a cement company, a capital-goods compounder, a holding company and a mid-cap growth stock. For each, hand-verify these from annual reports and Screener, and store them in `tests/fixtures/golden/<symbol>.json`:
-5-yr ROCE, CFO/EBITDA, CCC, D/E
-One DCF run with fixed inputs
-PE band median and σ
+- 5-yr ROCE, CFO/EBITDA, CCC, D/E
+- One DCF run with fixed inputs
+- PE band median and σ
+
 Every valuation or scoring change must keep these tests green.
