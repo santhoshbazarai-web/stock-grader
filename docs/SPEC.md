@@ -126,6 +126,31 @@ v0.2 adds `symbols` (ISIN master), `symbol_aliases`, `filings` (raw filing index
 - Search uses Postgres `pg_trgm` fuzzy matching on symbol + name + aliases, ranked with exact symbol matches first, then Nifty 500 members, then trigram similarity.
 - The endpoint `/api/stocks/search?q=` returns within 100 ms.
 
+Implementation notes (`data/symbol_master.py` (pure parsers and join), `data/symbol_store.py`, `jobs/symbols.py`, `data/search.py`; parameters in `providers.yaml` → `nse.symbol_files`, `bse`, `symbols`):
+- **Sources:** NSE `EQUITY_L.csv`, `symbolchange.csv` and `namechange.csv` (archives), the BSE `ListofScripData` API (active equity), and Fyers' public `sym_details` CSVs (no login; read when Fyers is configured).
+  - Every file is cached raw before parsing (§3.2a).
+  - Headers are matched by keywords, and the Fyers ISIN and ticker by pattern. An unknown shape raises an error rather than returning partial data. The layouts are unverified against live files (NSE and BSE are unreachable from the build environment).
+- **Join (one `symbols` row per ISIN):**
+  - NSE gives the symbol, series, listing date and preferred name.
+  - BSE gives the scrip code and its own symbol and name, kept as `bse_symbol` / `bse_name` aliases when they differ (names compared without legal suffixes such as Ltd / Limited). A BSE-only company is a row with no NSE symbol and no instrument; delisted BSE-only scrips are skipped.
+  - Fyers gives the broker ticker (the NSE one when both exchanges list it).
+- **Aliases:** symbol changes are followed through chains (INFOSYSTCH → INFOSYS → INFY) to today's symbol, and each old symbol becomes a `former_symbol` alias. Old names become `former_name` aliases. The owner adds `user` aliases (`POST /api/stocks/{symbol}/aliases`).
+- **`symbol_master` job (daily):** the NSE list is required and the job fails without it. The others are optional: a file that can't be fetched leaves its columns and aliases as they were.
+  - Aliases are replaced per kind, from their own file, for the companies in the refresh. Owner aliases, and those of companies no longer listed, are kept.
+  - Every NSE listing is upserted into `instruments` (name, ISIN, series, listing date, face value).
+  - An instrument whose ISIN now trades under a new symbol is **renamed**, so its history follows the company. If the new symbol already has its own instrument, or a symbol now belongs to another ISIN, nothing is merged and the conflict is reported.
+  - A company missing from both exchange masters becomes `inactive`. It keeps its aliases, so old names still resolve.
+- **Search:** one `UNION ALL` over NSE symbols, instrument and master names, BSE codes, ISINs, Fyers tickers and aliases.
+  - Each term scores max(pg_trgm `similarity`, `word_similarity`) against the lower-cased query. Terms below `symbols.search.min_similarity` are dropped.
+  - Codes also match exactly: the symbol (the query with spaces removed, so "hdfc bank" is HDFCBANK), BSE code, ISIN, Fyers ticker, and former, BSE and user symbols.
+  - Hits are grouped per company and ranked: exact code match, then current members of `jobs.universe_index` (Nifty 500), then the rest. Within a tier: active first, then score, then NSE-listed before BSE-only.
+  - GIN trigram indexes (`fastupdate = off`) cover lower(instruments.symbol / name), lower(symbols.name) and lower(symbol_aliases.alias); btree indexes cover the codes.
+  - The planner under-costs the trigram operators and would scan whole tables, so sequential scans are switched off for that one statement (transaction-local `set_config`).
+  - Measured here: 12–60 ms per query at 5,000 companies with 15,000 searchable names; the tests assert a median under 100 ms.
+- **UI:** the header search box is a WAI-ARIA combobox.
+  - ↑/↓ move, Home/End jump, Enter opens the highlighted stock (with no results it opens the typed symbol), Esc closes the list and a second Esc clears the box. `/` or Ctrl/⌘+K focuses it.
+  - Each result shows why it matched (e.g. "formerly Bharti Tele-Ventures Limited", "BSE 500180"), Nifty 500 membership and inactive status. A BSE-only company is shown but cannot be opened: it has no NSE data.
+
 ### 3.6 Financials pipeline (10+ years, free sources)
 1. **XBRL (primary).** Parse NSE and BSE financial-results XBRL (quarterly/annual P&L, half-yearly balance sheet, half-yearly cash flow where filed). Map taxonomy tags to canonical `item_code`s in a single versioned mapping file, `fundamentals/xbrl_map.yaml`, covering both Ind-AS and pre-Ind-AS tags.
 2. **Normalise.** Convert units (₹, lakhs, crores, millions) to ₹, sign conventions, and the fiscal year. Keep both consolidated and standalone. When a later filing restates a period, store it as a new `version`; analysis uses the latest version, while backtests use the version available at that date.

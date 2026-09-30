@@ -18,8 +18,10 @@ from sqlalchemy.orm import Session
 
 from app.core.config import AppConfig, get_config
 from app.data import prices
-from app.db.models import Instrument, PriceDaily
+from app.db.enums import AliasKind, SymbolStatus
+from app.db.models import Instrument, PriceDaily, Symbol, SymbolAlias
 from app.db.session import get_session_factory
+from app.db.upsert import upsert
 from app.devtools.synthetic import seed_company, seed_index
 from app.reports.build import build_report
 from app.reports.data import load_stock_data
@@ -36,6 +38,14 @@ DEMO_STOCKS = (
     ("DEMOFMCG", "fmcg", 0.09, 45.0, 61),
 )
 DEMO_SOURCE = "demo"
+# Synthetic symbol-master entries (SPEC §3.5): made-up ISINs / BSE codes, so search can be tried
+# by BSE code, former name and former symbol, plus one BSE-only company.
+DEMO_ISIN = "INE9DEMO{:02d}01"
+DEMO_BSE = "99{:04d}"
+DEMO_FORMER = {  # symbol → (former name, former symbol)
+    "DEMOIT": ("Demo Infotech Systems Ltd (synthetic demo)", "DEMOINFO"),
+    "DEMOBANK": ("Demo Co-operative Finance Ltd (synthetic demo)", None),
+}
 
 
 def seed(session: Session, config: AppConfig) -> list[str]:
@@ -61,6 +71,8 @@ def seed(session: Session, config: AppConfig) -> list[str]:
             price_source=DEMO_SOURCE,
         )
     session.commit()
+    _seed_symbol_master(session)
+    session.commit()
 
     # Two passes, as in the valuation_scores job, so relative valuation sees the peers.
     loaded = {}
@@ -78,7 +90,41 @@ def seed(session: Session, config: AppConfig) -> list[str]:
     return [s for s, *_ in DEMO_STOCKS]
 
 
+def _seed_symbol_master(session: Session) -> None:
+    ids = dict(session.execute(select(Instrument.symbol, Instrument.id)
+                               .where(Instrument.symbol.like("DEMO%"))).all())  # fmt: skip
+    rows = [
+        {
+            "isin": DEMO_ISIN.format(i),
+            "name": f"{sym.title()} Ltd (synthetic demo)",
+            "nse_symbol": sym,
+            "nse_series": "EQ",
+            "bse_code": DEMO_BSE.format(i),
+            "instrument_id": ids.get(sym),
+            "status": SymbolStatus.ACTIVE,
+            "sources": ["demo"],
+        }
+        for i, (sym, *_) in enumerate(DEMO_STOCKS, start=1)
+    ]
+    rows.append({**rows[0], "isin": DEMO_ISIN.format(99), "bse_code": DEMO_BSE.format(99),
+                 "name": "Demo Rural Traders Ltd (synthetic demo)", "nse_symbol": None,
+                 "nse_series": None, "instrument_id": None})  # BSE only  # fmt: skip
+    upsert(session, Symbol, rows)
+    sym_ids = dict(session.execute(select(Symbol.nse_symbol, Symbol.id)
+                                   .where(Symbol.isin.like("INE9DEMO%"))).all())  # fmt: skip
+    aliases = []
+    for sym, (name, old_symbol) in DEMO_FORMER.items():
+        aliases.append({"symbol_id": sym_ids[sym], "alias": name, "kind": AliasKind.FORMER_NAME,
+                        "source": DEMO_SOURCE, "valid_until": None})  # fmt: skip
+        if old_symbol:
+            aliases.append({"symbol_id": sym_ids[sym], "alias": old_symbol,
+                            "kind": AliasKind.FORMER_SYMBOL, "source": DEMO_SOURCE,
+                            "valid_until": None})  # fmt: skip
+    upsert(session, SymbolAlias, aliases, update=[])
+
+
 def purge(session: Session, config: AppConfig) -> int:
+    session.execute(delete(Symbol).where(Symbol.isin.like("INE9DEMO%")))
     n = session.execute(delete(Instrument).where(Instrument.symbol.like("DEMO%"))).rowcount  # type: ignore[attr-defined]
     bench = config.jobs.universe_index
     iid = prices.instrument_id(session, bench)

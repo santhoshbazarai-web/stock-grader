@@ -13,7 +13,7 @@ master row of a BSE-only company) and ranked:
 2. then members of the universe index (``jobs.universe_index``, Nifty 500),
 3. then everything else;
 
-within each tier active companies first, then by score.
+within each tier active companies first, then by score, NSE-listed before BSE-only.
 """
 
 from dataclasses import dataclass
@@ -199,5 +199,5 @@ def _hits(
                 float(r.score),
             ))  # fmt: skip
     out.sort(key=lambda h: (not h.exact, not h.in_universe_index, not h.active, -h.score,
-                            h.symbol or h.bse_code or ""))  # fmt: skip
+                            h.symbol is None, h.symbol or h.bse_code or ""))  # fmt: skip
     return out

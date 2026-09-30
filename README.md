@@ -180,6 +180,26 @@ older years lack them. Annual reports fill those years (SPEC §3.6 step 3).
   reader and NSE's annual-report list format have only been tested on synthetic reports.
   Check a few real ones with `pdf-inspect` first.
 
+## Symbol master and search
+
+The header search box finds a stock by NSE symbol ("HDFCBANK", or "hdfc bank"), BSE code
+("500180"), ISIN, company name, or a former name or symbol ("Bharti Tele-Ventures",
+"INFOSYSTCH"). It tolerates typos. Keyboard: `/` or Ctrl/⌘+K to focus, ↑/↓ to move, Enter to
+open, Esc to close.
+
+- **Daily job `symbol_master`** (07:15): joins NSE `EQUITY_L.csv`, the BSE scrip master and the
+  Fyers symbol master on ISIN into `symbols`. It adds aliases from NSE's symbol-change and
+  name-change files and BSE's own names, and keeps `instruments` in step.
+  - When NSE changes a symbol, the stock's instrument is renamed, so its price and
+    fundamentals history carries over.
+  - BSE-only companies are searchable but have no stock page (no NSE data).
+- **Ranking:** exact code matches first, then Nifty 500 members, then pg_trgm similarity
+  (threshold `providers.yaml` → `symbols.search.min_similarity`).
+- **Your own aliases:** `POST /api/stocks/{symbol}/aliases {"alias": "..."}`.
+- **Untested against live files:** the parsers are tested on files written in the published
+  layouts. NSE and BSE are unreachable from the build environment, so run
+  `python -m app.jobs run symbol_master` once and check its details.
+
 ## Other data sources
 
 - **yfinance** (`data/providers/yf.py`): price fallback (`TCS.NS`, index tickers from
@@ -215,6 +235,7 @@ python -m app.jobs run results_watch --symbols TCS       # fetch a stock's resul
 python -m app.jobs xbrl-inspect filing.xml               # what the XBRL parser reads (no DB)
 python -m app.jobs xbrl-reparse --symbols TCS            # re-parse cached XBRL after a map change
 python -m app.jobs xbrl-coverage --symbols TCS,INFY      # fiscal years parsed per statement
+python -m app.jobs run symbol_master                     # NSE/BSE/Fyers symbol master + aliases
 python -m app.jobs run annual_reports --symbols TCS      # annual-report PDFs for BS/CF gap years
 python -m app.jobs pdf-inspect report.pdf --fy 2014      # what the PDF reader finds (no DB)
 python -m app.jobs pdf-reparse --symbols TCS             # re-read cached reports after a label change
@@ -243,7 +264,8 @@ curl -H "Authorization: Bearer $TOKEN" localhost:8000/api/stocks/TCS/report
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /api/stocks/search?q=` | Symbol / name search |
+| `GET /api/stocks/search?q=` | Fuzzy search: NSE symbol, BSE code, ISIN, name, former name/symbol |
+| `GET/POST/DELETE /api/stocks/{symbol}/aliases` | Aliases a stock is found by; add / delete your own |
 | `GET /api/stocks/{symbol}/report[?rebuild=true]` | StockReport DTO: the stored one, built on first request |
 | `POST /api/stocks/{symbol}/refresh` | Queue a data refresh + rebuild (worker, within a minute) |
 | `GET /api/stocks/{symbol}/valuation/sensitivity` | DCF WACC × terminal-growth grid |
@@ -369,7 +391,9 @@ python -m app.devtools.demo --purge                      # remove them again
 
 They are clearly synthetic: names end in "(synthetic demo)" and prices have `source=demo`. A
 synthetic NIFTY500 is written only when no NIFTY500 prices exist, and it is purged with the
-demo.
+demo. The demo also adds symbol-master entries with made-up ISINs (`INE9DEMO…`) and BSE codes
+(`990001`–`990006`), a former name and symbol for DEMOIT ("Demo Infotech Systems", `DEMOINFO`),
+and a BSE-only company (`990099`), so search can be tried.
 
 **UI tests.** With the stack running and demo data seeded, run
 `E2E_PASSWORD=<APP_PASSWORD> make e2e`. Playwright covers:

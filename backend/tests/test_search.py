@@ -98,6 +98,15 @@ def test_typos_still_match(master: Env) -> None:
     assert find(master, "zzzz qqqq") == []
 
 
+def test_bse_only_after_nse_listed_on_a_tie(master: Env) -> None:
+    with master.session() as s:
+        s.add(Symbol(isin="INE997Z01015", name="HDFC Bank Limited", bse_code="590200",
+                     status=SymbolStatus.ACTIVE, sources=["bse"]))  # fmt: skip
+        s.commit()
+    hits = find(master, "hdfc bank limited")  # both names score 1.0
+    assert [(h.symbol, h.score) for h in hits[:2]] == [("HDFCBANK", 1.0), (None, 1.0)]
+
+
 def test_bse_only_company(master: Env) -> None:
     top = find(master, "acme rural")[0]
     assert (top.symbol, top.bse_code, top.name) == (None, "590099", "Acme Rural Traders Ltd")

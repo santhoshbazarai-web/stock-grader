@@ -233,12 +233,34 @@ export type TechnicalDebug = {
   buy_zone: { status: string; low: number | null; high: number | null } | null;
 };
 
-export type InstrumentHit = {
-  symbol: string;
+// GET /api/stocks/search (SPEC §3.5)
+export type SearchMatch =
+  | "symbol"
+  | "name"
+  | "isin"
+  | "bse_code"
+  | "fyers_symbol"
+  | "former_symbol"
+  | "former_name"
+  | "bse_symbol"
+  | "bse_name"
+  | "user";
+
+export type SearchHit = {
+  symbol: string | null; // NSE symbol; null for a BSE-only company
   name: string | null;
+  isin: string | null;
+  bse_code: string | null;
+  series: string | null;
   sector: string | null;
   industry: string | null;
   is_index: boolean;
+  in_universe_index: boolean;
+  active: boolean;
+  match: SearchMatch;
+  matched: string;
+  exact: boolean;
+  score: number;
 };
 
 // ── P13 pages (app/api/schemas.py, app/api/brokers.py) ──

@@ -22,6 +22,7 @@ from app.db.models import (
     Instrument,
     Report,
     Score,
+    Symbol,
     TechnicalSnapshot,
     UserOverride,
     ValuationSnapshot,
@@ -287,8 +288,21 @@ def test_demo_seed_and_purge(db: Session) -> None:
     rel = next(m for m in it.valuation.methods if m.name == "relative")
     assert rel.value is not None  # three IT peers from the same seed
     assert len(it.levels.model_dump()) and it.levels.discount_edge is not None
+    # a synthetic symbol master: BSE codes, a former name / symbol, one BSE-only company
+    from app.data.search import search
+
+    def top(q: str) -> tuple[str | None, str]:
+        hit = search(db, q, cfg=CFG.providers.symbols.search,
+                     universe_index=CFG.jobs.universe_index, limit=1)[0]  # fmt: skip
+        return hit.symbol, hit.match
+
+    assert top("990001") == ("DEMOIT", "bse_code")
+    assert top("demo infotech systems") == ("DEMOIT", "former_name")
+    assert top("DEMOINFO") == ("DEMOIT", "former_symbol")
+    assert top("demo rural traders") == (None, "name")
     assert purge(db, CFG) == len(DEMO_STOCKS)
     assert db.scalar(select(Instrument.id).where(Instrument.symbol == "NIFTY500")) is None
+    assert db.scalar(select(Symbol.id)) is None
 
 
 def test_a_plus_grade_persists(seeded: Session) -> None:
