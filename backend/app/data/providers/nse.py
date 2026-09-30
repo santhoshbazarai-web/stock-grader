@@ -70,6 +70,7 @@ CA_COLUMNS = [
     "record_date",
     "description",
 ]
+ANNUAL_REPORT_COLUMNS = ["url", "fiscal_year", "disseminated_at"]
 RESULTS_COLUMNS = [
     "url",
     "period_start",
@@ -437,12 +438,51 @@ def parse_results_index(payload: Any, hosts: list[str]) -> tuple[pd.DataFrame, l
     return df.where(df.notna(), None), warnings
 
 
+def parse_annual_reports_index(payload: Any, hosts: list[str]) -> tuple[pd.DataFrame, list[str]]:
+    """``annual-reports`` → one row per document (deduplicated by URL).
+
+    Uses ``fileName`` (the PDF or ZIP URL), ``toYr`` (the fiscal year's end year; ``fromYr`` + 1
+    when absent) and the dissemination time (``broadcast_dttm``, else ``disseminationDateTime``,
+    else ``submissionDate``). The field names are as NSE's page used them when this was
+    written; an entry without a document or year is skipped with a warning."""
+    rows: dict[str, dict[str, Any]] = {}
+    warnings: list[str] = []
+    for rec in _records(payload):
+        url = str(rec.get("fileName") or rec.get("file") or "").strip()
+        year = _int(rec.get("toYr"))
+        if year is None and (start := _int(rec.get("fromYr"))) is not None:
+            year = start + 1
+        if not url or year is None:
+            warnings.append(f"annual report without a document or year: {sorted(rec)}")
+            continue
+        if not xbrl_url_allowed(url, hosts):
+            warnings.append(f"skipped annual report URL outside {hosts}: {url}")
+            continue
+        disseminated = next(
+            (
+                ts
+                for key in ("broadcast_dttm", "disseminationDateTime", "submissionDate")
+                if (ts := _parse_datetime(rec.get(key))) is not None
+            ),
+            None,
+        )
+        rows.setdefault(url, {"url": url, "fiscal_year": year, "disseminated_at": disseminated})
+    df = pd.DataFrame(list(rows.values()), columns=ANNUAL_REPORT_COLUMNS).astype(object)
+    return df.where(df.notna(), None), warnings
+
+
+def _int(value: Any) -> int | None:
+    text = str(value or "").strip()
+    return int(text) if text.isdigit() else None
+
+
 # ───────────────────────── provider ─────────────────────────
 
 
 class NseProvider:
     """Implements DeliveryProvider, ConstituentsProvider, SurveillanceProvider,
-    CorporateActionsProvider, ShareholdingProvider and ResultsFilingsProvider."""
+    CorporateActionsProvider, ShareholdingProvider, ResultsFilingsProvider and
+    AnnualReportsProvider."""
 
     name = Provider.NSE
 
@@ -548,6 +588,35 @@ class NseProvider:
             raise ProviderUnavailable(f"XBRL document not found: {url}")
         if len(resp.content) > cfg.max_xbrl_bytes:
             raise ProviderUnavailable(f"XBRL document larger than {cfg.max_xbrl_bytes} bytes")
+        return resp.content
+
+    def annual_reports(self, symbol: str) -> pd.DataFrame:
+        """Every annual report NSE lists for ``symbol``."""
+        self._http.begin_call()
+        cfg = self._cfg.annual_reports
+        sym = symbol.strip().upper()
+        payload = self._http.get_json(f"{self._cfg.base_url}{cfg.index_path}",
+                                      params={"index": "equities", "symbol": sym})  # fmt: skip
+        if self._raw is not None and payload is not None:  # cache before parsing (§3.2a)
+            try:
+                self._raw.save("nse", f"annual_reports_{sym}.json", json.dumps(payload).encode())
+            except RawStoreError as exc:
+                raise ProviderUnavailable(str(exc)) from exc
+        df, warnings = parse_annual_reports_index(payload if payload is not None else [],
+                                                  cfg.hosts)  # fmt: skip
+        df.attrs["warnings"] = warnings
+        return df
+
+    def annual_report_document(self, url: str) -> bytes:
+        cfg = self._cfg.annual_reports
+        if not xbrl_url_allowed(url, cfg.hosts):
+            raise ProviderUnavailable(f"annual report URL not on an allowed host: {url}")
+        self._http.begin_call()
+        resp = self._http.get(url)
+        if resp is None:
+            raise ProviderUnavailable(f"annual report not found: {url}")
+        if len(resp.content) > cfg.max_bytes:
+            raise ProviderUnavailable(f"annual report larger than {cfg.max_bytes} bytes")
         return resp.content
 
 

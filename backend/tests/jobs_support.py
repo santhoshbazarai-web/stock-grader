@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.core.config import Provider, load_config
 from app.data.gaps import DbGapRecorder
 from app.data.providers.base import ProviderUnavailable
-from app.data.providers.nse import RESULTS_COLUMNS
+from app.data.providers.nse import ANNUAL_REPORT_COLUMNS, RESULTS_COLUMNS
 from app.data.raw_store import RawStore
 from app.data.router import DataRouter
 from app.db.models import Base
@@ -70,6 +70,10 @@ class FakeNse:
     documents: dict[str, bytes] = field(default_factory=dict)
     filing_requests: list[str] = field(default_factory=list)
     document_requests: list[str] = field(default_factory=list)
+    # annual reports: symbol → listing rows (see ANNUAL_REPORT_COLUMNS); url → document bytes
+    reports: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    report_documents: dict[str, bytes] = field(default_factory=dict)
+    report_requests: list[str] = field(default_factory=list)
 
     def results_filings(self, symbol: str) -> pd.DataFrame:
         self.filing_requests.append(symbol)
@@ -82,6 +86,17 @@ class FakeNse:
         if url not in self.documents:
             raise ProviderUnavailable(f"not found: {url}")
         return self.documents[url]
+
+    def annual_reports(self, symbol: str) -> pd.DataFrame:
+        if symbol not in self.reports:
+            raise ProviderUnavailable(f"no annual-report list for {symbol}")
+        return pd.DataFrame(self.reports[symbol], columns=ANNUAL_REPORT_COLUMNS).astype(object)
+
+    def annual_report_document(self, url: str) -> bytes:
+        self.report_requests.append(url)
+        if url not in self.report_documents:
+            raise ProviderUnavailable(f"not found: {url}")
+        return self.report_documents[url]
 
     def corporate_actions(self, symbol: str, start: date, end: date) -> pd.DataFrame:
         self.action_requests.append((symbol, start, end))

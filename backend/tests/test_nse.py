@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import pytest
@@ -14,6 +15,7 @@ from requests import PreparedRequest
 
 from app.core.config import NseConfig, Provider, load_config
 from app.data.providers.base import (
+    AnnualReportsProvider,
     ConstituentsProvider,
     CorporateActionsProvider,
     DeliveryProvider,
@@ -28,6 +30,7 @@ from app.data.providers.nse import (
     NseProvider,
     NseSession,
     build_nse_provider,
+    parse_annual_reports_index,
     parse_ca_subject,
     parse_results_index,
 )
@@ -130,6 +133,7 @@ def test_protocols() -> None:
         CorporateActionsProvider,
         ShareholdingProvider,
         ResultsFilingsProvider,
+        AnnualReportsProvider,
     ):
         assert isinstance(p, proto)
 
@@ -413,3 +417,52 @@ def test_results_document_guards(http: responses.RequestsMock) -> None:
 
 def test_factory() -> None:
     assert isinstance(build_nse_provider(load_config(REPO_CONFIG_DIR).providers, None), NseProvider)
+
+
+# ───────────── annual reports (SPEC §3.6 step 3) ─────────────
+
+ANNUAL = f"{CFG.base_url}{CFG.annual_reports.index_path}"
+IST = ZoneInfo("Asia/Kolkata")
+AR_HOSTS = CFG.annual_reports.hosts
+
+
+def test_parse_annual_reports_index() -> None:
+    arch = "https://nsearchives.nseindia.com/annual_reports"
+    payload = {"data": [
+        {"companyName": "Acme", "fromYr": "2023", "toYr": "2024",
+         "fileName": f"{arch}/AR_ACME_2023_2024.pdf", "broadcast_dttm": "12-Jun-2024 18:10:23"},
+        {"companyName": "Acme", "fromYr": "2022", "toYr": "",  # year from fromYr + 1
+         "fileName": f"{arch}/AR_ACME_2022_2023.zip"},
+        {"companyName": "Acme", "fromYr": "2023", "toYr": "2024",  # same document twice
+         "fileName": f"{arch}/AR_ACME_2023_2024.pdf"},
+        {"companyName": "Acme", "toYr": "2021", "fileName": ""},
+        {"companyName": "Acme", "toYr": "2020", "fileName": "https://evil.example.com/a.pdf"},
+    ]}  # fmt: skip
+    df, warnings = parse_annual_reports_index(payload, AR_HOSTS)
+    assert df.to_dict("records") == [
+        {"url": f"{arch}/AR_ACME_2023_2024.pdf", "fiscal_year": 2024,
+         "disseminated_at": datetime(2024, 6, 12, 18, 10, 23, tzinfo=IST)},
+        {"url": f"{arch}/AR_ACME_2022_2023.zip", "fiscal_year": 2023, "disseminated_at": None},
+    ]  # fmt: skip
+    assert len(warnings) == 2 and "outside" in warnings[1]
+
+
+def test_annual_reports_list_is_cached_and_documents_guarded(
+    http: responses.RequestsMock, tmp_path: Path
+) -> None:
+    http.add(responses.GET, HOME, body="<html/>")
+    ok = "https://nsearchives.nseindia.com/annual_reports/AR_ACME_2023_2024.pdf"
+    http.add(responses.GET, ANNUAL, json={"data": [{"toYr": "2024", "fileName": ok}]})
+    http.add(responses.GET, ok, body=b"%PDF-1.4")
+    big = "https://nsearchives.nseindia.com/annual_reports/BIG.pdf"
+    http.add(responses.GET, big, body=b"x" * (CFG.annual_reports.max_bytes + 1))
+    store = RawStore(tmp_path, clock=lambda: datetime(2024, 6, 14, 12, 0, tzinfo=UTC))
+    p = NseProvider(CFG, NseSession(CFG, clock=Clock()), store)
+    df = p.annual_reports("acme")
+    assert df["url"].tolist() == [ok] and "symbol=ACME" in (http.calls[1].request.url or "")
+    assert (tmp_path / "nse/2024/06/14/annual_reports_ACME.json").is_file()
+    assert p.annual_report_document(ok) == b"%PDF-1.4"
+    for url, message in ((big, "larger than"),
+                         ("https://evil.example.com/a.pdf", "not on an allowed host")):  # fmt: skip
+        with pytest.raises(ProviderUnavailable, match=message):
+            p.annual_report_document(url)

@@ -76,6 +76,7 @@ class FundamentalsProvider(Protocol):
 # - shareholding:       index = period end; canonical shareholding fields + filing_date
 # - results_filings:    url, period_start, period_end, statement_type, audited, is_bank,
 #                       disseminated_at (tz-aware; when the exchange published the filing)
+# - annual_reports:     url, fiscal_year (the FY ending in that calendar year), disseminated_at
 
 
 @runtime_checkable
@@ -122,3 +123,14 @@ class ResultsFilingsProvider(Protocol):
     def results_filings(self, symbol: str) -> pd.DataFrame: ...
 
     def results_document(self, url: str) -> bytes: ...
+
+
+@runtime_checkable
+class AnnualReportsProvider(Protocol):
+    """Annual reports: the list for a symbol, and each document (PDF, or a ZIP holding it)."""
+
+    name: Provider
+
+    def annual_reports(self, symbol: str) -> pd.DataFrame: ...
+
+    def annual_report_document(self, url: str) -> bytes: ...

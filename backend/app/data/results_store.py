@@ -23,18 +23,21 @@ from datetime import UTC, date, datetime, time
 from typing import Any, cast
 
 import pandas as pd
-from sqlalchemy import delete, func, insert, select
+from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import NseResultsConfig, Provider
 from app.data.canonical import Table, fields_for, fiscal_year
 from app.data.xbrl import ItemValue, ResultsFiling, assemble_wide, has_pl
 from app.db.enums import LineStatement, PeriodType, StatementType
-from app.db.models import FinAnnual, FinLineItem, FinQuarterly, ResultFiling
+from app.db.models import FinAnnual, FinLineItem, FinQuarterly, PdfLineCandidate, ResultFiling
 from app.db.upsert import upsert
 from app.fundamentals.xbrl_map import XbrlMap, get_xbrl_map
 
 EXCHANGE_SOURCE = Provider.NSE.value
+# fin_line_items.source of values read from annual-report PDFs (SPEC §3.6 step 3). They only
+# fill gaps: never stored where an exchange-filed figure exists, and dropped when one arrives.
+PDF_SOURCE = "annual_report_pdf"
 
 FinModel = type[FinAnnual] | type[FinQuarterly]
 
@@ -112,6 +115,8 @@ def record_line_items(
                 "derived": False,
                 "tag": item.tag[:512],
                 "map_version": filing.map_version,
+                "annual_report_id": None,
+                "confidence": None,
             }
     return _apply_versions(session, instrument_id, basis, observations, cfg)
 
@@ -125,7 +130,9 @@ def _apply_versions(
 ) -> set[tuple[date, PeriodType]]:
     """Merge new observations (key → row) into each key's version timeline (see
     :func:`record_line_items`). A filed figure after a derived one is always a new version, so
-    the latest version is filed even when it confirms the derived sum."""
+    the latest version is filed even when it confirms the derived sum. An exchange-filed figure
+    removes the key's annual-report PDF figures (gap fillers only); their review-queue rows are
+    marked as no longer stored. Callers never pass PDF figures for keys with filed ones."""
     if not observations:
         return set()
     ends = {k[0] for k in observations}
@@ -141,9 +148,14 @@ def _apply_versions(
 
     stale: list[int] = []
     fresh: list[dict[str, Any]] = []
+    superseded: list[tuple[Any, ...]] = []
     for key, obs in observations.items():
         old = existing.get(key, [])
         timeline = [_as_dict(r) for r in old if not _replaced_by(r, obs)]
+        if obs["source"] != PDF_SOURCE and not obs["derived"]:
+            if any(r["source"] == PDF_SOURCE for r in timeline):
+                superseded.append(key)
+            timeline = [r for r in timeline if r["source"] != PDF_SOURCE]
         timeline.append(obs)
         timeline.sort(key=lambda r: (r["usable_from"] is None, r["usable_from"] or date.max,
                                      r["announced_at"] or _FAR, r["filing_id"] or 0))  # fmt: skip
@@ -165,20 +177,46 @@ def _apply_versions(
         session.execute(delete(FinLineItem).where(FinLineItem.id.in_(stale)))
     if fresh:
         session.execute(insert(FinLineItem), fresh)
+    if superseded:
+        _mark_superseded(session, instrument_id, basis, superseded)
     return {(k[0], k[1]) for k in observations}
 
 
+def _mark_superseded(
+    session: Session, instrument_id: int, basis: StatementType, keys: list[tuple[Any, ...]]
+) -> None:
+    for period_end, _, statement, code in keys:
+        session.execute(
+            update(PdfLineCandidate)
+            .where(
+                PdfLineCandidate.instrument_id == instrument_id,
+                PdfLineCandidate.basis == basis,
+                PdfLineCandidate.period_end == period_end,
+                PdfLineCandidate.statement == statement,
+                PdfLineCandidate.item_code == code,
+                PdfLineCandidate.stored.is_(True),
+            )
+            .values(stored=False, note="superseded by an exchange XBRL figure")
+        )
+
+
 def _replaced_by(r: FinLineItem, obs: Mapping[str, Any]) -> bool:
-    """Re-parsing the same filing, or re-deriving a year, replaces its own earlier figure."""
+    """Re-parsing the same filing or annual report, or re-deriving a year, replaces its own
+    earlier figure."""
     if obs["derived"]:
         return bool(r.derived)
-    return not r.derived and r.filing_id == obs["filing_id"]
+    if r.derived:
+        return False
+    if obs["annual_report_id"] is not None:
+        return bool(r.annual_report_id == obs["annual_report_id"])
+    return r.annual_report_id is None and bool(r.filing_id == obs["filing_id"])
 
 
 def _as_dict(r: FinLineItem) -> dict[str, Any]:
     cols = ("instrument_id", "isin", "period_end", "period_type", "statement", "basis",
             "item_code", "value_inr", "unit", "source", "filing_id", "announced_at",
-            "usable_from", "derived", "tag", "map_version")  # fmt: skip
+            "usable_from", "derived", "tag", "map_version", "annual_report_id",
+            "confidence")  # fmt: skip
     return {c: getattr(r, c) for c in cols}
 
 
@@ -227,11 +265,15 @@ def rebuild_wide(
     touched: set[tuple[date, PeriodType]],
     xmap: XbrlMap,
     fetched_at: datetime,
+    source: str | None = EXCHANGE_SOURCE,
+    clear: frozenset[str] = frozenset(),
 ) -> list[str]:
     """Rewrite fin_quarterly / fin_annual rows from the latest line-item versions for every
     period the filing touched (analysis uses the latest version). A quarter needs its P&L; a
     year row is written when the year's P&L is known, or updated (e.g. a restated balance
-    sheet) when it already exists. Returns the periods written."""
+    sheet) when it already exists. ``source=None`` keeps an existing row's source (annual-report
+    values fill a row; they don't make it exchange-filed). ``clear``: columns set to NULL when
+    the line items no longer give them (a rejected PDF value). Returns the periods written."""
     targets: set[tuple[date, Table]] = set()
     for end, ptype in touched:
         targets.add((end, "fin_quarterly" if ptype is PeriodType.QUARTER else "fin_annual"))
@@ -247,10 +289,11 @@ def rebuild_wide(
             "instrument_id": instrument_id,
             "statement_type": basis,
             "period_end": end,
-            "source": EXCHANGE_SOURCE,
+            "source": source or (old.source if old is not None else PDF_SOURCE),
             "fetched_at": fetched_at,
             "announcement_date": _earliest(first, old.announcement_date if old else None),
             **{c: rec[c] for c in fields_for(table) if rec.get(c) is not None},
+            **{c: None for c in clear if c in fields_for(table) and rec.get(c) is None},
         }
         extra = {**((old.extra if old else None) or {}), **(rec.get("extra") or {})}
         if extra:
@@ -347,6 +390,8 @@ def derive_years(
                 "derived": True,
                 "tag": "sum of quarters " + ", ".join(e.isoformat() for e in reversed(ends)),
                 "map_version": max((r.map_version or 0) for r in rows) or None,
+                "annual_report_id": None,
+                "confidence": None,
             }
     return _apply_versions(session, instrument_id, basis, observations, cfg)
 

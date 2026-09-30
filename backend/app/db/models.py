@@ -39,6 +39,7 @@ from app.db.enums import (
     JobStatus,
     LineStatement,
     PeriodType,
+    ReviewStatus,
     StatementType,
     SurveillanceList,
     Timeframe,
@@ -46,6 +47,7 @@ from app.db.enums import (
 
 __all__ = [
     "Alert",
+    "AnnualReport",
     "Backtest",
     "Base",
     "BrokerToken",
@@ -59,6 +61,7 @@ __all__ = [
     "Instrument",
     "JobRun",
     "Notification",
+    "PdfLineCandidate",
     "PriceDaily",
     "Report",
     "ResultFiling",
@@ -280,6 +283,7 @@ class FinLineItem(Base):
         UniqueConstraint(*__upsert_key__, name="uq_fin_line_items_key"),  # default name > 63 chars
         Index("ix_fin_line_items_instrument_basis", "instrument_id", "basis", "period_end"),
         Index("ix_fin_line_items_filing", "filing_id"),
+        Index("ix_fin_line_items_annual_report", "annual_report_id"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
@@ -301,8 +305,83 @@ class FinLineItem(Base):
     usable_from: Mapped[date | None]  # first day a close-based signal may use it (rule 4)
     derived: Mapped[bool] = mapped_column(Boolean, server_default="false")
     tag: Mapped[str | None] = mapped_column(String(512))  # the XBRL element(s) that matched
-    map_version: Mapped[int | None]  # xbrl_map.yaml version
+    map_version: Mapped[int | None]  # xbrl_map.yaml version (pdf_labels.yaml for PDF values)
+    # Annual-report PDF values (source annual_report_pdf): the report and the read's confidence.
+    annual_report_id: Mapped[int | None] = mapped_column(
+        ForeignKey("annual_reports.id", ondelete="CASCADE")
+    )
+    confidence: Mapped[float | None]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class AnnualReport(TimestampMixin, Base):
+    """Ledger of annual reports (PDF) read as the balance-sheet / cash-flow gap filler (SPEC
+    v0.2 §3.6 step 3). ``document`` is the exchange URL, or ``upload:<sha256>``. Values read
+    land in pdf_line_candidates; accepted ones in fin_line_items (source annual_report_pdf)."""
+
+    __tablename__ = "annual_reports"
+    __upsert_key__ = ("instrument_id", "document")
+    __table_args__ = (
+        UniqueConstraint("instrument_id", "document"),
+        Index("ix_annual_reports_status", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    instrument_id: Mapped[int] = _instrument_fk()
+    exchange: Mapped[str] = mapped_column(String(16))  # nse | upload
+    document: Mapped[str] = mapped_column(String(512))
+    fiscal_year: Mapped[int | None]  # the year the report covers (FY ending in this year)
+    disseminated_at: Mapped[datetime | None]
+    usable_from: Mapped[date | None]  # first day a close-based signal may use it (rule 4)
+    status: Mapped[FilingStatus] = mapped_column(str_enum(FilingStatus))
+    attempts: Mapped[int] = mapped_column(Integer, server_default="0")
+    error: Mapped[str | None] = mapped_column(Text)
+    raw_path: Mapped[str | None] = mapped_column(String(512))  # the cached PDF (SPEC §3.2a)
+    page_count: Mapped[int | None]
+    # per statement found: statement, basis, pages, method, unit, column dates, checks
+    statements: Mapped[list[Any] | None]
+    warnings: Mapped[list[str] | None]
+    labels_version: Mapped[int | None]  # pdf_labels.yaml version
+    parsed_at: Mapped[datetime | None]
+
+
+class PdfLineCandidate(TimestampMixin, Base):
+    """One value read from an annual report, and its review state (the review queue holds the
+    ``pending`` ones). ``stored`` says whether it is in fin_line_items: an accepted value is not
+    stored where the exchange XBRL already has the item (``note`` says so)."""
+
+    __tablename__ = "pdf_line_candidates"
+    __upsert_key__ = (
+        "annual_report_id", "basis", "statement", "period_end", "item_code",
+    )  # fmt: skip
+    __table_args__ = (
+        UniqueConstraint(*__upsert_key__, name="uq_pdf_line_candidates_key"),
+        Index("ix_pdf_line_candidates_status", "status"),
+        Index("ix_pdf_line_candidates_instrument", "instrument_id", "period_end"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    annual_report_id: Mapped[int] = mapped_column(
+        ForeignKey("annual_reports.id", ondelete="CASCADE")
+    )
+    instrument_id: Mapped[int] = _instrument_fk()
+    statement: Mapped[LineStatement] = mapped_column(str_enum(LineStatement))
+    basis: Mapped[StatementType] = mapped_column(str_enum(StatementType))
+    period_end: Mapped[date]
+    period_type: Mapped[PeriodType] = mapped_column(str_enum(PeriodType))
+    item_code: Mapped[str] = mapped_column(String(64))
+    value_inr: Mapped[float | None]  # as read, scaled to rupees (None: the page has no unit)
+    raw_value: Mapped[float]  # as printed
+    raw_label: Mapped[str] = mapped_column(String(512))
+    pages: Mapped[list[Any]]  # 1-based page numbers
+    method: Mapped[str] = mapped_column(String(16))  # pdfplumber | camelot
+    confidence: Mapped[float]
+    reasons: Mapped[list[str]]
+    status: Mapped[ReviewStatus] = mapped_column(str_enum(ReviewStatus))
+    corrected_value_inr: Mapped[float | None]  # the owner's value (status corrected)
+    stored: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    note: Mapped[str | None] = mapped_column(Text)
+    reviewed_at: Mapped[datetime | None]
 
 
 class Shareholding(SourcedMixin, Base):

@@ -77,3 +77,13 @@ class FilingStatus(StrEnum):
     PENDING = "pending"  # listed by the exchange, not yet downloaded
     PARSED = "parsed"  # stored into fin_quarterly / fin_annual
     FAILED = "failed"  # download or parse failed (retried up to results_watch.max_attempts)
+
+
+class ReviewStatus(StrEnum):
+    """A value read from an annual-report PDF (SPEC v0.2 §3.6 step 3)."""
+
+    AUTO_ACCEPTED = "auto_accepted"  # confidence >= auto_accept: stored without review
+    PENDING = "pending"  # low confidence: waits in the review queue
+    ACCEPTED = "accepted"  # the owner accepted the value as read
+    CORRECTED = "corrected"  # the owner entered the right value
+    REJECTED = "rejected"  # the owner rejected it: not stored

@@ -69,4 +69,6 @@ def test_spec_tables_present() -> None:
         "notifications",  # in-app alert notifications
         "result_filings",  # exchange results filings (XBRL) ledger
         "fin_line_items",  # SPEC v0.2 §3.4 long-format fundamentals
+        "annual_reports",  # SPEC v0.2 §3.6 step 3: annual-report PDF ledger
+        "pdf_line_candidates",  # ... and its review queue
     } == MODEL_TABLES

@@ -36,6 +36,7 @@ from app.core.config import Dataset, Provider, ProvidersConfig
 from app.core.rate_limiter import Limiter, RateLimitTimeout
 from app.data.gaps import GapRecord, GapRecorder
 from app.data.providers.base import (
+    AnnualReportsProvider,
     ConstituentsProvider,
     CorporateActionsProvider,
     DeliveryProvider,
@@ -228,6 +229,24 @@ class DataRouter:
             ResultsFilingsProvider,
             lambda p: p.results_filings(symbol),
             symbol=symbol,
+        )
+
+    def annual_reports(self, symbol: str) -> RouteResult[pd.DataFrame]:
+        return self.fetch(
+            Dataset.ANNUAL_REPORTS,
+            AnnualReportsProvider,
+            lambda p: p.annual_reports(symbol),
+            symbol=symbol,
+        )
+
+    def annual_report_document(self, url: str, symbol: str) -> RouteResult[bytes]:
+        """One annual report. No data gap on failure: the caller keeps a per-report ledger."""
+        return self.fetch(
+            Dataset.ANNUAL_REPORTS,
+            AnnualReportsProvider,
+            lambda p: p.annual_report_document(url),
+            symbol=symbol,
+            record_gap=False,
         )
 
     def results_document(self, url: str, symbol: str) -> RouteResult[bytes]:

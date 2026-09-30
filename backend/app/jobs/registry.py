@@ -2,6 +2,7 @@
 
 from app.core.config import JobName
 from app.jobs.alerts import alerts_intraday
+from app.jobs.annual_reports import annual_reports
 from app.jobs.backtests import backtests
 from app.jobs.fundamentals import results_watch, shareholding
 from app.jobs.market import corporate_actions, eod_prices, index_constituents, nse_bhavcopy
@@ -27,5 +28,10 @@ REGISTRY: dict[JobName, JobSpec] = {
         JobSpec(JobName.RESULTS_WATCH, "Flag new quarterly results (in season)", results_watch),
         JobSpec(JobName.REFRESH_QUEUE, "On-demand symbol refreshes from the API", refresh_queue),
         JobSpec(JobName.BACKTESTS, "Run queued backtests (SPEC §11)", backtests),
+        JobSpec(
+            JobName.ANNUAL_REPORTS,
+            "Annual-report PDFs for BS/CF gaps (§3.6 step 3)",
+            annual_reports,
+        ),
     )
 }
