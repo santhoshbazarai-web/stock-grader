@@ -140,6 +140,46 @@ a Screener export is an optional top-up.
   elements the mapping ignores. Add names to `backend/app/fundamentals/xbrl_map.yaml` (and bump its
   `version`); it covers the Ind AS, bank and pre-Ind-AS (Indian GAAP) results formats.
 
+## Fundamentals: annual-report PDFs (gap filler)
+
+Results XBRL carries the balance sheet only half-yearly, and the cash flow only from FY2020, so
+older years lack them. Annual reports fill those years (SPEC §3.6 step 3).
+
+- **Weekly job:** `annual_reports` (Saturdays 22:30) finds each stock's fiscal years missing a
+  required item (`jobs.yaml` → `annual_reports.required_items`: total assets, total equity,
+  cash from operations). It fetches that year's report from NSE's annual-report list, or the
+  next year's (whose comparative column covers the year). Reports are PDFs or ZIPs; each is
+  cached under `RAW_DATA_DIR` before reading. It fetches at most `max_downloads_per_run` (25).
+- **Reading:** the reader finds the standalone and consolidated balance sheet and cash flow pages
+  by their titles. It reads the rows with pdfplumber, falling back to camelot, and maps each
+  label with a fuzzy dictionary, `backend/app/fundamentals/pdf_labels.yaml` (versioned like
+  the XBRL map). Amounts are scaled by the unit the page states (crore, lakh, million).
+- **Confidence:** every value carries a score: label similarity × label weight, lowered for
+  the camelot fallback, an ambiguous label, an undated column or a failed cross-check.
+  - The cross-checks are: total assets = total equity and liabilities, and operating +
+    investing + financing cash = the net change in cash.
+  - At or above `providers.yaml` → `nse.annual_reports.confidence.auto_accept` (0.9), the value
+    is stored straight away. Below it, the value waits in the **review queue**.
+- **Review (`/review`):** each value shows the printed label, a link to its PDF page and why its
+  confidence is what it is. Accept it as read, type the right figure (₹ crore) and Save, or
+  Reject it; the fundamentals update at once.
+  - The same page takes reports uploaded by hand (e.g. BSE-only companies). Give the
+    publication date so backtests can use the values.
+- **Gap filler only:** a PDF value is never stored where the exchange XBRL has the figure, and
+  it is replaced when an XBRL figure arrives. Values are stored in `fin_line_items` with
+  `source=annual_report_pdf`, the report's publication date and their confidence. As with XBRL,
+  a restated comparative becomes a new version.
+- **Coverage:** the stock page's **Data coverage** grid shows fiscal years × P&L / BS / CF per
+  basis, coloured by source (XBRL, PDF, summed quarters, Screener, yfinance), with gaps and
+  values to review marked.
+- **Tuning:** `python -m app.jobs pdf-inspect report.pdf --fy 2014` shows the pages found, every
+  value, its confidence and the warnings, without a database. After editing `pdf_labels.yaml`
+  (bump `version`), `python -m app.jobs pdf-reparse` re-reads the cached reports; review
+  decisions are kept. Scanned reports (no text layer) are refused; OCR is not supported.
+- **Untested against real reports:** NSE is unreachable from the build environment, so the
+  reader and NSE's annual-report list format have only been tested on synthetic reports.
+  Check a few real ones with `pdf-inspect` first.
+
 ## Other data sources
 
 - **yfinance** (`data/providers/yf.py`): price fallback (`TCS.NS`, index tickers from
@@ -175,6 +215,9 @@ python -m app.jobs run results_watch --symbols TCS       # fetch a stock's resul
 python -m app.jobs xbrl-inspect filing.xml               # what the XBRL parser reads (no DB)
 python -m app.jobs xbrl-reparse --symbols TCS            # re-parse cached XBRL after a map change
 python -m app.jobs xbrl-coverage --symbols TCS,INFY      # fiscal years parsed per statement
+python -m app.jobs run annual_reports --symbols TCS      # annual-report PDFs for BS/CF gap years
+python -m app.jobs pdf-inspect report.pdf --fy 2014      # what the PDF reader finds (no DB)
+python -m app.jobs pdf-reparse --symbols TCS             # re-read cached reports after a label change
 ```
 
 In Docker: `docker compose run --rm worker python -m app.jobs run eod_prices --symbols TCS`.
@@ -184,7 +227,7 @@ recomputed whenever new bars or corporate actions arrive. `valuation_scores` bui
 report in two passes: the first collects each stock's multiples as sector peers, the second
 builds the reports. `refresh_queue` handles `POST /api/stocks/{symbol}/refresh` requests.
 `backtests` runs queued backtest requests (below). `results_watch` ingests exchange results
-filings (above).
+filings, and `annual_reports` reads annual-report PDFs for the years they lack (above).
 
 ## API
 
@@ -210,6 +253,10 @@ curl -H "Authorization: Bearer $TOKEN" localhost:8000/api/stocks/TCS/report
 | `POST /api/uploads/screener` | Screener.in Excel export (state consolidated / standalone); optional top-up |
 | `POST /api/uploads/xbrl` | Results XBRL documents (NSE/BSE) for one stock, several at once |
 | `GET /api/filings`, `/api/filings/summary`, `POST /api/filings/{id}/retry` | Results filings ledger |
+| `POST /api/uploads/annual-report` | An annual report (PDF/ZIP) for one stock and fiscal year |
+| `GET /api/annual-reports`, `POST .../{id}/reparse`, `GET .../{id}/document` | Annual-report ledger; re-read; the cached PDF |
+| `GET /api/review/annual-reports[/summary]`, `POST /api/review/annual-reports/{id}` | Review queue: accept / correct / reject a PDF value |
+| `GET /api/stocks/{symbol}/coverage` | Fiscal years × P&L / BS / CF grid by source |
 | `GET /api/config`, `PUT /api/config` | View the YAML; replace one file, validated first |
 | `POST /api/backtests`, `GET /api/backtests/{id}` | Queue a backtest / poll it (engine: P15) |
 | `GET /api/jobs` | Job history, data freshness, open data gaps, refresh queue |
@@ -226,6 +273,7 @@ Sign in with `APP_PASSWORD`. Every page is behind the login (SPEC §9).
 | `/watchlist` | Watchlist (unknown symbols are added and picked up by the data jobs) and in-app price alerts (enters buy zone / crosses FV / top band / invalidation), which can be paused or deleted. Alerts never place orders |
 | `/backtests` | Queue a backtest (grades × zones × holding period, a date range, optionally a symbol list) and follow its progress; `/backtests/{id}` shows the results (below) |
 | `/settings` | **Brokers:** status, plus Connect / Reconnect for configured brokers (Fyers or Kite OAuth, via the API; the callback returns here with a banner). **Config:** a YAML editor for each `config/*.yaml`, validated as you type exactly as at startup; only a valid file can be saved. **Results filings:** the XBRL ledger (stored / pending / failed, with Retry) and an upload for XBRL documents. **Screener uploads (optional):** import a Screener.in export (you choose consolidated or standalone) to fill what filings lack; both rebuild the report |
+| `/review` | Annual reports: upload a PDF, the reports read, and the review queue of low-confidence values (accept / correct / reject, each with its PDF page and reasons) |
 | `/stocks/{SYMBOL}` | The stock report (below) |
 
 Broker tokens expire daily (Kite at 06:00 IST), so reconnect from Settings each morning. The
@@ -304,6 +352,9 @@ through a same-origin `/api` proxy in Next.js, so the session cookie works witho
 - **Red flags and data gaps.**
 - **10-year fundamentals:** small multiples for sales, EBITDA, PAT, CFO, FCF, ROCE and CCC,
   plus the shareholding trend. Each chart has a table view.
+- **Data coverage:** fiscal years × P&L / BS / CF per basis, each cell labelled and coloured
+  by source (XBRL, annual-report PDF, summed quarters, Screener, yfinance); dashed cells are
+  gaps, and ⚑ links to values waiting for review.
 
 Chart colours are one validated palette, defined as `--viz-*` tokens in `globals.css`, with
 light and dark steps. The app follows the OS colour scheme.

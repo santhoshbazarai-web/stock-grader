@@ -154,7 +154,7 @@ Implementation notes (results XBRL, `data/xbrl.py`, `data/results_store.py`, `da
   - All amounts are then multiplied by the level's factor from `nse.results.rounding_levels` (lakh 1e5, million 1e6, crore 1e7...), with a warning on the filing.
   - Amounts in a currency other than INR are not read (warning).
   - Line items hold ₹; the wide tables ₹ crore; per-share stays ₹; `pure` percentages ×100.
-- **Line items and versions (§3.4, §3.6 step 2):** `fin_line_items` holds one row per instrument, period end, period type (quarter / year / instant), statement, basis, item code and version. Each row carries `value_inr`, `unit`, `source` (`nse_xbrl` / `upload_xbrl` / `derived`), `filing_id`, `announced_at` (publish time), `usable_from` (rule-4 date), `tag`, `map_version` and `isin`.
+- **Line items and versions (§3.4, §3.6 step 2):** `fin_line_items` holds one row per instrument, period end, period type (quarter / year / instant), statement, basis, item code and version. Each row carries `value_inr`, `unit`, `source` (`nse_xbrl` / `upload_xbrl` / `derived` / `annual_report_pdf`), `filing_id`, `announced_at` (publish time), `usable_from` (rule-4 date), `tag`, `map_version` and `isin`.
   - A figure for a period that differs from the previous one by more than both `restatement_tolerance_rel` and `restatement_tolerance_inr` (rounding noise) is a restatement and becomes the next version; an equal one adds nothing.
   - Versions are ordered by `usable_from`, not by download order: a backfill runs newest first.
   - Re-parsing a filing replaces its own figures in place.
@@ -182,6 +182,46 @@ Implementation notes (results XBRL, `data/xbrl.py`, `data/results_store.py`, `da
 - **Tools:**
   - `python -m app.jobs xbrl-inspect <file.xml>` prints the contexts used, each item with its matched tag, and the numeric elements the map ignores.
   - `python -m app.jobs xbrl-reparse [--symbols …]` re-applies the current map to the cached documents without network access.
+
+Implementation notes (annual-report PDFs, §3.6 steps 3-4: `data/annual_report.py` (pure reader), `data/annual_report_store.py`, `jobs/annual_reports.py`, `api/annual_reports.py`, `data/coverage.py`; label dictionary in `fundamentals/pdf_labels.yaml`; parameters in `providers.yaml` → `nse.annual_reports` and `jobs.yaml` → `annual_reports`):
+- **Which reports:** the `annual_reports` job (weekly) looks at each stock's completed fiscal years, back to `providers.history_years` and `annual_reports.first_fiscal_year`. A year needs a report when any of `annual_reports.required_items` (total assets, total equity, CFO) is missing from fin_line_items for the company's basis (consolidated if it has any consolidated items, else standalone).
+  - It takes that year's report from NSE's annual-report list (`nse.annual_reports.index_path`), else next year's, whose comparative column covers the year.
+  - Reports are fetched only over https from `nse.annual_reports.hosts`, capped at `max_bytes`. A ZIP is unpacked to its largest PDF. The raw file is cached before reading (§3.2a).
+  - Failures are retried up to `annual_reports.max_attempts`. BSE fetching is not implemented; BSE reports can be uploaded (`POST /api/uploads/annual-report`, with the publication date).
+- **Locating statements:** a page is a candidate when one of its first `heading_lines` text lines holds a balance-sheet or cash-flow title (`headings`), and that line holds no `exclude` phrase (notes, contents, schedules).
+  - The page is consolidated when its top lines say so; otherwise it is standalone.
+  - Of several candidates for one statement and basis, the page mapping the most rows wins. Following pages continue it while they have no other title and map at least `continuation_min_rows` rows.
+- **Rows:** pdfplumber words are grouped into lines (`line_tolerance_pt`).
+  - Value columns are clusters of amount right-edges `column_gap_pt` apart, each with at least `min_column_rows` amounts. A cluster of note numbers is dropped.
+  - Each column's date is the date printed above it in the header. When none is printed, the columns are dated from the report's fiscal year (first column that year, the next the year before).
+  - Parentheses and a leading minus mark negatives; a printed dash is a nil (0), not a missing value.
+  - When pdfplumber maps fewer than `camelot_min_rows` rows, camelot (stream mode) reads the pages, and its result is kept if it maps more.
+- **Mapping:** labels are normalised (lower case, `&` → and, ₹/Rs., note references, list markers and punctuation removed) and compared with rapidfuzz `ratio`.
+  - A row's candidates are the items and cross-check rows of its statement whose `sections` include the current section. Section headings are matched exactly. The row's `ignore` look-alikes also compete.
+  - A label wrapped over two lines is joined when that matches better. A match below `min_label_score` is dropped.
+  - Each non-sum item takes its best unclaimed row. A `sum` item adds every row it best matches, e.g. non-current + current borrowings, or MSME + other trade payables.
+  - An item with no row but a `fallback_sum` is the sum of those items. For example, total equity = share capital + reserves in Indian GAAP layouts, which print no total.
+  - Values are scaled to ₹ by the unit the page states (the `nse.results.rounding_levels` keywords, e.g. "Rs. in Lakhs" → ×1e5). A page with no unit, or two different ones, yields no ₹ value: it must be entered by hand. Outflow items with `magnitude` in `xbrl_map.yaml` are stored positive.
+- **Confidence** (`nse.annual_reports.confidence`): similarity × label weight × each applicable factor:
+  - `camelot_factor`: the camelot fallback read the value.
+  - `ambiguous_factor`: another item or an ignore label scored within `ambiguity_margin`.
+  - `no_header_dates_factor`: the column date is not printed.
+  - `check_failed_factor` or `no_check_factor`: the column's cross-check failed, or it has no cross-check rows. The checks are total assets = total equity and liabilities, and CFO + investing + financing = net change in cash, both within `check_tolerance_rel`.
+  - `fallback_sum_factor`: the value is a fallback sum; it uses the lowest confidence of its parts.
+  - A sum item uses the lowest confidence of its rows.
+- **Review queue:** every value is a `pdf_line_candidates` row.
+  - At or above `auto_accept`, with a ₹ value, it is `auto_accepted` and stored; otherwise it is `pending`.
+  - The owner accepts (stored with confidence 1.0), corrects (₹ crore, optionally to another item of the same statement), or rejects it. A rejected value is removed from fin_line_items, and its wide column is cleared.
+  - Re-reading a report (`pdf-reparse`, or after a `pdf_labels.yaml` change) replaces its undecided values and keeps the owner's decisions.
+- **Storage (gap filler only):** accepted values go to fin_line_items with `source = annual_report_pdf`, `annual_report_id`, `confidence`, `usable_from` (the report's dissemination time under the rule-4 close cut-off; for an upload, the publication date given, else none, so backtests ignore it) and `map_version` = the `pdf_labels.yaml` version.
+  - A key (period, period type, statement, item) with an exchange-filed figure is never written; the candidate notes why.
+  - An exchange figure arriving later removes the key's PDF versions, and the candidate is marked as superseded.
+  - Across reports, versions follow the XBRL rules: ordered by `usable_from`, and a figure differing beyond the restatement tolerance is a new version.
+  - The wide fin_annual row is updated when it exists (a year row still needs its P&L) and keeps its `source`.
+- **Coverage grid (§3.6 step 4):** `GET /api/stocks/{symbol}/coverage` returns the last `history_years` completed fiscal years × P&L (year), BS (instant) and CF (year) per basis.
+  - Each cell lists its line-item sources, best first: XBRL, then PDF, then summed quarters. A cell with no line items shows its wide row's source (Screener, yfinance) when the statement's marker column (revenue / total assets / CFO) is filled.
+  - Each cell also counts the values pending review. The stock page shows it as the "Data coverage" grid.
+- **Tools:** `python -m app.jobs pdf-inspect <report.pdf> [--fy YEAR]` prints the pages found, each value with its confidence, and the warnings, without a database. `python -m app.jobs pdf-reparse [--symbols …]` re-reads cached reports. Scanned reports (no text layer) are refused; OCR is not supported.
 
 ### 3.7 On-demand pipeline (when you type a stock)
 1. The user selects a symbol. If `reports` holds a result that is fresher than both the latest price date and the latest filing date, return it instantly.

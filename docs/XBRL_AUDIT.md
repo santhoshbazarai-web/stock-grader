@@ -59,5 +59,5 @@ Expected coverage limits:
   once SEBI required it in results.
 - **Cash flow:** from FY2020, when SEBI added the half-yearly cash flow to results.
 
-Earlier balance sheets and cash flows are for the annual-report PDF gap filler (SPEC §3.6 step 3,
+Earlier balance sheets and cash flows come from the annual-report PDF gap filler (SPEC §3.6 step 3,
 P18).
