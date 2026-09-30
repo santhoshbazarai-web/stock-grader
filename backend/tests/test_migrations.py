@@ -68,4 +68,5 @@ def test_spec_tables_present() -> None:
         "screener_presets",  # SPEC §9 screener presets
         "notifications",  # in-app alert notifications
         "result_filings",  # exchange results filings (XBRL) ledger
+        "fin_line_items",  # SPEC v0.2 §3.4 long-format fundamentals
     } == MODEL_TABLES

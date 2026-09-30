@@ -4,7 +4,9 @@ Everything a report sees at rebalance date ``d`` is sliced to what was *known* a
 - prices, delivery %, traded value and the benchmark: rows dated on or before ``d``;
 - annual and quarterly statements: rows whose ``announcement_date`` is on or before ``d``.
   Rows with no announcement date are excluded (never assumed: the filing lag used by live
-  reports does not apply here);
+  reports does not apply here). Periods with exchange line items (fin_line_items) are one row
+  per date a figure of the period became public, each carrying the latest version known by
+  then (:func:`versioned_frame`), so a later restatement is seen only from its own date;
 - shareholding: filings whose ``filing_date`` is on or before ``d`` (no filing date: excluded);
 - surveillance lists: listings in force at ``d``;
 - the universe: index members at ``d`` (delisted stocks included where data exists);
@@ -17,6 +19,9 @@ from datetime import date
 import pandas as pd
 
 from app.core.config import TechnicalConfig
+from app.data.canonical import Table, fields_for, fiscal_year
+from app.data.xbrl import ItemValue, assemble_wide, has_pl
+from app.fundamentals.xbrl_map import XbrlMap
 from app.reports.data import StockData
 from app.reports.dto import PeerStats
 from app.reports.overrides import Overrides
@@ -48,6 +53,71 @@ class PitWorld:
     membership: pd.DataFrame | None  # columns: symbol, effective_from, effective_to (NaT = open)
     surveillance: pd.DataFrame | None  # columns: symbol, effective_from, effective_to
     notes: list[str] = field(default_factory=list)
+
+
+LINE_ITEM_COLUMNS = ["period_end", "period_type", "item_code", "value_inr", "tag", "version",
+                     "usable_from"]  # fmt: skip
+
+
+def versioned_frame(
+    wide: pd.DataFrame, items: pd.DataFrame, table: Table, xmap: XbrlMap
+) -> pd.DataFrame:
+    """Point-in-time rows for backtests (SPEC §3.6: backtests use the version available at
+    that date).
+
+    ``wide`` is the stored fin table (latest versions, index = period end); ``items`` the
+    instrument's fin_line_items for the same basis (:data:`LINE_ITEM_COLUMNS`). For a period
+    with line items, there is one row per distinct ``usable_from`` of its items: the wide record
+    assembled from each item's latest version usable on that date, dated that day. Columns the
+    filings don't carry (e.g. ``sga`` from a Screener upload) come from the stored row. Periods
+    without line items keep their stored row. The index may repeat; pick the last row per
+    period after filtering by date (:func:`latest_known`)."""
+    types = ("quarter",) if table == "fin_quarterly" else ("year", "instant", "quarter")
+    if items.empty:
+        return wide
+    rel = items[items["period_type"].isin(types) & items["usable_from"].notna()]
+    if rel.empty:
+        return wide
+    ends_with_items = set(pd.to_datetime(rel["period_end"]))
+    keep = [pe not in ends_with_items for pe in pd.to_datetime(wide.index)]
+    rows: list[dict[str, object]] = []
+    index: list[pd.Timestamp] = []
+    unmapped = xmap.unmapped(table)
+    for period_end, per in rel.groupby("period_end"):
+        pe = pd.Timestamp(str(period_end))
+        stored = wide.loc[pe] if pe in wide.index else None
+        if isinstance(stored, pd.DataFrame):
+            stored = stored.iloc[-1]
+        for day in sorted(set(per["usable_from"])):
+            known = per[per["usable_from"] <= day].sort_values("version")
+            by_type: dict[str, dict[str, ItemValue]] = {}
+            for r in known.itertuples():
+                by_type.setdefault(str(r.period_type), {})[str(r.item_code)] = ItemValue(
+                    float(r.value_inr), str(r.tag or "")
+                )  # later versions overwrite earlier ones
+            rec = assemble_wide(by_type, table, xmap)
+            if not has_pl(rec):
+                continue
+            row: dict[str, object] = {c: rec.get(c) for c in fields_for(table)}
+            for c in unmapped:
+                row[c] = stored.get(c) if stored is not None else None
+            row["announcement_date"] = day
+            row["extra"] = rec.get("extra")
+            if table == "fin_annual":
+                row["fiscal_year"] = fiscal_year(pe)
+            rows.append(row)
+            index.append(pe)
+    states = pd.DataFrame(rows, index=pd.DatetimeIndex(index, name="period_end"))
+    out = pd.concat([wide.loc[keep], states.reindex(columns=wide.columns)])
+    return out.sort_values("announcement_date", kind="stable").sort_index(kind="stable")
+
+
+def latest_known(frame: pd.DataFrame) -> pd.DataFrame:
+    """One row per period: the last one by announcement date (after :func:`announced_by`)."""
+    if frame.empty or not frame.index.has_duplicates:
+        return frame
+    ordered = frame.sort_values("announcement_date", kind="stable")
+    return ordered[~ordered.index.duplicated(keep="last")].sort_index()
 
 
 def _upto(series: pd.Series | None, d: pd.Timestamp) -> pd.Series | None:
@@ -121,8 +191,8 @@ def stock_data_at(
     daily = st.daily.loc[st.daily.index <= d]
     if len(daily) < 2:
         return None
-    annual = announced_by(st.annual, d)
-    quarterly = announced_by(st.quarterly, d)
+    annual = latest_known(announced_by(st.annual, d))
+    quarterly = latest_known(announced_by(st.quarterly, d))
     shp = announced_by(st.shareholding, d, "filing_date")
     last_results = (
         pd.to_datetime(quarterly["announcement_date"]).max().date() if not quarterly.empty else None

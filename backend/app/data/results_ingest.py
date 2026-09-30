@@ -78,9 +78,11 @@ def ingest(
         session,
         instrument_id=filing_row.instrument_id,
         filing=filing,
+        filing_row=filing_row,
         statement_type=basis,
         announcement=announced,
         fetched_at=now,
+        cfg=cfg,
     )
     filing_row.status = FilingStatus.PARSED
     filing_row.error = None

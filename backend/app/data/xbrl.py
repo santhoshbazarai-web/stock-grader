@@ -27,7 +27,7 @@ Untrusted input: parsed with ``defusedxml`` (no entity expansion, no external en
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
-from typing import Any
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from defusedxml import ElementTree as SafeET
@@ -188,6 +188,20 @@ def _local_measure(measure: str) -> str:
 
 
 @dataclass(frozen=True)
+class PeriodItems:
+    """All mapped items a filing reports for one period, for fin_line_items. ``current`` is
+    the filing's own reporting period; the rest are its comparatives (where restatements
+    appear). Flow items (P&L, cash flow, ratios) are under ``quarter`` / ``year``; balance-sheet
+    items under ``instant``."""
+
+    period_type: Literal["quarter", "year", "instant"]
+    start: date | None
+    end: date
+    current: bool
+    items: dict[str, "ItemValue"]
+
+
+@dataclass(frozen=True)
 class ItemValue:
     """One mapped line item of one period, in the map's unit (amounts in ₹)."""
 
@@ -217,6 +231,8 @@ class ResultsFiling:
     # The same periods as mapped line items (amounts in ₹), for fin_line_items.
     quarter_items: dict[str, ItemValue] = field(default_factory=dict)
     year_items: dict[str, ItemValue] = field(default_factory=dict)
+    # Every period in the filing, current and comparative, as line items (see PeriodItems).
+    period_items: list[PeriodItems] = field(default_factory=list)
 
     def periods(self) -> list[str]:
         out = []
@@ -317,7 +333,24 @@ def wide_record(items: Mapping[str, ItemValue], table: Table, xmap: XbrlMap) -> 
     return rec
 
 
-def _has_pl(rec: Mapping[str, Any]) -> bool:
+def assemble_wide(
+    by_type: Mapping[str, Mapping[str, ItemValue]], table: Table, xmap: XbrlMap
+) -> dict[str, Any]:
+    """Line items of one period, keyed by period type ("quarter" / "year" / "instant") → the
+    wide fin_quarterly / fin_annual record. A year takes its flows from "year", its balance
+    sheet from "instant", and period-end balances (``carry_to_year``) filed only with the Q4
+    quarter from "quarter"."""
+    if table == "fin_quarterly":
+        chosen = dict(by_type.get("quarter", {}))
+    else:
+        chosen = {**by_type.get("year", {}), **by_type.get("instant", {})}
+        for code, v in by_type.get("quarter", {}).items():
+            if xmap.items[code].carry_to_year:
+                chosen.setdefault(code, v)
+    return wide_record(chosen, table, xmap)
+
+
+def has_pl(rec: Mapping[str, Any]) -> bool:
     return any(rec.get(k) is not None for k in ("revenue", "pbt", "pat"))
 
 
@@ -406,6 +439,66 @@ def _implied_shares(inst: Instance, xmap: XbrlMap) -> float | None:
     return None
 
 
+def _period_items(
+    inst: Instance,
+    xmap: XbrlMap,
+    cfg: NseResultsConfig,
+    scale: float,
+    end: date,
+    current: dict[str, Context | None],
+) -> list[PeriodItems]:
+    """Line items for every non-dimensional quarter-length, year-length and instant context.
+    Durations of other lengths (6/9-month year-to-date) are skipped. The current quarter / year
+    are the contexts the parser chose (``current``); a current period that failed the P&L check
+    (``None``) is left out."""
+    plain = [c for c in inst.contexts.values() if not c.dimensional and c.end is not None]
+
+    def richest(ctxs: list[Context]) -> Context:
+        return max(ctxs, key=lambda c: len(inst.plain(c.id)))
+
+    instants: dict[date, Context] = {}
+    for c in plain:
+        if c.instant and c.end is not None:
+            prev = instants.get(c.end)
+            instants[c.end] = richest([c, prev]) if prev else c
+    flows: dict[tuple[str, date], Context] = {}
+    for c in plain:
+        if c.instant or c.days is None or c.end is None:
+            continue
+        kind = ("quarter" if cfg.quarter_days.contains(c.days)
+                else "year" if cfg.year_days.contains(c.days) else None)  # fmt: skip
+        if kind is None:
+            continue
+        prev = flows.get((kind, c.end))
+        flows[(kind, c.end)] = richest([c, prev]) if prev else c
+    for kind, ctx in current.items():
+        if ctx is not None:
+            flows[(kind, end)] = ctx
+        else:
+            flows.pop((kind, end), None)
+
+    out: list[PeriodItems] = []
+    for (kind, e), ctx in sorted(flows.items(), key=lambda kv: (kv[0][1], kv[0][0])):
+        at_end = inst.plain(instants[e].id) if e in instants else {}
+        items = {
+            code: v
+            for code, v in extract_items(inst.plain(ctx.id), at_end, xmap, scale).items()
+            if xmap.items[code].statement != "bs"
+        }
+        if items:
+            period_type: Literal["quarter", "year"] = "quarter" if kind == "quarter" else "year"
+            out.append(PeriodItems(period_type, ctx.start, e, e == end, items))
+    for e, ctx in sorted(instants.items()):
+        items = {
+            code: v
+            for code, v in extract_items({}, inst.plain(ctx.id), xmap, scale).items()
+            if xmap.items[code].statement == "bs"
+        }
+        if items:
+            out.append(PeriodItems("instant", None, e, e == end, items))
+    return out
+
+
 def parse_results(
     content: bytes,
     cfg: NseResultsConfig,
@@ -460,10 +553,10 @@ def parse_results(
     if y_ctx is not None:
         annual = wide_record(y_items, "fin_annual", xmap)
         annual["fiscal_year"] = fiscal_year(datetime.combine(end, time()))
-    if quarter is not None and not _has_pl(quarter):
+    if quarter is not None and not has_pl(quarter):
         warnings.append("quarter context has no revenue, PBT or PAT; ignored")
         quarter, q_items = None, {}
-    if annual is not None and not _has_pl(annual):
+    if annual is not None and not has_pl(annual):
         warnings.append("fiscal-year context has no revenue, PBT or PAT; ignored")
         annual, y_items = None, {}
     if quarter is None and annual is None:
@@ -471,6 +564,10 @@ def parse_results(
             f"no quarter or fiscal-year results for the period ending {end.isoformat()}"
         )
 
+    period_items = _period_items(
+        inst, xmap, cfg, scale, end,
+        current={"quarter": q_ctx if quarter else None, "year": y_ctx if annual else None},
+    )  # fmt: skip
     is_bank = any(f.name == xmap.bank_marker for f in inst.facts)
     nature = inst.text(info["nature"])
     statement_type = statement_type_from_text(nature)
@@ -504,6 +601,7 @@ def parse_results(
         amount_scale=scale,
         quarter_items=q_items,
         year_items=y_items,
+        period_items=period_items,
     )
 
 

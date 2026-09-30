@@ -2,6 +2,7 @@
 
 import shutil
 from collections.abc import Iterator
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -525,7 +526,7 @@ def test_xbrl_upload_parses_each_file_and_fills_the_ledger(client: TestClient, d
     assert q4["statement_type"] == "consolidated"
     assert q4["announcement_date"] == "2024-05-11"  # board meeting 10 May + 1 day
     assert q2["statement_type"] == "standalone" and q2["announcement_date"] == "2024-10-25"
-    year = db.scalars(select(FinAnnual)).one()
+    year = db.scalars(select(FinAnnual).where(FinAnnual.period_end == date(2024, 3, 31))).one()
     assert (year.revenue, year.source) == (pytest.approx(4800), "nse")
     # each upload was cached under RAW_DATA_DIR/upload/<yyyy>/<mm>/<dd>/ before parsing
     cached = db.scalars(select(ResultFiling.raw_path).order_by(ResultFiling.id)).all()

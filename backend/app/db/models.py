@@ -37,6 +37,8 @@ from app.db.enums import (
     CorporateActionType,
     FilingStatus,
     JobStatus,
+    LineStatement,
+    PeriodType,
     StatementType,
     SurveillanceList,
     Timeframe,
@@ -51,6 +53,7 @@ __all__ = [
     "DataGap",
     "DeliveryDaily",
     "FinAnnual",
+    "FinLineItem",
     "FinQuarterly",
     "IndexMembership",
     "Instrument",
@@ -256,6 +259,47 @@ class ResultFiling(TimestampMixin, Base):
     periods: Mapped[list[str] | None]  # e.g. ["quarter 2024-03-31", "year 2024-03-31"]
     warnings: Mapped[list[str] | None]
     parsed_at: Mapped[datetime | None]
+
+
+class FinLineItem(Base):
+    """Long-format fundamentals (SPEC v0.2 §3.4, §3.6): one value of one mapped XBRL line item
+    for one period, basis and version. A later filing that reports a different figure for the
+    same period (a restatement, usually seen in its comparative columns) adds a version instead
+    of overwriting; versions are ordered by when each figure became public. Analysis uses the
+    latest version (fin_quarterly / fin_annual are rebuilt from it); backtests use the version
+    available at each date. ``value_inr`` is in rupees for amounts, else in ``unit``."""
+
+    __tablename__ = "fin_line_items"
+    __upsert_key__ = (
+        "instrument_id", "period_end", "period_type", "statement", "basis", "item_code", "version",
+    )  # fmt: skip
+    __table_args__ = (
+        UniqueConstraint(*__upsert_key__, name="uq_fin_line_items_key"),  # default name > 63 chars
+        Index("ix_fin_line_items_instrument_basis", "instrument_id", "basis", "period_end"),
+        Index("ix_fin_line_items_filing", "filing_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    instrument_id: Mapped[int] = _instrument_fk()
+    isin: Mapped[str | None] = mapped_column(String(12))
+    period_end: Mapped[date]
+    period_type: Mapped[PeriodType] = mapped_column(str_enum(PeriodType))
+    statement: Mapped[LineStatement] = mapped_column(str_enum(LineStatement))
+    basis: Mapped[StatementType] = mapped_column(str_enum(StatementType))
+    item_code: Mapped[str] = mapped_column(String(64))
+    value_inr: Mapped[float]
+    unit: Mapped[str] = mapped_column(String(16))  # amount | per_share | pct | shares
+    version: Mapped[int]
+    source: Mapped[str] = mapped_column(String(32))  # nse_xbrl | upload_xbrl | derived
+    filing_id: Mapped[int | None] = mapped_column(
+        ForeignKey("result_filings.id", ondelete="SET NULL")
+    )
+    announced_at: Mapped[datetime | None]  # when the exchange published the filing
+    usable_from: Mapped[date | None]  # first day a close-based signal may use it (rule 4)
+    derived: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    tag: Mapped[str | None] = mapped_column(String(512))  # the XBRL element(s) that matched
+    map_version: Mapped[int | None]  # xbrl_map.yaml version
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
 class Shareholding(SourcedMixin, Base):

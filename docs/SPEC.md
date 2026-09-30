@@ -136,40 +136,46 @@ v0.2 adds `symbols` (ISIN master), `symbol_aliases`, `filings` (raw filing index
 5. **Derived annual figures.** When only quarterly/half-yearly data exists, build the FY total from its quarters and flag it as derived.
 
 
-Implementation notes (results XBRL, `data/xbrl.py`, `data/results_store.py`, `jobs/fundamentals.py::results_watch`; parameters in `providers.yaml` → `nse.results` and `jobs.yaml` → `results_watch`):
-- **Source:** every quarterly/annual result is filed with NSE and BSE as an XBRL instance in the SEBI/BSE Ind AS results taxonomy (prefix `in-bse-fin`). NSE's `corporates-financial-results` list gives each filing's document URL, period, basis (consolidated / non-consolidated), audit status and dissemination time.
-- **Contexts:**
-  - The quarter is the non-dimensional duration context ending on the reporting date whose length is in `quarter_days`.
-  - The fiscal year (Q4 / annual filings only) is one whose length is in `year_days`; it becomes the `fin_annual` row, with the balance sheet from the instant context on the same date and the cash flow from the year context.
-  - Comparatives (other end dates), 6/9-month year-to-date, and segment (dimensional) contexts are ignored: a period's first-reported numbers are its point-in-time truth.
-- **Mapping:** element names live only in the versioned `fundamentals/xbrl_map.yaml`, with tag groups `ind_as`, `bank` and `pre_ind_as` (Indian GAAP / Clause 41). The pre-Ind-AS names are unverified until checked against a real filing with `xbrl-inspect`. The namespace year is ignored.
-  - Each item has a statement (P&L / BS / CF / ratio): BS items are read from the instant context at the period end, P&L and CF from the period's duration context.
+Implementation notes (results XBRL, `data/xbrl.py`, `data/results_store.py`, `data/results_ingest.py`, `jobs/fundamentals.py::results_watch`; tag map in `fundamentals/xbrl_map.yaml`; parameters in `providers.yaml` → `nse.results` and `jobs.yaml` → `results_watch`; audit in `docs/XBRL_AUDIT.md`):
+- **Source:** every quarterly/annual result is filed with NSE and BSE as an XBRL instance in the SEBI/BSE results taxonomy (prefix `in-bse-fin`). NSE's `corporates-financial-results` list gives each filing's document URL, period, basis (consolidated / non-consolidated), audit status and dissemination time.
+- **Contexts** (non-dimensional only; segments are ignored):
+  - A duration context ending on the reporting date whose length is in `quarter_days` is the quarter; one in `year_days` is the fiscal year (Q4 / annual filings).
+  - The instant context on that date is the balance sheet. 6/9-month year-to-date contexts are skipped.
+  - Comparatives (quarter / year / instant contexts ending on other dates) are stored as line items too; they are where restatements appear.
+- **Mapping (§3.6 step 1):** element names live only in the versioned `fundamentals/xbrl_map.yaml`, with tag groups `ind_as`, `bank` and `pre_ind_as` (Indian GAAP / Clause 41). The pre-Ind-AS names are unverified until checked against a real filing with `xbrl-inspect`. The namespace year is ignored.
+  - Each item has a statement (P&L / BS / CF / ratio): BS items are read from instant contexts, P&L and CF from duration contexts.
   - Every value records the tag that matched (`group:Element`, or `sum:group:A+B`) and the map `version`.
-  - Amounts are ₹ in the line items and ₹ crore in the wide tables; per-share stays ₹; `pure` percentages ×100.
+  - Split lines (COGS, borrowings, cash, investments, receivables, net block, tax) are the sum of the lines filed; the field is NULL if none is filed. Capex, asset sales and dividends are stored as magnitudes.
+  - Derived in the wide rows: `ebit` = PBT + finance cost; `ebitda` = PBT + finance cost + D&A − other income; `shares_diluted_cr` = PAT / diluted EPS; book value per share = equity / shares.
+  - Bank filings (marked by `InterestEarned`) fill `extra` for `fundamentals/banking.py`; period-end balances (`carry_to_year`: NPAs, CRAR, advances, deposits, investments) reported only in the Q4 quarter context also apply to the fiscal year.
+  - SG&A is not in the results format (a data gap; a Screener upload can fill it).
 - **Units (§3.6 step 2):** XBRL amounts are rupees by rule, so the rounding level a filing states (`LevelOfRoundingUsedInFinancialStatements`) is presentation only.
   - A filer that keyed amounts in that level instead is detected once per filing. The primary check: PAT ÷ diluted EPS implies fewer than `nse.results.min_plausible_shares` shares unscaled, but enough once scaled. Without EPS: most monetary facts carry `decimals ≥ 0`.
   - All amounts are then multiplied by the level's factor from `nse.results.rounding_levels` (lakh 1e5, million 1e6, crore 1e7...), with a warning on the filing.
   - Amounts in a currency other than INR are not read (warning).
-  - `ebit` = PBT + finance cost; `ebitda` = PBT + finance cost + D&A − other income.
-  - `shares_diluted_cr` = PAT / diluted EPS; book value per share = equity / shares.
-  - Split lines (COGS, borrowings, cash, investments, receivables, net block, tax) are the sum of the lines filed; the field is NULL if none is filed.
-  - Capex, asset sales and dividends are stored as magnitudes.
-  - Bank filings (marked by `InterestEarned`) fill `extra` for `fundamentals/banking.py`; period-end balances (NPAs, CRAR, advances, deposits, investments) reported only in the Q4 quarter context also apply to the fiscal year.
-  - SG&A is not in the results format (a data gap; a Screener upload can fill it).
-- **Announcement date (rule 4):** the exchange's dissemination time; at or after `available_after_ist` (the close) it counts from the next day. An uploaded document has no dissemination time, so its date is the board-meeting date + 1 day. A row keeps the earliest date it has had, so a revised filing, or a quarter first stored from yfinance with its first-seen date, never moves it later.
-- **Precedence:** a filing overwrites the columns it has values for (`source='nse'`) and never blanks others. A Screener upload fills only the empty columns of periods a filing stored, and leaves their source and date alone.
+  - Line items hold ₹; the wide tables ₹ crore; per-share stays ₹; `pure` percentages ×100.
+- **Line items and versions (§3.4, §3.6 step 2):** `fin_line_items` holds one row per instrument, period end, period type (quarter / year / instant), statement, basis, item code and version. Each row carries `value_inr`, `unit`, `source` (`nse_xbrl` / `upload_xbrl` / `derived`), `filing_id`, `announced_at` (publish time), `usable_from` (rule-4 date), `tag`, `map_version` and `isin`.
+  - A figure for a period that differs from the previous one by more than both `restatement_tolerance_rel` and `restatement_tolerance_inr` (rounding noise) is a restatement and becomes the next version; an equal one adds nothing.
+  - Versions are ordered by `usable_from`, not by download order: a backfill runs newest first.
+  - Re-parsing a filing replaces its own figures in place.
+- **Wide rows:** `fin_quarterly` / `fin_annual` are rebuilt from the latest versions of every period a filing touched (analysis uses the latest version). A quarter needs its P&L; a year row is written when its P&L is known, or updated when it exists.
+  - `announcement_date` is the earliest date any figure of the period was usable. It is also never later than one already stored, so a quarter first seen via yfinance keeps the real, earlier filing date once the filing arrives.
+  - Precedence: filed values overwrite what they cover and never blank other columns. A Screener upload fills only the empty columns of periods a filing stored, and leaves their source and date alone.
+- **Backtests:** `backtest/pit.py::versioned_frame` turns each period's line items into one row per date a figure became usable, carrying the latest version known by then, so a restatement is seen only from its own date (§3.6 step 2). Periods without line items keep their stored row.
+- **Announcement date (rule 4):** the exchange's dissemination time; at or after `available_after_ist` (the close) it counts from the next day. An uploaded document has no dissemination time, so its date is the board-meeting date + 1 day.
 - **Ingestion:** `result_filings` is the ledger (one row per document, pending → parsed / failed).
   - `results_watch` re-reads every symbol's list in results season, or weekly (`index_recheck_days`) outside it.
   - It downloads at most `max_downloads_per_run` documents per run, newest period first, back to `providers.history_years`, and retries failures up to `max_attempts`.
   - Documents are fetched only over https from `xbrl_hosts`, capped at `max_xbrl_bytes`, and parsed with `defusedxml`.
   - A document naming another symbol, or with no stated basis, is refused (rule 5).
   - If a symbol's list can't be read in season, new quarters come from yfinance with their first-seen date and a `results_filing` data gap, which is resolved when the filing is stored.
-- **Checking the mapping:** `python -m app.jobs xbrl-inspect <file.xml>` prints the contexts used, the canonical values, and the numeric elements the mapping ignores.
 - **Raw cache (§3.2a):** every XBRL document, every NSE results-list JSON and every uploaded file is written to `RAW_DATA_DIR/<source>/<yyyy>/<mm>/<dd>/` (IST fetch date; source `nse` or `upload`) before it is parsed.
   - The ledger's `raw_path` points at the document.
   - Files are never overwritten; a different body under a taken name gets a hash suffix.
   - An unwritable cache fails the filing (or the upload, with 503) rather than parsing uncached.
-  - `python -m app.jobs xbrl-reparse [--symbols …]` re-applies the current `xbrl_map.yaml` to the cached documents without network access.
+- **Tools:**
+  - `python -m app.jobs xbrl-inspect <file.xml>` prints the contexts used, each item with its matched tag, and the numeric elements the map ignores.
+  - `python -m app.jobs xbrl-reparse [--symbols …]` re-applies the current map to the cached documents without network access.
 
 ### 3.7 On-demand pipeline (when you type a stock)
 1. The user selects a symbol. If `reports` holds a result that is fresher than both the latest price date and the latest filing date, return it instantly.

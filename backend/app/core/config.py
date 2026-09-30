@@ -160,6 +160,10 @@ class NseResultsConfig(_Strict):
     rounding_levels: dict[str, PositiveFloat]
     # PAT / diluted EPS below this many shares means the amounts cannot be in rupees.
     min_plausible_shares: PositiveFloat
+    # A later filing's figure for a period counts as a restatement (a new version) only if it
+    # differs by more than both of these (filings round to lakhs or crores differently).
+    restatement_tolerance_rel: Fraction
+    restatement_tolerance_inr: Annotated[float, Field(ge=0)]
 
     @model_validator(mode="after")
     def _check(self) -> Self:

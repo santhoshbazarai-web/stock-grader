@@ -32,6 +32,8 @@ Q4 = f"{ARCH}/ACME_Q4FY24.xml"
 Q2 = f"{ARCH}/ACME_Q2FY25.xml"
 BROKEN = f"{ARCH}/ACME_BROKEN.xml"
 OLD = f"{ARCH}/ACME_Q4FY12.xml"
+FY24 = FinAnnual.period_end == date(2024, 3, 31)
+MAR24 = FinQuarterly.period_end == date(2024, 3, 31)
 
 
 def listing(
@@ -93,7 +95,7 @@ def test_lists_downloads_parses_and_stores_with_announcement_dates(acme: Env) ->
 
     with acme.session() as s:
         quarters = {(r.statement_type, r.period_end): r for r in s.scalars(select(FinQuarterly))}
-        year = s.scalars(select(FinAnnual)).one()
+        year = s.scalars(select(FinAnnual).where(FY24)).one()
         gaps = {g.field for g in s.scalars(select(DataGap))}
     q = quarters[(StatementType.CONSOLIDATED, date(2024, 3, 31))]
     assert (q.revenue, q.pat, q.source) == (pytest.approx(1250), pytest.approx(210), "nse")
@@ -162,7 +164,7 @@ def test_exchange_figures_win_but_keep_other_sources_fields_and_the_earliest_dat
     run(acme, symbols=("ACME",))
 
     with acme.session() as s:
-        year = s.scalars(select(FinAnnual)).one()
+        year = s.scalars(select(FinAnnual).where(FY24)).one()
         mar = FinQuarterly.period_end == date(2024, 3, 31)
         q = s.scalars(select(FinQuarterly).where(mar)).one()
     assert (year.revenue, year.sga, year.source) == (pytest.approx(4800), 310.0, "nse")
@@ -178,7 +180,7 @@ def test_exchange_figures_win_but_keep_other_sources_fields_and_the_earliest_dat
                  "fetched_at": datetime(2024, 7, 1, tzinfo=IST)}]  # fmt: skip
         assert merge_upsert(s, FinAnnual, rows, source="screener") == 1
         s.commit()
-        year = s.scalars(select(FinAnnual)).one()
+        year = s.scalars(select(FinAnnual).where(FY24)).one()
     assert (year.revenue, year.sga, year.pat) == (pytest.approx(4800), 320.0, pytest.approx(800))
     assert (year.source, year.announcement_date) == ("nse", date(2024, 5, 11))
 
@@ -221,7 +223,7 @@ def test_fallback_to_yfinance_when_nse_list_fails_then_resolved_by_the_filing(en
     assert rec.outcome.details["index_failed"] == ["ACME"]
     assert rec.outcome.details["fallback_flagged"] == ["ACME"]
     with env.session() as s:
-        q = s.scalars(select(FinQuarterly)).one()
+        q = s.scalars(select(FinQuarterly).where(MAR24)).one()
         gap = s.scalars(select(DataGap).where(DataGap.field == "results_filing")).one()
     assert (q.source, q.revenue, q.announcement_date) == ("yfinance", 1240.0, TODAY)
     assert "2024-03-31" in gap.reason and gap.resolved_at is None
@@ -233,7 +235,7 @@ def test_fallback_to_yfinance_when_nse_list_fails_then_resolved_by_the_filing(en
     env.nse.documents[Q4] = (FIX / "acme_q4fy24_consolidated.xml").read_bytes()
     run(env, force=True, symbols=("ACME",))
     with env.session() as s:
-        q = s.scalars(select(FinQuarterly)).one()
+        q = s.scalars(select(FinQuarterly).where(MAR24)).one()
         gap = s.scalars(select(DataGap).where(DataGap.field == "results_filing")).one()
     assert (q.source, q.revenue) == ("nse", pytest.approx(1250))
     assert q.announcement_date == date(2024, 5, 11)  # the real date replaces first-seen
@@ -286,4 +288,4 @@ def test_reparse_rebuilds_from_the_cache_without_downloading(
     assert "not an XBRL instance" in out.err  # the broken document, still broken
     assert acme.nse.document_requests == downloads  # nothing fetched
     with acme.session() as s:
-        assert s.scalars(select(FinAnnual)).one().revenue == pytest.approx(4800)
+        assert s.scalars(select(FinAnnual).where(FY24)).one().revenue == pytest.approx(4800)

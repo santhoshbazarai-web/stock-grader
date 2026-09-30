@@ -56,6 +56,21 @@ class BacktestStatus(StrEnum):
     FAILED = "failed"
 
 
+class PeriodType(StrEnum):
+    """What a fin_line_items value covers."""
+
+    QUARTER = "quarter"  # a quarter's flow (P&L)
+    YEAR = "year"  # a fiscal year's flow (P&L, cash flow)
+    INSTANT = "instant"  # a balance at period end (balance sheet)
+
+
+class LineStatement(StrEnum):
+    PL = "pl"
+    BS = "bs"
+    CF = "cf"
+    RATIO = "ratio"
+
+
 class FilingStatus(StrEnum):
     """A results filing (XBRL) in the ingestion ledger."""
 

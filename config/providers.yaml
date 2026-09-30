@@ -75,5 +75,10 @@ providers:
       rounding_levels: {rupees: 1, thousand: 1.0e+3, lakh: 1.0e+5, lac: 1.0e+5,
                         million: 1.0e+6, crore: 1.0e+7, billion: 1.0e+9}
       min_plausible_shares: 100000   # a listed company has far more than 1 lakh shares
+      # A period's figure in a later filing (e.g. last year's column) is a restatement, stored
+      # as a new version, only if it differs by more than 0.05% AND ₹50 lakh: half a crore is
+      # the rounding gap between a lakh-rounded and a crore-rounded filing of the same figure.
+      restatement_tolerance_rel: 0.0005
+      restatement_tolerance_inr: 5000000
   oauth_state_ttl_s: 600  # broker login must complete within this many seconds
   history_years: 10

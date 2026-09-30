@@ -30,25 +30,29 @@ from app.backtest.engine import (
     simulate,
 )
 from app.backtest.pit import (
+    LINE_ITEM_COLUMNS,
     PitStock,
     PitWorld,
     month_starts,
     rs_percentiles_at,
     stock_data_at,
     universe_at,
+    versioned_frame,
 )
 from app.core.config import AppConfig
 from app.data import prices
-from app.db.enums import SurveillanceList
+from app.db.enums import StatementType, SurveillanceList
 from app.db.models import (
     DeliveryDaily,
     FinAnnual,
+    FinLineItem,
     FinQuarterly,
     IndexMembership,
     Instrument,
     Shareholding,
     SurveillanceFlag,
 )
+from app.fundamentals.xbrl_map import get_xbrl_map
 from app.reports.build import build_report
 from app.reports.data import SHP_COLUMNS, load_financials
 from app.reports.dto import PeerStats
@@ -85,6 +89,11 @@ def _stock(session: Session, inst: Instrument) -> PitStock | None:
         return None
     annual, basis, _ = load_financials(session, FinAnnual, inst.id, "fin_annual")
     quarterly, _, _ = load_financials(session, FinQuarterly, inst.id, "fin_quarterly")
+    if basis is not None:  # restatements: each period as known at each date (fin_line_items)
+        items = _line_items(session, inst.id, StatementType(basis))
+        xmap = get_xbrl_map()
+        annual = versioned_frame(annual, items, "fin_annual", xmap)
+        quarterly = versioned_frame(quarterly, items, "fin_quarterly", xmap)
     shp_rows = session.execute(
         select(
             Shareholding.period_end,
@@ -119,6 +128,17 @@ def _stock(session: Session, inst: Instrument) -> PitStock | None:
         if dv
         else None,
     )
+
+
+def _line_items(session: Session, iid: int, basis: StatementType) -> pd.DataFrame:
+    rows = session.execute(
+        select(*[getattr(FinLineItem, c) for c in LINE_ITEM_COLUMNS]).where(
+            FinLineItem.instrument_id == iid, FinLineItem.basis == basis
+        )
+    ).all()
+    df = pd.DataFrame([tuple(r) for r in rows], columns=LINE_ITEM_COLUMNS)
+    df["period_type"] = [str(getattr(v, "value", v)) for v in df["period_type"]]
+    return df
 
 
 def load_world(
