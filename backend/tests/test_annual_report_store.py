@@ -376,3 +376,61 @@ def test_pdf_reparse_rereads_cached_reports(env: Env, capsys: pytest.CaptureFixt
         report = s.scalars(select(AnnualReport)).one()
         after = s.scalars(select(FinLineItem.id).order_by(FinLineItem.id)).all()
     assert report.attempts == 2 and after == before  # same values: nothing rewritten
+
+
+def test_the_same_line_read_twice_keeps_the_most_confident(env: Env) -> None:
+    """Regression: a report showing one line twice (balance sheet + a schedule) made the
+    candidate upsert touch a row twice (psycopg CardinalityViolation, the PDF step crashed)."""
+    from dataclasses import replace
+
+    fy = date(2014, 3, 31)
+    low = replace(_value(fy, "total_debt", 90.0), confidence=0.60, raw_label="schedule")
+    high = replace(_value(fy, "total_debt", 100.0), confidence=0.95, raw_label="balance sheet")
+    _report(env, 2014, date(2014, 8, 1), [low, high, replace(low, confidence=0.70)])
+    with env.session() as s:
+        rows = s.scalars(select(PdfLineCandidate).where(PdfLineCandidate.item_code ==
+                                                        "total_debt")).all()  # fmt: skip
+    assert len(rows) == 1
+    assert rows[0].confidence == 0.95 and rows[0].raw_label == "balance sheet"
+    assert rows[0].value_inr == pytest.approx(100.0 * CR)
+
+
+def test_best_per_key_prefers_confidence_then_a_value() -> None:
+    from app.data.annual_report_store import best_per_key
+
+    base = {"basis": "standalone", "statement": "bs", "period_end": date(2014, 3, 31),
+            "item_code": "total_debt"}  # fmt: skip
+    rows = [{**base, "confidence": 0.8, "value_inr": None, "n": 1},
+            {**base, "confidence": 0.8, "value_inr": 5.0, "n": 2},
+            {**base, "confidence": 0.8, "value_inr": 6.0, "n": 3},
+            {**base, "item_code": "cash", "confidence": 0.1, "value_inr": 1.0, "n": 4}]  # fmt: skip
+    assert [r["n"] for r in best_per_key(rows)] == [2, 4]
+
+
+def test_a_report_that_cannot_be_stored_does_not_hide_the_others(
+    env: Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.jobs import annual_reports as job
+
+    url23 = AR_URL.replace("2023_2024", "2022_2023")
+    list_fy2024(env)
+    when23 = datetime(2023, 6, 10, tzinfo=IST)
+    env.nse.reports["ACME"].append({"url": url23, "fiscal_year": 2023, "disseminated_at": when23})
+    env.nse.report_documents[url23] = env.nse.report_documents[AR_URL]
+    real = job.ingest_report
+
+    def flaky(session: Any, row: AnnualReport, **kw: Any) -> None:
+        if row.fiscal_year == 2024:  # read first (newest year first): a database error
+            raise RuntimeError("ON CONFLICT DO UPDATE command cannot affect row a second time")
+        real(session, row, **kw)
+
+    monkeypatch.setattr(job, "ingest_report", flaky)
+    outcome = run(env)
+    d = outcome.outcome.details
+    assert d["downloaded"] == 2 and d["parsed"] == 1
+    assert d["failed"] == {AR_URL: "RuntimeError: ON CONFLICT DO UPDATE command cannot affect "
+                                   "row a second time"}  # fmt: skip
+    with env.session() as s:
+        rows = {r.fiscal_year: r for r in s.scalars(select(AnnualReport))}
+    assert rows[2024].status is FilingStatus.FAILED and rows[2024].attempts == 1
+    assert rows[2023].status is FilingStatus.PARSED
