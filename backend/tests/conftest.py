@@ -51,6 +51,18 @@ def _no_network(monkeypatch: pytest.MonkeyPatch) -> None:
     for var in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr(socket.socket, "connect", _guarded_connect)
+    # curl_cffi (libcurl) and Playwright (Chromium) open their own sockets, past the guard
+    # above: in tests they are unavailable unless a test injects fake fetchers.
+    from app.data.providers import web_session
+
+    def _off(name: str) -> object:
+        def factory(site: object) -> object:
+            raise web_session.MethodUnavailable(f"{name} disabled in tests (no network)")
+
+        return factory
+
+    for method in ("curl_cffi", "playwright"):
+        monkeypatch.setitem(web_session.FACTORIES, method, _off(method))
 
 
 @pytest.fixture(autouse=True)

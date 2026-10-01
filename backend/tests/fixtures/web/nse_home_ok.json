@@ -1,0 +1,7 @@
+{
+  "_note": "NSE homepage answering a browser-like session: sets its session cookies (placeholder values).",
+  "status": 200,
+  "headers": {"server": "AkamaiNetStorage", "content-type": "text/html; charset=utf-8"},
+  "set_cookie": ["nsit=PLACEHOLDER-SECRET-NSIT; Path=/; Secure; HttpOnly", "nseappid=PLACEHOLDER-SECRET-APPID; Path=/; Secure; HttpOnly"],
+  "body": "<!DOCTYPE html><html><head><title>NSE - National Stock Exchange of India Ltd</title></head><body></body></html>"
+}

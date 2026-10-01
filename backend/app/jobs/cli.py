@@ -12,11 +12,14 @@
     python -m app.jobs pdf-reparse [--symbols TCS]        # re-read cached annual reports
     python -m app.jobs pipeline-worker                    # only the on-demand pipeline loop
     python -m app.jobs telegram-bot                       # only the Telegram bot (long polling)
+    python -m app.jobs nse-diagnose [--symbol HDFCBANK] [--method curl_cffi] [--json]
+    python -m app.jobs bse-diagnose [--method requests] [--json]  # which endpoints answer
 
 Exit codes: 0 success/skipped, 1 failed, 2 unknown or not-yet-implemented job.
 """
 
 import argparse
+import json
 import sys
 from collections.abc import Callable, Sequence
 from datetime import date
@@ -93,6 +96,22 @@ def _parser() -> argparse.ArgumentParser:
         "telegram-bot",
         help="answer /grade, /buyzone, /status from the owner's chat (the worker does this too)",
     )
+    for site in ("nse", "bse"):
+        diag = sub.add_parser(
+            f"{site}-diagnose",
+            help=f"request every {site.upper()} endpoint the app uses with each session method "
+            "and show status, headers (cookie names only) and a verdict",
+        )
+        if site == "nse":
+            diag.add_argument("--symbol", default="HDFCBANK", help="stock for per-symbol APIs")
+        diag.add_argument(
+            "--method",
+            action="append",
+            default=None,
+            choices=["curl_cffi", "playwright", "requests"],
+            help="only these methods (repeatable); default: <site>.session",
+        )
+        diag.add_argument("--json", action="store_true", help="machine-readable output")
     return p
 
 
@@ -358,6 +377,24 @@ def verify_adjustment(ctx: JobContext, symbol: str) -> int:
     return 0
 
 
+def site_diagnose(ctx: JobContext, site: str, args: argparse.Namespace) -> int:
+    """Exit 0 when some method answers every endpoint, 1 when the site blocks them all."""
+    from app.core.rate_limiter import RateLimiter
+    from app.data import diagnose as diag
+    from app.data.providers.web_session import RedisMemory
+
+    pc = ctx.config.providers
+    report = diag.run_site(
+        site, pc, symbol=getattr(args, "symbol", "HDFCBANK"), today=ctx.today(), now=ctx.now(),
+        limiter=RateLimiter(ctx.redis, pc.rate_limits),
+        rate_limit_timeout_s=pc.retry.rate_limit_timeout_s,
+        memory=RedisMemory(ctx.redis), methods=args.method,
+    )  # fmt: skip
+    diag.store(ctx.redis, report)
+    print(json.dumps(report.to_json(), indent=2) if args.json else diag.render(report))
+    return 0 if report.working_method else 1
+
+
 def main(argv: Sequence[str] | None = None, context_factory: ContextFactory | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "xbrl-inspect":
@@ -379,4 +416,6 @@ def main(argv: Sequence[str] | None = None, context_factory: ContextFactory | No
         return pipeline_worker(ctx)
     if args.command == "telegram-bot":
         return telegram_bot(ctx)
+    if args.command in ("nse-diagnose", "bse-diagnose"):
+        return site_diagnose(ctx, args.command.split("-")[0], args)
     return verify_adjustment(ctx, args.symbol)

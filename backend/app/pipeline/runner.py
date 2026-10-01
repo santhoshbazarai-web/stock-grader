@@ -32,6 +32,7 @@ from sqlalchemy.orm import Session
 from app.alerts.notify import notify
 from app.core.config import PipelineConfig
 from app.data import prices
+from app.data.providers.web_session import BLOCKED_MARKER, blocked_message
 from app.db.enums import FilingStatus, PipelineStatus, StepStatus
 from app.db.models import (
     AnnualReport,
@@ -91,14 +92,25 @@ class StepDef:
 # ───────────────────────── helpers ─────────────────────────
 
 
+def _blocked(reason: str | None) -> str | None:
+    """The standard message when the exchange is blocking this connection (the UI links it to
+    the manual uploads), else None."""
+    if reason and BLOCKED_MARKER in reason:
+        site = "BSE" if "BSE is blocking" in reason else "NSE"
+        return blocked_message(site)
+    return None
+
+
 def _job_result(outcome: JobOutcome, symbol: str, ok: str) -> StepResult:
     """A nightly job's outcome for one symbol → a step result."""
     if outcome.skipped_reason:
         return StepResult(StepStatus.SKIPPED, outcome.skipped_reason)
     failed = outcome.details.get("failed") or []
     if symbol in failed:
-        reason = failed[symbol] if isinstance(failed, dict) else "source unavailable"
-        return StepResult(StepStatus.WARNING, f"not refreshed: {reason}")
+        reasons = outcome.details.get("failed_reasons") or {}
+        reason = reasons.get(symbol) or (failed[symbol] if isinstance(failed, dict)
+                                         else "source unavailable")  # fmt: skip
+        return StepResult(StepStatus.WARNING, _blocked(str(reason)) or f"not refreshed: {reason}")
     return StepResult(StepStatus.OK, ok)
 
 
@@ -166,6 +178,9 @@ def _filings_index(ctx: JobContext, st: State) -> StepResult:
     out = list_results(ctx, [st.symbol], recheck_all=True, fallback=True)
     if st.symbol in out["index_failed"]:
         fell_back = " (new quarters from yfinance, flagged)" if out["fallback_written"] else ""
+        blocked = _blocked(out.get("index_reasons", {}).get(st.symbol))
+        if blocked:
+            return StepResult(StepStatus.WARNING, f"{blocked}{fell_back}")
         return StepResult(StepStatus.WARNING, f"NSE results list unavailable{fell_back}")
     return StepResult(StepStatus.OK, f"{out['listed_new']} new filing(s) listed")
 
@@ -199,7 +214,8 @@ def _pdf_gap_fill(ctx: JobContext, st: State) -> StepResult:
                              limit=ctx.config.jobs.pipeline.max_annual_reports)  # fmt: skip
     d = outcome.details
     if st.symbol in (d.get("index_failed") or []):
-        return StepResult(StepStatus.WARNING, "NSE annual-report list unavailable")
+        blocked = _blocked((d.get("index_reasons") or {}).get(st.symbol))
+        return StepResult(StepStatus.WARNING, blocked or "NSE annual-report list unavailable")
     if not d.get("downloaded"):
         missing = (d.get("gap_years_without_report") or {}).get(st.symbol)
         return StepResult(StepStatus.OK, "no balance-sheet / cash-flow gaps to fill"

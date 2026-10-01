@@ -104,7 +104,15 @@ NSE endpoints need a browser-like session (cookies from the homepage + headers) 
 
 ### 3.2a NSE/BSE fetching rules
 - Prefer archive and bulk files (`nsearchives.nseindia.com`, BSE download files) over page APIs.
-- Warm up a session from the homepage to get cookies, send browser-like headers, stay at ≤ 1 request/sec, and use exponential backoff on 401/403/429.
+- Warm up a session from the homepage to get cookies, send browser-like headers, stay at ≤ 1 request/sec, and use exponential backoff on 429 and network errors.
+- **Session strategies** (`data/providers/web_session.py`): page APIs on `www.nseindia.com` and `api.bseindia.com` go through an ordered list of methods, `providers.yaml` `nse.session` / `bse.session` (default `[curl_cffi, playwright, requests]`):
+  - `curl_cffi` impersonating Chrome (TLS fingerprint, headers, cookie jar);
+  - headless Chromium via Playwright, whose cookies and user agent are reused for the API calls, falling back to `fetch()` from inside the page;
+  - plain `requests`.
+  The warm-up visits `browser.warmup_urls` in order (homepage → page → API). A 401/403, or HTML where JSON is expected, refreshes cookies once; if it repeats, the method is marked blocked in Redis for `blocked_ttl_s` and the next one is tried. Network errors move on without marking a block. The method that worked is remembered for `remember_ttl_s` and tried first.
+- When every method is refused, the call raises `ProviderUnavailable` (not retried) with the message "*<site> is blocking automated access from this connection. Upload XBRL files or a Screener export instead*". The UI shows it with links to the manual uploads (results XBRL upload, Screener export), which remain the fallback. BSE is best-effort: the symbol master is built from NSE + Fyers, and a missing BSE scrip master is a data gap.
+- `python -m app.jobs nse-diagnose` / `bse-diagnose` request each endpoint once per method and report status, `server` / `content-type`, cookie **names** (never values), body length and a verdict. The result is shown in Settings → Data sources.
+- Exchanges change their protection without notice, so this needs maintenance. No proxies, CAPTCHA solvers or paid services are used.
 - Cache every raw file on disk under `data/raw/<source>/<yyyy>/<mm>/<dd>/` before parsing, so you can re-parse without re-downloading.
 - Never run fetchers in parallel against the same host.
 - Market Lens: read-only JSON the page itself loads, used only in the reconciliation job, and switchable off via config.

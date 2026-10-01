@@ -437,16 +437,22 @@ open, Esc to close.
   layouts. NSE and BSE are unreachable from the build environment, so run
   `python -m app.jobs run symbol_master` once and check its details.
 
-## Other data sources
+## Data sources
 
 - **yfinance** (`data/providers/yf.py`): price fallback (`TCS.NS`, index tickers from
   `yfinance_index_tickers`), corporate actions, and fundamentals. Yahoo's prices are
   split-adjusted even unadjusted, so the provider reverses that to return raw prices. Annual
   statements cover only ~4 years; results carry a `limited history` warning in `reasons`.
+  Its cache (`py-yfinance`) lives in `$XDG_CACHE_HOME`: `/data/cache` in the containers, on the
+  `appcache` volume, owned by the non-root app user.
 - **NSE** (`data/providers/nse.py`): delivery % from `sec_bhavdata_full`, index constituents
   (niftyindices CSV), ASM/GSM + F&O ban lists, corporate actions, shareholding, and the results
-  filing list + XBRL documents (parsed by `data/xbrl.py`). Browser headers,
-  homepage cookie warm-up (refreshed after `nse.cookie_ttl_s` or on 401/403), `rate_limits.nse`.
+  filing list + XBRL documents (parsed by `data/xbrl.py`). Archive files
+  (`nsearchives.nseindia.com`) are plain downloads; the JSON APIs on `www.nseindia.com` go
+  through the browser-like session strategy below. `rate_limits.nse` (1 request/s).
+- **BSE** (`data/providers/bse.py`): the scrip master (BSE codes) and announcements, through the
+  same session strategy. Best-effort: when BSE refuses, the symbol master is built from NSE +
+  Fyers and the missing BSE scrip master is a data gap.
 - **Screener** (optional; `data/providers/screener_import.py`): parses the Excel export's "Data
   Sheet" into `fin_annual` / `fin_quarterly` / `shareholding` (you state consolidated vs
   standalone at upload), filling only what the XBRL filings don't cover, and records data gaps
@@ -455,6 +461,64 @@ open, Esc to close.
 Every source's labels map onto one canonical schema in `backend/app/data/canonical.py` (XBRL
 element names are in the versioned `backend/app/fundamentals/xbrl_map.yaml`);
 the generated table is in [`docs/CANONICAL_FIELDS.md`](docs/CANONICAL_FIELDS.md).
+
+## NSE/BSE access
+
+NSE's website (`www.nseindia.com`, behind Akamai) refuses clients that don't look like a browser.
+From some connections even a real `curl` with a Chrome user agent gets **HTTP 403**, while
+the archive host (`nsearchives.nseindia.com`) keeps working. BSE's API can do the same. Results
+filings, corporate actions, shareholding and the event feeds all come from those JSON APIs.
+
+**Session strategies** (`backend/app/data/providers/web_session.py`): `providers.yaml`
+`nse.session` and `bse.session` list the methods tried in turn, by default
+`[curl_cffi, playwright, requests]`:
+
+1. **curl_cffi**: libcurl impersonating Chrome (`browser.impersonate: chrome`, the newest profile
+   the installed curl_cffi ships). The TLS and HTTP/2 fingerprint, User-Agent and `sec-ch-ua*`
+   headers are Chrome's. It keeps a cookie jar and sends the navigation and API headers Chrome
+   would (`sec-fetch-*`, Referer, Origin when cross-site). It goes homepage → filings page → API
+   (`browser.warmup_urls`) and refreshes cookies after `cookie_ttl_s` or on a 401/403.
+2. **playwright**: headless Chromium loads the warm-up pages and waits for the network to go
+   idle. Its cookies and user agent are copied into an HTTP session for the API calls. If NSE
+   still refuses that session, the calls are made with `fetch()` from inside the page itself.
+   Images, fonts and media are not loaded. The backend image includes Playwright's headless
+   Chromium and its libraries, which adds a few hundred MB; set `PLAYWRIGHT_CHROMIUM_EXECUTABLE`
+   to use another Chromium instead.
+3. **requests**: plain `requests` with browser headers (the old behaviour).
+
+The method that worked is remembered in Redis for `remember_ttl_s` (a day) and tried first.
+A method that was refused (401/403, or an HTML challenge page instead of JSON) is skipped for
+`blocked_ttl_s` (an hour), so a blocked connection isn't hammered on every call. Network
+errors (resets, timeouts) move on to the next method without marking it blocked. Every request,
+warm-up pages included, takes a token from the shared Redis rate limiter (1 request/s per host).
+The feed jobs share a Redis lock, so nothing hits one host in parallel.
+
+When every method is refused, the call fails with *"NSE is blocking automated access from
+this connection. Upload XBRL files or a Screener export instead"*. The stock page's progress panel
+and Settings → Results filings show that sentence, with links to the upload sections.
+
+**Diagnose.** See exactly what each endpoint answers, per method:
+
+```bash
+docker compose exec api python -m app.jobs nse-diagnose            # --symbol TCS, --method curl_cffi, --json
+docker compose exec api python -m app.jobs bse-diagnose
+```
+
+One line per request: URL, method, HTTP status, `server` and `content-type`, the **names** of
+the cookies set (never their values), body length and a verdict (`OK`, `blocked-403`,
+`rate-limited-429`, `empty`, `other: …`). The command exits 1 when no method gets through. The
+result is stored, shown in **Settings → Data sources** (with a **Re-check now** button), and the
+method that worked becomes the one the jobs try first.
+
+**This needs maintenance.** NSE and BSE change their bot protection without notice. A method
+that works today may be refused next month, and none may work from some connections (some ISPs
+and data-centre IPs are blocked outright). Nothing here uses proxies, CAPTCHA solvers or paid
+services. When `nse-diagnose` shows every method blocked, use the manual routes, which always
+work:
+
+- **Settings → Results filings → Upload**: XBRL files downloaded in your browser from the
+  NSE/BSE results pages;
+- **Settings → Screener uploads**: a Screener.in Excel export.
 
 ## Jobs
 

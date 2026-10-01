@@ -41,10 +41,12 @@ def shareholding(ctx: JobContext, options: JobOptions) -> JobOutcome:
     if reason := _outside(ctx, options, ctx.config.jobs.shareholding_season):
         return JobOutcome(skipped_reason=reason)
     written, failed = 0, []
+    failed_reasons: dict[str, str] = {}
     for symbol in universe(ctx, options):
         res = ctx.router.shareholding(symbol)
         if res.data is None or res.source is None or res.data.empty:
             failed.append(symbol)
+            failed_reasons[symbol] = "; ".join(res.reasons)[:500] or "no rows"
             continue
         session = ctx.session_factory()
         try:
@@ -64,7 +66,7 @@ def shareholding(ctx: JobContext, options: JobOptions) -> JobOutcome:
             session.commit()
         finally:
             session.close()
-    return JobOutcome(written, {"failed": failed})
+    return JobOutcome(written, {"failed": failed, "failed_reasons": failed_reasons})
 
 
 def results_backfill(ctx: JobContext, options: JobOptions) -> JobOutcome:
@@ -114,6 +116,7 @@ def list_results(
     today = ctx.today()
     oldest = cutoff(today, ctx.config.providers.history_years)
     listed, index_failed, fallback_written, flagged = 0, [], 0, []
+    index_reasons: dict[str, str] = {}
     for symbol in symbols:
         key = f"results-index:{symbol}"
         if not recheck_all and ctx.redis.exists(key):
@@ -121,6 +124,7 @@ def list_results(
         res = ctx.router.results_filings(symbol)
         if res.data is None:
             index_failed.append(symbol)
+            index_reasons[symbol] = "; ".join(res.reasons)[:500]
             if fallback:
                 n = _fallback_quarters(ctx, symbol, today)
                 fallback_written += n
@@ -129,7 +133,7 @@ def list_results(
             continue
         listed += _list_filings(ctx, symbol, res.data, oldest, res.source)
         ctx.redis.set(key, 1, ex=jcfg.index_recheck_days * 86400)
-    return {"listed_new": listed, "index_failed": index_failed,
+    return {"listed_new": listed, "index_failed": index_failed, "index_reasons": index_reasons,
             "fallback_flagged": flagged, "fallback_written": fallback_written}  # fmt: skip
 
 

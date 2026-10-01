@@ -24,6 +24,8 @@ x-backend: &backend
   environment:
     APP_ENV: home  # refuses public URLs, weak passwords, wrong redirect URIs (fail fast)
     CONFIG_DIR: /config
+    HOME: /home/app
+    XDG_CACHE_HOME: /data/cache   # yfinance cache (py-yfinance), owned by the app user
     RAW_DATA_DIR: /data/raw
     DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-stockgrader}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.home}@db:5432/${POSTGRES_DB:-stockgrader}
     REDIS_URL: redis://redis:6379/0
@@ -38,6 +40,7 @@ x-backend: &backend
   volumes:
     - ${CONFIG_PATH:-./config}:/config:ro
     - rawdata:/data/raw
+    - appcache:/data/cache   # yfinance and other XDG caches (writable by the app user)
   networks: [home]
   depends_on:
     db:
@@ -211,3 +214,4 @@ volumes:
   pgdata:
   redisdata:
   rawdata:   # re-downloadable raw files (not in the backups)
+  appcache:   # XDG caches (yfinance); safe to delete

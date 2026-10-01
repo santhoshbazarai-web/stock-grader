@@ -8,7 +8,7 @@ import pytest
 import responses
 
 from app.core.config import load_config
-from app.data.providers.base import ProviderError
+from app.data.providers.base import ProviderUnavailable
 from app.data.providers.bse import BseProvider
 from app.data.providers.fyers import fetch_fyers_masters
 from app.data.providers.nse import NseProvider, NseSession
@@ -148,16 +148,19 @@ def test_nse_symbol_files_are_cached_then_parsed(tmp_path: Path) -> None:
 @responses.activate
 def test_bse_scrip_master(tmp_path: Path) -> None:
     url = f"{PCFG.bse.api_url}{PCFG.bse.scrip_master_path}"
+    responses.add(responses.GET, PCFG.bse.browser.warmup_urls[0], body="<html/>")
     responses.add(responses.GET, url, body=text("bse_scrips.json"))
     scrips = BseProvider(PCFG.bse, raw_store=RawStore(tmp_path, clock=STAMP)).scrip_master()
     assert scrips[0].code == "500180"
-    assert responses.calls[0].request.headers["Referer"] == PCFG.bse.referer
+    api = responses.calls[1].request  # after the www.bseindia.com warm-up
+    assert api.headers["Referer"] == PCFG.bse.referer
     assert (tmp_path / "bse/2024/06/14/scrip_master.json").is_file()
+    # a challenge page or a 403 from every method: BSE is blocking (best-effort source)
     responses.replace(responses.GET, url, body="<html>blocked</html>")
-    with pytest.raises(ProviderError, match="BSE scrip master"):
+    with pytest.raises(ProviderUnavailable, match="BSE is blocking automated access"):
         BseProvider(PCFG.bse).scrip_master()
     responses.replace(responses.GET, url, status=403)
-    with pytest.raises(ProviderError, match="HTTP 403"):
+    with pytest.raises(ProviderUnavailable, match="requests: HTTP 403"):
         BseProvider(PCFG.bse).scrip_master()
 
 

@@ -502,7 +502,7 @@ export type FilingStatus = "pending" | "parsed" | "failed";
 export type ResultFiling = {
   id: number;
   symbol: string;
-  exchange: "nse" | "upload";
+  exchange: "nse" | "upload" | "offline";
   document: string;
   period_start: string | null;
   period_end: string | null;
@@ -722,4 +722,31 @@ export type Thesis = {
   attempts: number;
   problems: string[];
   reasons: string[];
+};
+
+export type DiagRow = {
+  method: string;
+  endpoint: string;
+  url: string;
+  status: number | null;
+  server: string | null;
+  content_type: string | null;
+  cookie_names: string[];
+  length: number;
+  verdict: string;
+};
+
+export type SiteDiag = {
+  site: "nse" | "bse";
+  checked_at: string;
+  methods: string[];
+  working_method: string | null;
+  summary: Record<string, { verdict: string; method: string }>;
+  rows: DiagRow[];
+};
+
+export type DataSources = {
+  running: boolean;
+  nse: SiteDiag | null;
+  bse: SiteDiag | null;
 };

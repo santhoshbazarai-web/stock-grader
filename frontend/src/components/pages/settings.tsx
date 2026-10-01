@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Empty, ErrorText, Page } from "@/components/common";
 import { NOTIFICATIONS_CHANGED } from "@/components/notification-bell";
+import { DataSourcesCard } from "@/components/pages/data-sources";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { api, ApiError } from "@/lib/api";
@@ -278,7 +279,7 @@ function Uploads() {
   }
 
   return (
-    <Card className="gap-4">
+    <Card className="scroll-mt-20 gap-4" id="screener-uploads">
       <CardHeader>
         <CardTitle className="text-base">Screener uploads (optional)</CardTitle>
         <CardDescription>
@@ -452,6 +453,7 @@ export function Settings() {
     <Page>
       <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
       <Brokers />
+      <DataSourcesCard />
       <Notifications />
       <ConfigEditor />
       <Filings />

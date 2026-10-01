@@ -41,6 +41,7 @@ from tests.conftest import REPO_CONFIG_DIR
 FIX = Path(__file__).parent / "fixtures" / "nse"
 CFG: NseConfig = load_config(REPO_CONFIG_DIR).providers.nse
 HOME = f"{CFG.base_url}/"
+PAGE = CFG.browser.warmup_urls[1]  # homepage -> filings page -> API (web_session warm-up)
 BHAV = f"{CFG.archives_url}/products/content/sec_bhavdata_full_28032024.csv"
 BAN = f"{CFG.archives_url}/content/fo/fo_secban.csv"
 ASM = f"{CFG.base_url}/api/reportASM"
@@ -90,6 +91,7 @@ def log(http: responses.RequestsMock) -> Log:
         return cb
 
     http.add_callback(responses.GET, HOME, callback=home)
+    http.add_callback(responses.GET, PAGE, callback=serve("<html/>", "text/html"))
     for url, name, ctype in (
         (BHAV, "sec_bhavdata_full_28032024.csv", "text/csv"),
         (BAN, "fo_secban.csv", "text/csv"),
@@ -143,8 +145,8 @@ def test_protocols() -> None:
 
 def test_api_calls_warm_up_homepage_first_and_send_cookies(log: Log) -> None:
     nse().shareholding("SAMPLEIND")
-    assert log.urls == [HOME, SHP]
-    assert log.cookies[1] is not None and "nsit=abc123" in log.cookies[1]
+    assert log.urls == [HOME, PAGE, SHP]
+    assert log.cookies[2] is not None and "nsit=abc123" in log.cookies[2]
     assert all(a == BROWSER_HEADERS["User-Agent"] for a in log.agents)
 
 
@@ -153,10 +155,10 @@ def test_cookies_reused_until_ttl_then_refreshed(log: Log) -> None:
     p = nse(clock=clock)
     p.shareholding("SAMPLEIND")
     p.shareholding("SAMPLEIND")
-    assert log.urls == [HOME, SHP, SHP]
+    assert log.urls == [HOME, PAGE, SHP, SHP]
     clock.t = CFG.cookie_ttl_s + 1
     p.shareholding("SAMPLEIND")
-    assert log.urls == [HOME, SHP, SHP, HOME, SHP]
+    assert log.urls == [HOME, PAGE, SHP, SHP, HOME, PAGE, SHP]
 
 
 def test_archives_do_not_need_warm_up(log: Log) -> None:
@@ -166,32 +168,39 @@ def test_archives_do_not_need_warm_up(log: Log) -> None:
 
 def test_forbidden_refreshes_cookies_once(http: responses.RequestsMock) -> None:
     http.add(responses.GET, HOME, body="<html/>")
+    http.add(responses.GET, PAGE, body="<html/>")
     http.add(responses.GET, SHP, status=403)
     http.add(responses.GET, SHP, json=json.loads(text("shareholding_master_sampleind.json")))
     df = nse().shareholding("SAMPLEIND")
     assert len(df) == 3
-    assert [c.request.url.split("?")[0] for c in http.calls] == [HOME, SHP, HOME, SHP]
+    assert [c.request.url.split("?")[0] for c in http.calls] == [HOME, PAGE, SHP, HOME, PAGE,
+                                                                 SHP]  # fmt: skip
 
 
-def test_still_forbidden_is_transient_error(http: responses.RequestsMock) -> None:
+def test_still_forbidden_means_blocked(http: responses.RequestsMock) -> None:
+    """Every method refused (curl_cffi / Playwright are off in tests): a clear
+    ProviderUnavailable naming the manual uploads, not a retryable error."""
     http.add(responses.GET, HOME, body="<html/>")
+    http.add(responses.GET, PAGE, body="<html/>")
     http.add(responses.GET, SHP, status=403)
-    with pytest.raises(ProviderError, match="403") as info:
+    with pytest.raises(ProviderUnavailable, match="NSE is blocking automated access") as info:
         nse().shareholding("SAMPLEIND")
-    assert not isinstance(info.value, ProviderUnavailable)
+    assert "requests: HTTP 403" in str(info.value)
+    assert "Upload XBRL files or a Screener export instead" in str(info.value)
 
 
-def test_html_instead_of_json_is_an_error(http: responses.RequestsMock) -> None:
+def test_html_instead_of_json_means_blocked(http: responses.RequestsMock) -> None:
     http.add(responses.GET, HOME, body="<html/>")
+    http.add(responses.GET, PAGE, body="<html/>")
     http.add(responses.GET, SHP, body="<html>Access Denied</html>")
-    with pytest.raises(ProviderError, match="not JSON"):
+    with pytest.raises(ProviderUnavailable, match="not JSON"):
         nse().shareholding("SAMPLEIND")
 
 
 def test_every_request_after_the_first_is_rate_limited(log: Log) -> None:
     limiter = CountingLimiter()
-    nse(limiter=limiter).surveillance()  # home + ASM + GSM + ban = 4 requests
-    assert limiter.calls == [Provider.NSE] * 3
+    nse(limiter=limiter).surveillance()  # home + page + ASM + GSM + ban = 5 requests
+    assert limiter.calls == [Provider.NSE] * 4
 
 
 def test_network_error_is_transient(http: responses.RequestsMock) -> None:
@@ -268,6 +277,7 @@ def test_empty_fo_ban_list(http: responses.RequestsMock, log: Log) -> None:
 
 def test_surveillance_fails_whole_call_if_a_list_is_missing(http: responses.RequestsMock) -> None:
     http.add(responses.GET, HOME, body="<html/>")
+    http.add(responses.GET, PAGE, body="<html/>")
     http.add(responses.GET, ASM, json=json.loads(text("reportASM.json")))
     http.add(responses.GET, GSM, status=404)
     with pytest.raises(ProviderError):
@@ -276,6 +286,7 @@ def test_surveillance_fails_whole_call_if_a_list_is_missing(http: responses.Requ
 
 def test_unrecognised_asm_shape(http: responses.RequestsMock) -> None:
     http.add(responses.GET, HOME, body="<html/>")
+    http.add(responses.GET, PAGE, body="<html/>")
     http.add(responses.GET, ASM, json={"rows": []})
     with pytest.raises(ProviderError, match="unexpected ASM payload"):
         nse().surveillance()
@@ -368,6 +379,7 @@ def test_parse_results_index() -> None:
 def test_results_filings_requests_every_period_and_dedupes(http: responses.RequestsMock) -> None:
     body = text("financial_results_acme.json")
     http.add(responses.GET, HOME, body="<html/>")
+    http.add(responses.GET, PAGE, body="<html/>")
     seen: list[str] = []
 
     def cb(request: PreparedRequest) -> tuple[int, dict[str, str], str]:
@@ -378,15 +390,17 @@ def test_results_filings_requests_every_period_and_dedupes(http: responses.Reque
     limiter = CountingLimiter()
     df = nse(limiter).results_filings("acme")
     assert seen == CFG.results.periods and len(df) == 2  # same filings under both: deduped
-    assert "symbol=ACME" in (http.calls[1].request.url or "")
+    assert "symbol=ACME" in (http.calls[2].request.url or "")
     # the router pays for the first request; the session for the rest (homepage + 2nd period)
-    assert len(limiter.calls) == len(CFG.results.periods)
+    # warm-up pages + one call per period, less the first request (the router's)
+    assert len(limiter.calls) == len(CFG.browser.warmup_urls) + len(CFG.results.periods) - 1
 
 
 def test_results_filings_caches_each_list_before_parsing(
     http: responses.RequestsMock, tmp_path: Path
 ) -> None:
     http.add(responses.GET, HOME, body="<html/>")
+    http.add(responses.GET, PAGE, body="<html/>")
     http.add(responses.GET, RESULTS, body=text("financial_results_acme.json"))
     store = RawStore(tmp_path, clock=lambda: datetime(2024, 5, 10, 12, 0, tzinfo=UTC))
     NseProvider(CFG, NseSession(CFG, clock=Clock()), store).results_filings("acme")
@@ -451,6 +465,7 @@ def test_annual_reports_list_is_cached_and_documents_guarded(
     http: responses.RequestsMock, tmp_path: Path
 ) -> None:
     http.add(responses.GET, HOME, body="<html/>")
+    http.add(responses.GET, PAGE, body="<html/>")
     ok = "https://nsearchives.nseindia.com/annual_reports/AR_ACME_2023_2024.pdf"
     http.add(responses.GET, ANNUAL, json={"data": [{"toYr": "2024", "fileName": ok}]})
     http.add(responses.GET, ok, body=b"%PDF-1.4")
@@ -459,7 +474,7 @@ def test_annual_reports_list_is_cached_and_documents_guarded(
     store = RawStore(tmp_path, clock=lambda: datetime(2024, 6, 14, 12, 0, tzinfo=UTC))
     p = NseProvider(CFG, NseSession(CFG, clock=Clock()), store)
     df = p.annual_reports("acme")
-    assert df["url"].tolist() == [ok] and "symbol=ACME" in (http.calls[1].request.url or "")
+    assert df["url"].tolist() == [ok] and "symbol=ACME" in (http.calls[2].request.url or "")
     assert (tmp_path / "nse/2024/06/14/annual_reports_ACME.json").is_file()
     assert p.annual_report_document(ok) == b"%PDF-1.4"
     for url, message in ((big, "larger than"),

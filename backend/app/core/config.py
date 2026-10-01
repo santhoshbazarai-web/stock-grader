@@ -19,6 +19,7 @@ from typing import Annotated, Any, Literal, Self, get_args
 
 import yaml
 from pydantic import (
+    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
@@ -249,8 +250,35 @@ class NseEventsConfig(_Strict):
     max_days_per_request: PositiveInt  # a longer window is read in pieces
 
 
+SessionMethod = Literal["curl_cffi", "playwright", "requests"]
+
+
+class BrowserSessionConfig(_Strict):
+    """How a site's browser-like session warms up (``data/providers/web_session.py``)."""
+
+    warmup_urls: list[str] = Field(min_length=1)  # visited in order before API calls
+    api_referer: str  # the page an API call is "made from" (Referer; Origin if cross-site)
+    impersonate: str = Field(min_length=1)  # curl_cffi browser profile ("chrome" = newest)
+    remember_ttl_s: PositiveFloat  # the method that worked is tried first for this long
+    blocked_ttl_s: PositiveFloat  # a refused method is skipped for this long
+    playwright_timeout_s: PositiveFloat  # page load / network-idle wait
+    playwright_block_resources: list[str]  # resource types not loaded (images, fonts, media)
+
+
+def _session_methods(v: list[SessionMethod]) -> list[SessionMethod]:
+    if len(set(v)) != len(v):
+        raise ValueError("session methods must not repeat")
+    return v
+
+
+SessionMethods = Annotated[list[SessionMethod], Field(min_length=1),
+                           AfterValidator(_session_methods)]  # fmt: skip
+
+
 class NseConfig(_Strict):
     base_url: str
+    session: SessionMethods  # tried in order; see BrowserSessionConfig
+    browser: BrowserSessionConfig
     archives_url: str
     niftyindices_url: str
     cookie_ttl_s: PositiveFloat
@@ -268,6 +296,9 @@ class BseConfig(_Strict):
 
     api_url: str
     referer: str
+    session: SessionMethods  # tried in order; see BrowserSessionConfig
+    browser: BrowserSessionConfig
+    cookie_ttl_s: PositiveFloat  # re-visit the warm-up pages for fresh cookies after this
     request_timeout_s: PositiveFloat
     scrip_master_path: str  # active equity scrips, relative to api_url
     announcements_path: str  # corporate announcements (all companies), relative to api_url

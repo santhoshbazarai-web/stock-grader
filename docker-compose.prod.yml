@@ -21,6 +21,8 @@ x-backend: &backend
   environment:
     APP_ENV: production
     CONFIG_DIR: /config
+    HOME: /home/app
+    XDG_CACHE_HOME: /data/cache   # yfinance cache (py-yfinance), owned by the app user
     RAW_DATA_DIR: /data/raw   # raw XBRL / filing-list cache, parsed from here (SPEC §3.2a)
     DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-stockgrader}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.production}@db:5432/${POSTGRES_DB:-stockgrader}
     REDIS_URL: redis://redis:6379/0
@@ -33,6 +35,7 @@ x-backend: &backend
   volumes:
     - ${CONFIG_PATH:-./config}:/config:ro
     - rawdata:/data/raw
+    - appcache:/data/cache   # yfinance and other XDG caches (writable by the app user)
   networks: [backend]
   depends_on:
     db:
@@ -193,6 +196,7 @@ networks:
 
 volumes:
   rawdata:   # re-downloadable, so not in the nightly backups
+  appcache:   # XDG caches (yfinance); safe to delete
   pgdata:
   redisdata:
   caddy_data:

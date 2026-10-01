@@ -43,9 +43,9 @@ def build_context(settings: Settings, config: AppConfig) -> JobContext:
             limiter,
         ),
         Provider.YFINANCE: build_yfinance_provider(pc, limiter),
-        Provider.NSE: build_nse_provider(pc, limiter, raw_store, session_factory),
+        Provider.NSE: build_nse_provider(pc, limiter, raw_store, session_factory, redis),
         Provider.SCREENER: ScreenerProvider(session_factory),
-        Provider.BSE: build_bse_provider(pc, limiter, raw_store),
+        Provider.BSE: build_bse_provider(pc, limiter, raw_store, redis),
         Provider.MARKET_LENS: build_market_lens_provider(pc, limiter, raw_store),
     }
     # SPEC §3.3: a broker disabled in providers.yaml is never built (the router reports it as

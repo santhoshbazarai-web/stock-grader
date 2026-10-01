@@ -40,6 +40,7 @@ from app.data.providers.nse import NseProvider, NseSession, _windows
 from app.data.raw_store import RawStore
 from app.db.enums import EventKind
 from tests.conftest import REPO_CONFIG_DIR
+from tests.web_support import mock_warmup
 
 CONFIG = load_config(REPO_CONFIG_DIR)
 PCFG = CONFIG.providers
@@ -206,7 +207,7 @@ def nse(tmp_path: Path) -> NseProvider:
 @responses.activate
 def test_nse_events_windows_cache_and_parse(tmp_path: Path) -> None:
     base, cfg = PCFG.nse.base_url, PCFG.nse.events
-    responses.add(responses.GET, f"{base}/", body="<html/>")
+    mock_warmup(PCFG.nse.browser)
     seen: list[str] = []
 
     def announcements(request: PreparedRequest) -> tuple[int, dict[str, str], str]:
@@ -229,7 +230,7 @@ def test_nse_events_windows_cache_and_parse(tmp_path: Path) -> None:
 @responses.activate
 def test_nse_results_feed_reads_each_period_and_deals_file(tmp_path: Path) -> None:
     base, cfg = PCFG.nse.base_url, PCFG.nse.events
-    responses.add(responses.GET, f"{base}/", body="<html/>")
+    mock_warmup(PCFG.nse.browser)
     periods: list[str] = []
 
     def results(request: PreparedRequest) -> tuple[int, dict[str, str], str]:
@@ -249,7 +250,7 @@ def test_nse_results_feed_reads_each_period_and_deals_file(tmp_path: Path) -> No
 @responses.activate
 def test_nse_events_bad_shape_is_a_provider_error(tmp_path: Path) -> None:
     base = PCFG.nse.base_url
-    responses.add(responses.GET, f"{base}/", body="<html/>")
+    mock_warmup(PCFG.nse.browser)
     responses.add(responses.GET, f"{base}{PCFG.nse.events.pit_path}", json={"rows": 1})
     with pytest.raises(ProviderError, match="insider_trade"):
         nse(tmp_path).events(EventKind.INSIDER_TRADE, date(2024, 6, 14), date(2024, 6, 14))
@@ -272,6 +273,7 @@ def test_bse_announcements_paging(tmp_path: Path) -> None:
         return 200, {}, json.dumps(body)
 
     responses.add_callback(responses.GET, url, callback=serve)
+    responses.add(responses.GET, PCFG.bse.browser.warmup_urls[0], body="<html/>")
 
     class Limiter:
         taken = 0
@@ -283,7 +285,7 @@ def test_bse_announcements_paging(tmp_path: Path) -> None:
     assert isinstance(p, EventsProvider)
     df = p.events(EventKind.ANNOUNCEMENT, date(2024, 6, 13), date(2024, 6, 14))
     assert len(calls) == 2 and "strPrevDate=20240613" in calls[0] and "pageno=2" in calls[1]
-    assert Limiter.taken == 1  # the router pays for the first request
+    assert Limiter.taken == 2  # warm-up + 2 pages; the router pays for the first request
     assert len(df) == 4 and set(df["kind"]) == {"results", "announcement"}
     assert (tmp_path / "bse/2024/06/14/announcements_20240613_20240614_p2.json").is_file()
     with pytest.raises(ProviderError, match="no pledge feed"):

@@ -1,8 +1,13 @@
-"""symbol_master: the ISIN-joined symbol master and its aliases (SPEC v0.2 §3.5)."""
+"""symbol_master: the ISIN-joined symbol master and its aliases (SPEC v0.2 §3.5).
+
+Only NSE's EQUITY_L (an archive file) is required. BSE and Fyers are best-effort: when BSE
+blocks this connection the master is built from NSE + Fyers and the missing BSE scrip master is
+recorded as a data gap (BSE codes and BSE-only companies are then absent), not a job error."""
 
 from typing import Any
 
 from app.core.config import Dataset, Provider
+from app.data.gaps import GapRecord
 from app.data.providers.base import (
     BseScripMasterProvider,
     FyersSymbolMasterProvider,
@@ -38,7 +43,14 @@ def symbol_master(ctx: JobContext, options: JobOptions) -> JobOutcome:
         res = fetch(provider, protocol, call)
         if res.data is None:
             missing[key] = "; ".join(res.reasons)[:300]
+            if key == "bse":
+                ctx.gaps.record(GapRecord(Dataset.SYMBOL_MASTER, None,
+                                          "BSE scrip master unavailable (BSE codes and BSE-only "
+                                          f"companies missing): {missing[key]}",
+                                          [Provider.BSE.value], "bse_scrip_master"))  # fmt: skip
         else:
+            if key == "bse":
+                ctx.gaps.resolve(Dataset.SYMBOL_MASTER, None)
             parts[key] = res.data
             got.add(key)
     join = join_masters(nse.data, parts.get("bse"), parts.get("fyers"),
