@@ -11,6 +11,7 @@ from app.data.broker_tokens import BrokerTokenStore
 from app.data.gaps import DbGapRecorder
 from app.data.providers.bse import build_bse_provider
 from app.data.providers.fyers import build_fyers_provider
+from app.data.providers.indianapi import DbQuota, build_indianapi_client
 from app.data.providers.kite import build_kite_provider
 from app.data.providers.kite_instruments import RedisInstrumentStore
 from app.data.providers.market_lens import build_market_lens_provider
@@ -71,6 +72,13 @@ def build_context(settings: Settings, config: AppConfig) -> JobContext:
     gaps = DbGapRecorder(session_factory)
     router = DataRouter(providers, route_cfg, limiter=route_limiter, gaps=gaps)
     notifier = build_notifier(settings, config.jobs.alerts.telegram_timeout_s)
+    indianapi = None
+    if not settings.offline_exchange:  # the offline exchange never calls paid APIs
+        indianapi = build_indianapi_client(
+            pc.indianapi, settings.indianapi_key, pc.retry,
+            quota=DbQuota(session_factory, pc.indianapi), limiter=limiter,
+        )  # fmt: skip
     return JobContext(
-        config, session_factory, router, redis, gaps, notifier=notifier, raw_store=raw_store
-    )
+        config, session_factory, router, redis, gaps, notifier=notifier, raw_store=raw_store,
+        indianapi=indianapi,
+    )  # fmt: skip

@@ -765,8 +765,19 @@ export type SiteDiag = {
   rows: DiagRow[];
 };
 
+export type IndianApiStatus = {
+  enabled: boolean;
+  configured: boolean; // enabled and INDIANAPI_KEY set (the key is never sent to the browser)
+  used: number; // calls this month (IST)
+  budget: number;
+  stop_at: number;
+  month: string;
+  message: string; // e.g. "Indian API: 123/500 calls this month" or "Add INDIANAPI_KEY in .env"
+};
+
 export type DataSources = {
   running: boolean;
   nse: SiteDiag | null;
   bse: SiteDiag | null;
+  indianapi?: IndianApiStatus | null;
 };

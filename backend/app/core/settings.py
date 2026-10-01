@@ -71,6 +71,10 @@ class Settings(BaseSettings):
     # only) is a built-in stand-in that writes the thesis from the facts, for tests and demos.
     thesis_llm_url: str | None = None
 
+    # Optional Indian API key (stock.indianapi.in, bulk fundamentals). Sent only as the
+    # X-Api-Key header; never logged or stored.
+    indianapi_key: SecretStr | None = None
+
     # Optional Telegram delivery for alert notifications (never logged).
     telegram_bot_token: SecretStr | None = None
     telegram_chat_id: str | None = None

@@ -19,6 +19,9 @@ providers:
     events:             [nse, bse]  # every feed in jobs.events / results_watch is read (not a fallback)
     industry:           [nse, yfinance]  # basic industry → sector model (industries.yaml)
     reference_financials: [market_lens]  # reconciliation-only sources (off unless market_lens.enabled)
+    # stored fundamentals the report uses, best first: nse = exchange XBRL (as filed), then the
+    # Indian API's reclassified statements (bulk, 10+ years), then yfinance
+    fin_results:        [nse, indianapi, yfinance]
   rate_limits:            # requests per second / per minute (verify against current broker docs)
     fyers:    {per_sec: 8,  per_min: 180}
     kite:     {per_sec: 3,  per_min: 150}
@@ -26,6 +29,7 @@ providers:
     nse:      {per_sec: 1,  per_min: 30}
     bse:      {per_sec: 1,  per_min: 30}
     market_lens: {per_sec: 0.5, per_min: 10}
+    indianapi: {per_sec: 1, per_min: 30}
   staleness_hours:
     daily_ohlcv: 30
     ltp: 0.1
@@ -178,6 +182,21 @@ providers:
     search:
       min_similarity: 0.3      # pg_trgm score below 0.3 is not a match
       candidate_limit: 200     # matching terms read per query before grouping by company
+  indianapi:                   # stock.indianapi.in: bulk fundamentals (SPEC §3.2). Key: INDIANAPI_KEY
+    enabled: true              # without the key the provider is "not configured" and skipped
+    base_url: "https://stock.indianapi.in"
+    request_timeout_s: 30
+    monthly_request_budget: 500   # your plan's calls per calendar month
+    stop_at_fraction: 0.9         # stop at 90% of the budget (450 of 500)
+    refresh_days: 30              # re-fetch a stock's statements after this (or on new results)
+    user_refresh_min_age_hours: 24  # the Refresh button re-fetches only a cache older than this
+    calls_per_stock:              # 5 calls per stock; /historical_stats?stats=ratios is not used
+      - {path: "/stock", name_param: "name"}
+      - {path: "/historical_stats", name_param: "stock_name", params: {stats: yoy_results}}
+      - {path: "/historical_stats", name_param: "stock_name", params: {stats: balancesheet}}
+      - {path: "/historical_stats", name_param: "stock_name", params: {stats: cashflow}}
+      - {path: "/historical_stats", name_param: "stock_name", params: {stats: quarter_results}}
+    name_fallbacks: {}            # e.g. {HDFCBANK: ["HDFC Bank"]}, tried after the master name
   market_lens:                 # NSE Market Lens (beta): reconciliation only (SPEC §0, §3.2a)
     enabled: false             # undocumented JSON: check the field names below before enabling
     base_url: "https://marketlens.nseindia.com"

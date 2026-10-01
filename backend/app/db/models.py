@@ -921,3 +921,19 @@ class Notification(Base):
     read_at: Mapped[datetime | None]
     telegram: Mapped[str] = mapped_column(String(16))  # sent | failed | disabled
     telegram_error: Mapped[str | None] = mapped_column(Text)
+
+
+# ───────────────────────── paid API usage ─────────────────────────
+
+
+class ApiUsage(Base):
+    """Calls made to a metered API per calendar month (IST), for its budget (SPEC §3.2)."""
+
+    __tablename__ = "api_usage"
+    __table_args__ = (UniqueConstraint("provider", "month"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(32))
+    month: Mapped[str] = mapped_column(String(7))  # "2026-10"
+    calls: Mapped[int] = mapped_column(Integer, server_default="0")
+    last_call_at: Mapped[datetime | None]

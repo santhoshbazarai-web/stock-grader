@@ -90,6 +90,7 @@ class Provider(StrEnum):
     BSE = "bse"
     MARKET_LENS = "market_lens"  # NSE Market Lens (beta): reconciliation only, off by default
     OFFLINE = "offline"  # development only: the synthetic offline exchange (app.devtools)
+    INDIANAPI = "indianapi"  # stock.indianapi.in: bulk fundamentals (paid key, optional)
 
 
 class Dataset(StrEnum):
@@ -109,6 +110,8 @@ class Dataset(StrEnum):
     EVENTS = "events"  # exchange feeds: announcements, results, board meetings, pledge, deals ...
     REFERENCE_FINANCIALS = "reference_financials"  # other sources the reconciliation checks
     INDUSTRY = "industry"  # per-symbol industry classification → sector model (industries.yaml)
+    # Which stored source's fundamentals the report uses, best first (nse = exchange XBRL).
+    FIN_RESULTS = "fin_results"
 
 
 class RateLimit(_Strict):
@@ -380,6 +383,36 @@ class AdjustmentConfig(_Strict):
     abnormal_gap: Fraction
 
 
+class IndianApiEndpoint(_Strict):
+    """One call made per stock: ``path`` relative to base_url, plus fixed query params (the
+    stock's vendor name is added as ``name_param``)."""
+
+    path: str
+    name_param: str
+    params: dict[str, str] = Field(default_factory=dict)
+
+
+class IndianApiConfig(_Strict):
+    """stock.indianapi.in (SPEC §3.2): the bulk fundamentals source when NSE is unavailable.
+    Needs INDIANAPI_KEY (sent as the ``X-Api-Key`` header, never logged or stored)."""
+
+    enabled: bool
+    base_url: str
+    request_timeout_s: PositiveFloat
+    monthly_request_budget: PositiveInt
+    # calls stop once this share of the month's budget is used (headroom for manual checks)
+    stop_at_fraction: Fraction
+    refresh_days: PositiveInt  # a stock's cached responses are re-fetched after this
+    user_refresh_min_age_hours: PositiveFloat  # Refresh button: only if the cache is older
+    calls_per_stock: list[IndianApiEndpoint] = Field(min_length=1)
+    # vendor names to try after the symbol master's name and the NSE symbol, per NSE symbol
+    name_fallbacks: dict[str, list[str]] = Field(default_factory=dict)
+
+    @property
+    def stop_at(self) -> int:
+        return int(self.monthly_request_budget * self.stop_at_fraction)
+
+
 class ProvidersConfig(_Strict):
     priority: dict[Dataset, list[Provider]]
     rate_limits: dict[Provider, RateLimit]
@@ -393,6 +426,7 @@ class ProvidersConfig(_Strict):
     bse: BseConfig
     symbols: SymbolsConfig
     market_lens: MarketLensConfig
+    indianapi: IndianApiConfig
     brokers: dict[Broker, BrokerConfig]
     bhavcopy: BhavcopyHistoryConfig
     oauth_state_ttl_s: PositiveInt

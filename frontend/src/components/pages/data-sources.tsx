@@ -16,7 +16,11 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { api, ApiError } from "@/lib/api";
-import type { DataSources as DataSourcesT, SiteDiag } from "@/lib/types";
+import type {
+  DataSources as DataSourcesT,
+  IndianApiStatus,
+  SiteDiag,
+} from "@/lib/types";
 
 const POLL_MS = 3000;
 
@@ -46,6 +50,38 @@ function when(iso: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+// stock.indianapi.in (bulk fundamentals): configured or not, and this month's calls vs budget.
+function IndianApi({ s }: { s: IndianApiStatus }) {
+  const pct = s.budget ? Math.min(100, (s.used / s.budget) * 100) : 0;
+  return (
+    <section aria-label="Indian API" className="flex flex-col gap-1 text-sm">
+      <h3 className="font-medium">Indian API (fundamentals)</h3>
+      <p
+        className={s.configured ? "text-muted-foreground" : "text-destructive"}
+        role={s.configured ? undefined : "alert"}
+      >
+        {s.message}
+      </p>
+      {s.configured && (
+        <div
+          className="bg-muted h-1.5 w-48 overflow-hidden rounded"
+          role="meter"
+          aria-label="Indian API calls this month"
+          aria-valuemin={0}
+          aria-valuemax={s.budget}
+          aria-valuenow={s.used}
+        >
+          <div className="bg-foreground h-full" style={{ width: `${pct}%` }} />
+        </div>
+      )}
+      <p className="text-muted-foreground text-xs">
+        Calls stop at {s.stop_at} of {s.budget} ({s.month}); cached data is used
+        after that.
+      </p>
+    </section>
+  );
 }
 
 function Site({ label, d }: { label: "NSE" | "BSE"; d: SiteDiag | null }) {
@@ -198,6 +234,7 @@ export function DataSourcesCard() {
           <>
             <Site label="NSE" d={data.nse} />
             <Site label="BSE" d={data.bse} />
+            {data.indianapi && <IndianApi s={data.indianapi} />}
           </>
         )}
       </CardContent>

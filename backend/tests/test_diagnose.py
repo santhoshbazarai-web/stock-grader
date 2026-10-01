@@ -259,7 +259,11 @@ def client(db: object, redis_client: Redis) -> Iterator[TestClient]:
 def test_api_status_and_recheck(fake_sites: None, client: TestClient,
                                 redis_client: Redis) -> None:  # fmt: skip
     empty = client.get("/api/data-sources").json()
+    api = empty.pop("indianapi")
     assert empty == {"running": False, "nse": None, "bse": None}
+    # no INDIANAPI_KEY in the test settings: not configured, and the UI says what to do
+    assert api["configured"] is False and api["message"] == "Add INDIANAPI_KEY in .env"
+    assert api["budget"] == 500 and api["stop_at"] == 450 and api["used"] == 0
     res = client.post("/api/data-sources/check")
     assert res.status_code == 202
     # TestClient runs background tasks before returning; the flag is cleared afterwards

@@ -92,6 +92,7 @@ class FundamentalsProvider(Protocol):
 | Industry classification | NSE 4-level (macro/sector/industry/basic industry) | config override | — | — | Drives sector model + peers |
 | ASM/GSM/F&O ban | NSE | — | — | — | Daily knock-out |
 | Quarterly & annual results | **NSE XBRL** | **BSE XBRL** | — | Market Lens, yfinance | Keyed by announcement date |
+| Bulk fundamentals (10+ yr, when NSE is blocked) | **Indian API** (stock.indianapi.in, `INDIANAPI_KEY`) | — | yfinance | NSE XBRL | Vendor-reclassified, consolidated; identity-checked by ISIN; monthly call budget |
 | Balance sheet / cash flow (historic years XBRL lacks) | Annual-report PDFs from NSE/BSE | — | — | XBRL totals | Semi-automated, see §3.6 |
 | Shareholding (promoter, pledge, FII, DII, MF) | NSE shareholding XBRL | BSE | — | — | Quarterly |
 | Pledge / SAST / insider trades (PIT) | NSE | BSE | — | — | Governance pillar |
