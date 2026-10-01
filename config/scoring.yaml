@@ -1,0 +1,102 @@
+# scoring.yaml — validated at startup by app.core.config (fail fast on invalid values).
+# All values are starting points — tune after backtests.
+
+scoring:
+  weights: {quality: 25, growth: 20, valuation: 20, health: 15, governance: 10, technical: 10}
+  grade_cutoffs: {A_plus: 85, A: 75, B: 60, C: 45}
+  knockouts:
+    max_pledge_pct: 10
+    negative_cfo_years_in_5: 3
+    negative_cfo_window_years: 5
+    min_mcap_cr: 500
+    min_avg_traded_value_cr_20d: 5
+    traded_value_days: 20        # sessions averaged for the liquidity check
+    beneish_m_max: -1.78
+    auditor_resignation_years: 2
+    on_asm_gsm: true
+    cap_grade: C
+  # piecewise-linear maps: [[metric_value, score], ...] — linear between points, clamped at ends
+  maps:
+    roce_5y_avg:        [[0.08, 0], [0.12, 40], [0.18, 75], [0.25, 100]]
+    cfo_to_ebitda_5y:   [[0.40, 0], [0.60, 50], [0.75, 80], [0.90, 100]]
+    fcf_conversion_5y:  [[0.0, 0],  [0.50, 50], [0.80, 85], [1.0, 100]]
+    piotroski:          [[3, 0], [5, 40], [7, 80], [9, 100]]
+    sales_cagr_5y:      [[0.0, 0], [0.08, 40], [0.15, 75], [0.25, 100]]
+    eps_cagr_5y:        [[0.0, 0], [0.10, 40], [0.18, 75], [0.30, 100]]
+    eps_yoy_last4q:     [[-0.10, 0], [0.05, 40], [0.20, 80], [0.35, 100]]
+    discount_to_fv:     [[-0.40, 0], [-0.10, 30], [0.0, 50], [0.15, 80], [0.30, 100]]   # (FV-CMP)/FV
+    reverse_dcf_gap:    [[0.10, 0], [0.0, 50], [-0.05, 80], [-0.10, 100]]              # implied - historical
+    debt_to_equity:     [[1.5, 0], [1.0, 30], [0.5, 70], [0.1, 100]]
+    interest_coverage:  [[1.5, 0], [3, 40], [6, 80], [12, 100]]
+    net_debt_ebitda:    [[4, 0], [2.5, 40], [1, 80], [0, 100]]
+    pledge_pct:         [[20, 0], [10, 30], [2, 80], [0, 100]]
+    rs_percentile:      [[20, 0], [50, 40], [80, 85], [95, 100]]
+    roce_trend:         [[-0.05, 0], [0.0, 50], [0.05, 100]]   # ROCE now - ROCE trend_years ago
+    eps_acceleration:   [[-0.20, 0], [0.0, 50], [0.20, 100]]   # latest quarter's YoY EPS growth - previous quarter's
+    ccc_trend_days:     [[30, 0], [0, 50], [-30, 100]]         # CCC days now - trend_years ago (lower is better)
+    altman_z2:          [[1.1, 0], [2.6, 70], [5.0, 100]]
+    promoter_change_qoq_pp:      [[-2, 0], [0, 60], [1, 100]]  # percentage points
+    institutional_change_qoq_pp: [[-2, 0], [0, 50], [2, 100]]  # MF + FII + DII, percentage points
+    other_income_share: [[0.40, 0], [0.20, 50], [0.05, 100]]   # other income / PBT
+    delivery_ratio:     [[0.8, 0], [1.0, 50], [1.3, 100]]      # recent delivery % / its own average
+    stage_score:        {1: 50, 2: 100, 3: 30, 4: 0}
+    trend_score:        {up: 100, range: 50, down: 0}
+    rpt_score:          {clean: 100, flagged: 0}               # related-party-transaction flag
+  # A pillar is the equal-weighted mean of its available sub-metric scores; it needs at least
+  # this share of its sub-metrics, else it is unavailable (a data gap, never a default score).
+  pillar_min_coverage: 0.5
+  # The total renormalises weights over the available pillars; it needs at least this share
+  # of the weight in play, else there is no score and no grade.
+  total_min_weight_coverage: 0.7
+  trend_years: 3                # ROCE / CCC trend and "ROCE up vs N years ago"
+  earned_premium:
+    momentum_entry_min: 6
+    rs_percentile_min: 80
+    near_52w_high_pct: 0.10
+    operating_leverage_min_sales_growth: 0.15
+  # SPEC §7.5. Rows = grade, columns = zone, cells = rule (see scoring/decision.py):
+  #   strong_buy            Strong Buy + "Why is it cheap?" checklist
+  #   buy_or_accumulate     Buy inside the technical buy zone, else Accumulate
+  #   buy_on_pullback       Buy on Pullback (target: the buy zone)
+  #   momentum_or_wait      Momentum Entry if earned premium >= momentum_entry_min, else Wait
+  #   hold_if_owned         Hold if owned; don't initiate
+  #   buy_with_confirmation Buy once confirmation (below) is present, else Wait
+  #   accumulate_slowly     Accumulate (slowly)
+  #   value_trap_check      Wait + value-trap checklist
+  #   watch                 Wait (watch list)
+  #   wait / avoid / book_profits
+  decision:
+    matrix:
+      A_plus: {deep_discount: strong_buy, discount: buy_or_accumulate, fair: buy_on_pullback, premium: momentum_or_wait, extreme_premium: hold_if_owned}
+      A:      {deep_discount: strong_buy, discount: buy_or_accumulate, fair: buy_on_pullback, premium: momentum_or_wait, extreme_premium: hold_if_owned}
+      B:      {deep_discount: buy_with_confirmation, discount: accumulate_slowly, fair: wait, premium: avoid, extreme_premium: book_profits}
+      C:      {deep_discount: value_trap_check, discount: watch, fair: avoid, premium: avoid, extreme_premium: avoid}
+      D:      {deep_discount: avoid, discount: avoid, fair: avoid, premium: avoid, extreme_premium: avoid}
+    confirmation:               # buy_with_confirmation: any one of these is enough
+      stages: [2]
+      trends: [up]
+    checklists:
+      why_cheap:
+        - "News: any recent negative event explaining the fall?"
+        - "Governance: promoter actions, auditor remarks, related-party dealings"
+        - "Regulatory action: SEBI / RBI / sector regulator orders or investigations"
+        - "One-off losses: exceptional items, write-offs, litigation"
+      value_trap:
+        - "Is the business in structural decline (shrinking market, lost share)?"
+        - "Are current earnings a cyclical peak that makes the stock look cheap?"
+        - "Is cash conversion poor or debt rising?"
+        - "Any governance or capital-allocation concerns?"
+  bank_maps:
+    gnpa_pct:           [[6, 0], [3, 50], [1.5, 85], [0.8, 100]]
+    nim_pct:            [[2, 0], [3, 50], [4, 85], [5, 100]]
+    car_pct:            [[11.5, 0], [14, 50], [17, 85], [20, 100]]
+    roa_pct:            [[0.5, 0], [1.0, 50], [1.6, 85], [2.2, 100]]
+  fundamentals:                 # SPEC §4 metric windows
+    cagr_years: [3, 5, 10]
+    cumulative_years: 5         # CFO/EBITDA, CFO/PAT, FCF conversion, averages
+    dilution_years: 5
+    days_in_year: 365
+  forensic:
+    beneish_flag_above: -2.22   # SPEC §4: M above this is a manipulation flag
+    altman_safe_above: 2.6      # Z'' (EM, without the 3.25 constant) zones, Altman (2005)
+    altman_distress_below: 1.1

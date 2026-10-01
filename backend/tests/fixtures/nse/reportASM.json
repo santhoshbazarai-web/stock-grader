@@ -1,0 +1,9 @@
+{
+ "longterm": {"data": [
+  {"sr_no": 1, "symbol": "ABCLTD", "companyName": "ABC Limited", "isin": "INE000A01001", "asmSurvIndicator": "Stage II"},
+  {"sr_no": 2, "symbol": "XYZLTD", "companyName": "XYZ Limited", "isin": "INE000B01002", "asmSurvIndicator": "Stage I"}
+ ], "count": 2},
+ "shortterm": {"data": [
+  {"sr_no": 1, "symbol": "PQRLTD", "companyName": "PQR Limited", "isin": "INE000C01003", "asmSurvIndicator": "Stage I"}
+ ], "count": 1}
+}

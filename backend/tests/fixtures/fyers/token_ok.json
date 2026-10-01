@@ -1,0 +1,7 @@
+{
+ "s": "ok",
+ "code": 200,
+ "message": "",
+ "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJhcGkuZnllcnMuaW4iLCJpYXQiOjE3MTE2OTg2MDAsImV4cCI6MTcxMTc1ODYwMCwic3ViIjoiYWNjZXNzX3Rva2VuIiwiZnlfaWQiOiJYWDAwMDAwIiwiYXBwVHlwZSI6MTAwfQ.c2lnbmF0dXJlLW5vdC1jaGVja2Vk",
+ "refresh_token": "not-used"
+}

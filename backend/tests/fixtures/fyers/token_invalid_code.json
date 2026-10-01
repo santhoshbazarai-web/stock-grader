@@ -1,0 +1,5 @@
+{
+ "s": "error",
+ "code": -413,
+ "message": "Invalid auth code"
+}

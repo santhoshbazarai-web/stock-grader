@@ -1,0 +1,9 @@
+[
+ {"SCRIP_CD": "500180", "Scrip_Name": "HDFC Bank Ltd", "Status": "Active", "GROUP": "A ", "FACE_VALUE": "1.00", "ISIN_NUMBER": "INE040A01034", "INDUSTRY": "Private Sector Bank", "scrip_id": "HDFCBANK", "Segment": "Equity", "Issuer_Name": "HDFC Bank Ltd"},
+ {"SCRIP_CD": "532454", "Scrip_Name": "Bharti Airtel Ltd", "Status": "Active", "GROUP": "A ", "FACE_VALUE": "5.00", "ISIN_NUMBER": "INE397D01024", "scrip_id": "BHARTIARTL", "Segment": "Equity"},
+ {"SCRIP_CD": "500209", "Scrip_Name": "Infosys Ltd", "Status": "Active", "GROUP": "A ", "FACE_VALUE": "5.00", "ISIN_NUMBER": "INE009A01021", "scrip_id": "INFY", "Segment": "Equity"},
+ {"SCRIP_CD": "532540", "Scrip_Name": "TATA CONSULTANCY SERVICES LTD.", "Status": "Active", "GROUP": "A ", "FACE_VALUE": "1.00", "ISIN_NUMBER": "INE467B01029", "scrip_id": "TCS", "Segment": "Equity"},
+ {"SCRIP_CD": "590099", "Scrip_Name": "Acme Rural Traders Ltd", "Status": "Active", "GROUP": "X ", "FACE_VALUE": "10.00", "ISIN_NUMBER": "INE999Z01011", "scrip_id": "ACMERURAL", "Segment": "Equity"},
+ {"SCRIP_CD": "590100", "Scrip_Name": "Long Gone Ltd", "Status": "Delisted", "GROUP": "Z ", "FACE_VALUE": "10.00", "ISIN_NUMBER": "INE998Z01013", "scrip_id": "LONGGONE", "Segment": "Equity"},
+ {"SCRIP_CD": "590101", "Scrip_Name": "No Isin Ltd", "Status": "Active", "ISIN_NUMBER": "", "scrip_id": "NOISIN"}
+]

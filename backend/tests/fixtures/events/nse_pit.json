@@ -1,0 +1,9 @@
+{"data": [
+  {"symbol": "DEMOIT", "company": "Demo Infotech Limited", "acqName": "R Kumar",
+   "personCategory": "Promoters", "secType": "Equity Shares", "secAcq": "150000",
+   "secVal": "210000000", "tdpTransactionType": "Sell", "acqMode": "Market Sale",
+   "acqfromDt": "10-Jun-2024", "acqtoDt": "11-Jun-2024", "intimDt": "12-Jun-2024",
+   "date": "12-Jun-2024 21:30", "befAcqSharesPer": "45.20", "afterAcqSharesPer": "45.05",
+   "did": "5540021"},
+  {"symbol": "DEMOIT", "personCategory": "Director"}
+]}

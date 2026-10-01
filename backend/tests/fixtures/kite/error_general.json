@@ -1,0 +1,6 @@
+{
+ "status": "error",
+ "message": "Something went wrong",
+ "data": null,
+ "error_type": "GeneralException"
+}

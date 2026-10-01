@@ -1,0 +1,165 @@
+"""Broker connection endpoints (SPEC §3.3, §8). Read-only brokers: login, callback, status."""
+
+import logging
+from collections.abc import Callable
+from datetime import datetime
+from urllib.parse import urlencode
+
+from fastapi import APIRouter, Depends
+from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
+
+from app.api.deps import (
+    ConfigDep,
+    FyersAuthDep,
+    KiteAuthDep,
+    SettingsDep,
+    StateSignerDep,
+    TokenStoreDep,
+    require_user,
+)
+from app.core.config import AppConfig
+from app.core.security import InvalidStateError, StateSigner
+from app.core.settings import Settings
+from app.data.broker_tokens import BrokerTokenStore, broker_configured
+from app.data.providers.base import IssuedToken, ProviderError
+from app.db.enums import Broker
+
+logger = logging.getLogger(__name__)
+
+# Login and status need the app session. The OAuth callbacks are reached by the broker's redirect
+# and are protected by the signed, expiring ``state`` issued from an authenticated login.
+router = APIRouter(prefix="/brokers", tags=["brokers"])
+
+
+class BrokerStatus(BaseModel):
+    broker: Broker
+    enabled: bool  # providers.yaml brokers.<name>.enabled (Kite is off by default)
+    configured: bool  # API credentials present in the environment (Connect is possible)
+    connected: bool
+    expires_at: datetime | None
+    reason: str
+
+
+def _state_purpose(broker: Broker) -> str:
+    return f"{broker.value}-login"
+
+
+def _complete_login(
+    broker: Broker,
+    *,
+    state: str,
+    approved: bool,
+    code: str | None,
+    exchange: Callable[[str], IssuedToken],
+    signer: StateSigner,
+    store: BrokerTokenStore,
+    settings: Settings,
+    config: AppConfig,
+) -> RedirectResponse:
+    """Verify state → exchange the one-time code → store the encrypted token → back to the UI."""
+
+    def back(outcome: str, reason: str = "") -> RedirectResponse:
+        params = {"broker": broker.value, "status": outcome}
+        if reason:
+            params["reason"] = reason
+        url = f"{settings.web_url.rstrip('/')}/settings?{urlencode(params)}"
+        return RedirectResponse(url, status_code=303)
+
+    try:
+        signer.verify(state, _state_purpose(broker), max_age_s=config.providers.oauth_state_ttl_s)
+    except InvalidStateError as exc:
+        logger.warning("%s callback rejected: %s", broker, exc)
+        return back("error", "invalid_state")
+    if not approved or not code:
+        return back("error", "login_declined")
+    try:
+        issued = exchange(code)
+    except ProviderError as exc:
+        logger.warning("%s token exchange failed: %s", broker, exc)
+        return back("error", "exchange_failed")
+    store.save(broker, issued.access_token, issued.expires_at)
+    return back("connected")
+
+
+@router.get("/status", dependencies=[Depends(require_user)])
+def broker_status(
+    store: TokenStoreDep, settings: SettingsDep, config: ConfigDep
+) -> list[BrokerStatus]:
+    """Per broker: enabled in config, API credentials configured, token validity."""
+    out = []
+    for s in store.all_statuses():
+        enabled = config.providers.brokers[s.broker].enabled
+        out.append(BrokerStatus(
+            broker=s.broker, enabled=enabled,
+            configured=broker_configured(s.broker, settings),
+            connected=s.connected and enabled, expires_at=s.expires_at,
+            reason=s.reason if enabled else "disabled in providers.yaml",
+        ))  # fmt: skip
+    return out
+
+
+# ───────────────────────── Fyers ─────────────────────────
+
+
+@router.get("/fyers/login", dependencies=[Depends(require_user)])
+def fyers_login(auth: FyersAuthDep, signer: StateSignerDep) -> RedirectResponse:
+    state = signer.issue(_state_purpose(Broker.FYERS))
+    return RedirectResponse(auth.login_url(state), status_code=307)
+
+
+@router.get("/fyers/callback")
+def fyers_callback(
+    auth: FyersAuthDep,
+    signer: StateSignerDep,
+    store: TokenStoreDep,
+    settings: SettingsDep,
+    config: ConfigDep,
+    state: str = "",
+    auth_code: str | None = None,
+    s: str | None = None,
+) -> RedirectResponse:
+    return _complete_login(
+        Broker.FYERS,
+        state=state,
+        approved=s == "ok",
+        code=auth_code,
+        exchange=auth.exchange,
+        signer=signer,
+        store=store,
+        settings=settings,
+        config=config,
+    )
+
+
+# ───────────────────────── Kite ─────────────────────────
+
+
+@router.get("/kite/login", dependencies=[Depends(require_user)])
+def kite_login(auth: KiteAuthDep, signer: StateSignerDep) -> RedirectResponse:
+    state = signer.issue(_state_purpose(Broker.KITE))
+    return RedirectResponse(auth.login_url(state), status_code=307)
+
+
+@router.get("/kite/callback")
+def kite_callback(
+    auth: KiteAuthDep,
+    signer: StateSignerDep,
+    store: TokenStoreDep,
+    settings: SettingsDep,
+    config: ConfigDep,
+    state: str = "",
+    request_token: str | None = None,
+    status: str | None = None,
+) -> RedirectResponse:
+    return _complete_login(
+        Broker.KITE,
+        state=state,
+        approved=status == "success",
+        code=request_token,
+        exchange=auth.exchange,
+        signer=signer,
+        store=store,
+        settings=settings,
+        config=config,
+    )

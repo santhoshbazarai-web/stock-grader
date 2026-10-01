@@ -1,0 +1,11 @@
+{"Table": [
+  {"NEWSID": "a1b2c3d4-0001", "SCRIP_CD": 990001, "SLONGNAME": "Demo Infotech Ltd",
+   "NEWSSUB": "Demo Infotech Ltd - 990001 - Audited Financial Results For The Quarter And Year Ended March 31, 2024",
+   "HEADLINE": "Audited results for Q4 FY24", "CATEGORYNAME": "Result", "SUBCATNAME": "Financial Results",
+   "DT_TM": "2024-06-14T16:10:22.113", "ATTACHMENTNAME": "a1b2c3d4-0001.pdf"},
+  {"NEWSID": "a1b2c3d4-0002", "SCRIP_CD": "990099", "SLONGNAME": "BSE Only Industries Ltd",
+   "NEWSSUB": "Intimation of Board Meeting", "CATEGORYNAME": "Board Meeting",
+   "DT_TM": "2024-06-14T12:00:00", "ATTACHMENTNAME": ""},
+  {"NEWSID": "a1b2c3d4-0003", "SLONGNAME": "No Scrip Ltd", "NEWSSUB": "x"}
+],
+ "Table1": [{"ROWCNT": 3}]}

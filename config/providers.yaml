@@ -1,0 +1,172 @@
+# providers.yaml — validated at startup by app.core.config (fail fast on invalid values).
+# All values are starting points — tune after backtests.
+
+providers:
+  priority:
+    daily_ohlcv:        [fyers, kite, nse, yfinance]  # nse = bhavcopy history (below); kite only if enabled
+    index_ohlcv:        [fyers, kite, yfinance]
+    ltp:                [fyers, kite]
+    delivery:           [nse]
+    corporate_actions:  [nse, yfinance]
+    shareholding:       [nse, screener]
+    fin_annual:         [screener, yfinance]
+    fin_quarterly:      [screener, yfinance]
+    results_filings:    [nse]       # results filing list + XBRL documents (results_backfill)
+    annual_reports:     [nse]       # annual-report list + PDFs: balance sheet / cash flow gap filler
+    symbol_master:      [nse, bse, fyers]  # all three are read and joined on ISIN (symbol_master)
+    index_constituents: [nse]
+    surveillance:       [nse]
+    events:             [nse, bse]  # every feed in jobs.events / results_watch is read (not a fallback)
+    reference_financials: [market_lens]  # reconciliation-only sources (off unless market_lens.enabled)
+  rate_limits:            # requests per second / per minute (verify against current broker docs)
+    fyers:    {per_sec: 8,  per_min: 180}
+    kite:     {per_sec: 3,  per_min: 150}
+    yfinance: {per_sec: 2,  per_min: 60}
+    nse:      {per_sec: 1,  per_min: 30}
+    bse:      {per_sec: 1,  per_min: 30}
+    market_lens: {per_sec: 0.5, per_min: 10}
+  staleness_hours:
+    daily_ohlcv: 30
+    ltp: 0.1
+    fin_annual: 2400
+  retry:                  # per provider call, before the router falls through to the next provider
+    max_attempts: 3       # total tries for transient errors (ProviderUnavailable is never retried)
+    backoff_base_s: 0.5   # sleep = min(backoff_max_s, backoff_base_s * 2**(attempt-1))
+    backoff_max_s: 8
+    rate_limit_timeout_s: 30   # give up on a provider if no rate-limit token within this time
+  api_limits:             # hard per-request limits of each broker API (verify against current docs)
+    fyers: {history_max_days: 366, quotes_max_symbols: 50}    # daily candles; symbols per /quotes
+    kite:  {history_max_days: 2000, quotes_max_symbols: 1000} # day candles; instruments per /quote/ltp
+  token_daily_expiry_ist:  # brokers whose access tokens expire at a fixed IST time (Fyers: JWT exp)
+    kite: "06:00"
+  instruments_cache_hours: 20   # Kite instruments dump is republished daily; refresh after this
+  yfinance_index_tickers:   # canonical index code → Yahoo ticker
+    NIFTY50: "^NSEI"
+    NIFTY500: "^CRSLDX"
+    NIFTYBANK: "^NSEBANK"
+    NIFTYIT: "^CNXIT"
+    NIFTYPHARMA: "^CNXPHARMA"
+    NIFTYFMCG: "^CNXFMCG"
+    NIFTYAUTO: "^CNXAUTO"
+    NIFTYMETAL: "^CNXMETAL"
+    NIFTYREALTY: "^CNXREALTY"
+  nse:
+    base_url: "https://www.nseindia.com"            # homepage (cookie warm-up) + JSON APIs
+    archives_url: "https://nsearchives.nseindia.com" # bhavcopy, F&O ban list
+    niftyindices_url: "https://www.niftyindices.com" # index constituent CSVs
+    cookie_ttl_s: 300          # re-visit the homepage for fresh cookies after this
+    request_timeout_s: 20
+    corporate_actions_from_years: 12   # history requested for corporate actions
+    index_constituent_files:   # canonical index code → niftyindices CSV name
+      NIFTY50: ind_nifty50list.csv
+      NIFTY500: ind_nifty500list.csv
+      NIFTYBANK: ind_niftybanklist.csv
+      NIFTYIT: ind_niftyitlist.csv
+      NIFTYPHARMA: ind_niftypharmalist.csv
+      NIFTYFMCG: ind_niftyfmcglist.csv
+      NIFTYAUTO: ind_niftyautolist.csv
+      NIFTYMETAL: ind_niftymetallist.csv
+      NIFTYREALTY: ind_niftyrealtylist.csv
+    results:                   # financial results filings (XBRL), read by results_backfill
+      index_path: "/api/corporates-financial-results"   # ?index=equities&symbol=..&period=..
+      periods: [Quarterly, Annual]
+      xbrl_hosts: [nsearchives.nseindia.com, archives.nseindia.com, www.nseindia.com]
+      max_xbrl_bytes: 20000000
+      quarter_days: {min: 80, max: 100}    # context spans (days) classified as a quarter
+      year_days: {min: 350, max: 380}      # ... and as a fiscal year
+      available_after_ist: "15:30"  # disseminated at/after the close → usable from the next day
+      # XBRL amounts should be absolute rupees. A filing that states a rounding level and keyed
+      # its amounts in that unit (decimals >= 0, or PAT/EPS implying < min_plausible_shares
+      # shares) is scaled by the matching factor. Keywords are matched in the stated level.
+      rounding_levels: {rupees: 1, thousand: 1.0e+3, lakh: 1.0e+5, lac: 1.0e+5,
+                        million: 1.0e+6, crore: 1.0e+7, billion: 1.0e+9}
+      min_plausible_shares: 100000   # a listed company has far more than 1 lakh shares
+      # A period's figure in a later filing (e.g. last year's column) is a restatement, stored
+      # as a new version, only if it differs by more than 0.05% AND ₹50 lakh: half a crore is
+      # the rounding gap between a lakh-rounded and a crore-rounded filing of the same figure.
+      restatement_tolerance_rel: 0.0005
+      restatement_tolerance_inr: 5000000
+      default_fy_end_month: 3   # April-March; a company's own filed years override it
+    symbol_files:              # symbol master (SPEC §3.5), on archives_url
+      equity_list_path: "/content/equities/EQUITY_L.csv"
+      symbol_changes_path: "/content/equities/symbolchange.csv"
+      name_changes_path: "/content/equities/namechange.csv"
+    events:                    # market-wide feeds (SPEC §3.8, §10 events); ?index=equities&from_date=&to_date=
+      announcements_path: "/api/corporate-announcements"
+      board_meetings_path: "/api/corporate-board-meetings"
+      results_path: "/api/corporates-financial-results"   # the results filing list, all companies
+      results_periods: [Quarterly, Annual]
+      pledge_path: "/api/corporate-pledgedata"
+      sast_path: "/api/corporate-sast-reg29"
+      pit_path: "/api/corporates-pit"
+      bulk_deals_path: "/content/equities/bulk.csv"     # archives_url; latest trading day
+      block_deals_path: "/content/equities/block.csv"
+      max_days_per_request: 7  # longer windows are read a week at a time
+    annual_reports:            # annual-report PDFs: gap filler for BS / CF years (SPEC §3.6 step 3)
+      index_path: "/api/annual-reports"   # ?index=equities&symbol=..
+      hosts: [nsearchives.nseindia.com, archives.nseindia.com, www.nseindia.com]
+      max_bytes: 100000000     # download cap; also the cap on a PDF unpacked from a ZIP
+      extraction:              # lengths in PDF points (1/72 inch)
+        max_pages: 800
+        heading_lines: 8       # a statement's title must be in the page's first 8 text lines
+        line_tolerance_pt: 3   # words whose tops are within 3 pt form one row
+        column_gap_pt: 28      # amounts right-aligned more than 28 pt apart are other columns
+        min_column_rows: 3     # a value column has amounts on at least 3 rows
+        min_label_score: 0.80  # fuzzy label similarity below 80% → row not mapped
+        continuation_min_rows: 2  # a statement continues on the next page if it maps 2+ rows
+        camelot_min_rows: 4    # pdfplumber mapped < 4 rows on a statement page → try camelot
+      confidence:              # label similarity × weight × factors; >= auto_accept is stored
+        auto_accept: 0.9       # below: the review queue
+        camelot_factor: 0.9
+        ambiguous_factor: 0.8
+        ambiguity_margin: 0.05 # another item's label within 5 points → ambiguous
+        no_header_dates_factor: 0.8
+        check_failed_factor: 0.5
+        no_check_factor: 0.9
+        check_tolerance_rel: 0.002   # total assets = equity + liabilities within 0.2%
+        fallback_sum_factor: 0.9
+  bse:                         # BSE public data: the scrip master (symbol_master job)
+    api_url: "https://api.bseindia.com"
+    referer: "https://www.bseindia.com/"
+    request_timeout_s: 30
+    scrip_master_path: "/BseIndiaAPI/api/ListofScripData/w?Group=&Scripcode=&industry=&segment=Equity&status=Active"
+    # corporate announcements, all companies: ?pageno=&strCat=-1&strPrevDate=YYYYMMDD&strToDate=..
+    announcements_path: "/BseIndiaAPI/api/AnnSubCategoryGetData/w"
+    announcements_max_pages: 20
+    results_categories: [Result]
+    attachment_url: "https://www.bseindia.com/xml-data/corpfiling/AttachLive/"
+  symbols:                     # symbol master + search (SPEC §3.5)
+    fyers_masters:             # public CSVs; read only when Fyers is configured
+      - "https://public.fyers.in/sym_details/NSE_CM.csv"
+      - "https://public.fyers.in/sym_details/BSE_CM.csv"
+    request_timeout_s: 30
+    search:
+      min_similarity: 0.3      # pg_trgm score below 0.3 is not a match
+      candidate_limit: 200     # matching terms read per query before grouping by company
+  market_lens:                 # NSE Market Lens (beta): reconciliation only (SPEC §0, §3.2a)
+    enabled: false             # undocumented JSON: check the field names below before enabling
+    base_url: "https://marketlens.nseindia.com"
+    financials_path: "/api/financials?symbol={symbol}"
+    request_timeout_s: 20
+    records_key: data
+    period_end_field: periodEnd
+    period_type_field: periodType
+    basis_field: consolidation
+    amount_unit_inr: 1.0e+7    # amounts in ₹ crore
+    field_map:
+      revenue: revenueFromOperations
+      ebitda: ebitda
+      pat: netProfit
+      cfo: cashFromOperatingActivities
+      total_assets: totalAssets
+      total_equity: totalEquity
+  brokers:                     # SPEC §0, §3.3: read-only market data; never orders
+    fyers: {enabled: true, morning_reminder: true}
+    kite:  {enabled: false, morning_reminder: true}   # code complete; needs a paid subscription
+  bhavcopy:                    # daily OHLCV from NSE sec_bhavdata_full archive files
+    series: [EQ, BE]
+    on_demand_max_days: 10     # a price request fetches up to 10 missing recent days itself
+    backfill_days_per_run: 300 # bhavcopy_history job: ~5 min at 1 req/s; 10 years in ~9 nights
+    holiday_after_days: 3      # no file 3+ days later = market holiday (not "not yet out")
+  oauth_state_ttl_s: 600  # broker login must complete within this many seconds
+  history_years: 10

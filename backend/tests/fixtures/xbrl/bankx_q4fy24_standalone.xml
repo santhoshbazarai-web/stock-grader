@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- BANKX Q4 FY2024 standalone results (bank format)
+     Synthetic filing in the SEBI/BSE Ind AS financial results XBRL layout (not a real company).
+     Amounts are absolute rupees, as filed; expected canonical values (in crore) are
+     hand-computed in tests/test_xbrl.py. -->
+<xbrli:xbrl xmlns:xbrli="http://www.xbrl.org/2003/instance"
+    xmlns:link="http://www.xbrl.org/2003/linkbase"
+    xmlns:xlink="http://www.w3.org/1999/xlink"
+    xmlns:iso4217="http://www.xbrl.org/2003/iso4217"
+    xmlns:xbrldi="http://xbrl.org/2006/xbrldi"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns:in-bse-fin="http://www.bseindia.com/xbrl/fin/2020-03-31/in-bse-fin">
+  <link:schemaRef xlink:type="simple" xlink:href="http://www.bseindia.com/xbrl/fin/2020-03-31/in-bse-fin-ent-2020-03-31.xsd"/>
+  <xbrli:context id="OneD"><xbrli:entity><xbrli:identifier scheme="http://www.bseindia.com">532999</xbrli:identifier></xbrli:entity><xbrli:period><xbrli:startDate>2024-01-01</xbrli:startDate><xbrli:endDate>2024-03-31</xbrli:endDate></xbrli:period></xbrli:context>
+  <xbrli:context id="FourD"><xbrli:entity><xbrli:identifier scheme="http://www.bseindia.com">532999</xbrli:identifier></xbrli:entity><xbrli:period><xbrli:startDate>2023-04-01</xbrli:startDate><xbrli:endDate>2024-03-31</xbrli:endDate></xbrli:period></xbrli:context>
+  <xbrli:context id="OneI"><xbrli:entity><xbrli:identifier scheme="http://www.bseindia.com">532999</xbrli:identifier></xbrli:entity><xbrli:period><xbrli:instant>2024-03-31</xbrli:instant></xbrli:period></xbrli:context>
+  <xbrli:unit id="INR"><xbrli:measure>iso4217:INR</xbrli:measure></xbrli:unit>
+  <xbrli:unit id="INRPerShare"><xbrli:divide>
+    <xbrli:unitNumerator><xbrli:measure>iso4217:INR</xbrli:measure></xbrli:unitNumerator>
+    <xbrli:unitDenominator><xbrli:measure>xbrli:shares</xbrli:measure></xbrli:unitDenominator>
+  </xbrli:divide></xbrli:unit>
+  <xbrli:unit id="pure"><xbrli:measure>xbrli:pure</xbrli:measure></xbrli:unit>
+  <in-bse-fin:NameOfTheCompany contextRef="OneD">Bank X Limited</in-bse-fin:NameOfTheCompany>
+  <in-bse-fin:Symbol contextRef="OneD">BANKX</in-bse-fin:Symbol>
+  <in-bse-fin:ScripCode contextRef="OneD">532999</in-bse-fin:ScripCode>
+  <in-bse-fin:NatureOfReportStandaloneConsolidated contextRef="OneD">Standalone</in-bse-fin:NatureOfReportStandaloneConsolidated>
+  <in-bse-fin:DateOfStartOfReportingPeriod contextRef="OneD">2024-01-01</in-bse-fin:DateOfStartOfReportingPeriod>
+  <in-bse-fin:DateOfEndOfReportingPeriod contextRef="OneD">2024-03-31</in-bse-fin:DateOfEndOfReportingPeriod>
+  <in-bse-fin:DateOfStartOfFinancialYear contextRef="OneD">2023-04-01</in-bse-fin:DateOfStartOfFinancialYear>
+  <in-bse-fin:WhetherResultsAreAuditedOrUnaudited contextRef="OneD">Audited</in-bse-fin:WhetherResultsAreAuditedOrUnaudited>
+  <in-bse-fin:InterestEarned contextRef="OneD" unitRef="INR" decimals="-5">100000000000</in-bse-fin:InterestEarned>
+  <in-bse-fin:OtherIncome contextRef="OneD" unitRef="INR" decimals="-5">20000000000</in-bse-fin:OtherIncome>
+  <in-bse-fin:InterestExpended contextRef="OneD" unitRef="INR" decimals="-5">55000000000</in-bse-fin:InterestExpended>
+  <in-bse-fin:OperatingExpenses contextRef="OneD" unitRef="INR" decimals="-5">25000000000</in-bse-fin:OperatingExpenses>
+  <in-bse-fin:ProvisionsOtherThanTaxAndContingencies contextRef="OneD" unitRef="INR" decimals="-5">8000000000</in-bse-fin:ProvisionsOtherThanTaxAndContingencies>
+  <in-bse-fin:ProfitLossFromOrdinaryActivitiesBeforeTax contextRef="OneD" unitRef="INR" decimals="-5">32000000000</in-bse-fin:ProfitLossFromOrdinaryActivitiesBeforeTax>
+  <in-bse-fin:TaxExpense contextRef="OneD" unitRef="INR" decimals="-5">8000000000</in-bse-fin:TaxExpense>
+  <in-bse-fin:NetProfitLossForThePeriod contextRef="OneD" unitRef="INR" decimals="-5">24000000000</in-bse-fin:NetProfitLossForThePeriod>
+  <in-bse-fin:GrossNonPerformingAssets contextRef="OneD" unitRef="INR" decimals="-5">60000000000</in-bse-fin:GrossNonPerformingAssets>
+  <in-bse-fin:NetNonPerformingAssets contextRef="OneD" unitRef="INR" decimals="-5">15000000000</in-bse-fin:NetNonPerformingAssets>
+  <in-bse-fin:DilutedEarningsLossPerShareFromContinuingAndDiscontinuedOperations contextRef="OneD" unitRef="INRPerShare" decimals="2">24.00</in-bse-fin:DilutedEarningsLossPerShareFromContinuingAndDiscontinuedOperations>
+  <in-bse-fin:CapitalAdequacyRatioBaselIii contextRef="OneD" unitRef="pure" decimals="4">0.1685</in-bse-fin:CapitalAdequacyRatioBaselIii>
+  <in-bse-fin:InterestEarned contextRef="FourD" unitRef="INR" decimals="-5">380000000000</in-bse-fin:InterestEarned>
+  <in-bse-fin:OtherIncome contextRef="FourD" unitRef="INR" decimals="-5">70000000000</in-bse-fin:OtherIncome>
+  <in-bse-fin:InterestExpended contextRef="FourD" unitRef="INR" decimals="-5">210000000000</in-bse-fin:InterestExpended>
+  <in-bse-fin:OperatingExpenses contextRef="FourD" unitRef="INR" decimals="-5">95000000000</in-bse-fin:OperatingExpenses>
+  <in-bse-fin:ProvisionsOtherThanTaxAndContingencies contextRef="FourD" unitRef="INR" decimals="-5">25000000000</in-bse-fin:ProvisionsOtherThanTaxAndContingencies>
+  <in-bse-fin:ProfitLossFromOrdinaryActivitiesBeforeTax contextRef="FourD" unitRef="INR" decimals="-5">120000000000</in-bse-fin:ProfitLossFromOrdinaryActivitiesBeforeTax>
+  <in-bse-fin:TaxExpense contextRef="FourD" unitRef="INR" decimals="-5">30000000000</in-bse-fin:TaxExpense>
+  <in-bse-fin:NetProfitLossForThePeriod contextRef="FourD" unitRef="INR" decimals="-5">90000000000</in-bse-fin:NetProfitLossForThePeriod>
+  <in-bse-fin:DilutedEarningsLossPerShareFromContinuingAndDiscontinuedOperations contextRef="FourD" unitRef="INRPerShare" decimals="2">90.00</in-bse-fin:DilutedEarningsLossPerShareFromContinuingAndDiscontinuedOperations>
+  <in-bse-fin:Advances contextRef="OneI" unitRef="INR" decimals="-5">3000000000000</in-bse-fin:Advances>
+  <in-bse-fin:Deposits contextRef="OneI" unitRef="INR" decimals="-5">3500000000000</in-bse-fin:Deposits>
+  <in-bse-fin:Investments contextRef="OneI" unitRef="INR" decimals="-5">1000000000000</in-bse-fin:Investments>
+  <in-bse-fin:Assets contextRef="OneI" unitRef="INR" decimals="-5">5000000000000</in-bse-fin:Assets>
+</xbrli:xbrl>

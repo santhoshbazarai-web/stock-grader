@@ -1,0 +1,6 @@
+{
+ "status": "error",
+ "message": "Too many requests",
+ "data": null,
+ "error_type": "NetworkException"
+}

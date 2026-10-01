@@ -1,0 +1,15 @@
+[
+  {"symbol": "DEMOIT", "desc": "Resignation of Statutory Auditors", "dt": "20240613181500",
+   "attchmntFile": "https://nsearchives.nseindia.com/corporate/DEMOIT_13062024181500_auditor.pdf",
+   "sm_name": "Demo Infotech Limited", "sm_isin": "INE9DEMO0001", "an_dt": "13-Jun-2024 18:15:00",
+   "sort_date": "2024-06-13 18:15:00", "seq_id": "104511001",
+   "attchmntText": "M/s ABC & Co., the statutory auditors of the Company, have resigned with effect from June 13, 2024.",
+   "smIndustry": "Computers - Software"},
+  {"symbol": "DEMOBANK", "desc": "Credit Rating", "an_dt": "14-Jun-2024 10:02:11",
+   "sm_name": "Demo Bank Ltd.", "sm_isin": "INE9DEMO0002", "seq_id": "104511002",
+   "attchmntText": "CARE Ratings has downgraded the long-term rating of the Bank's bonds to AA- (Negative).",
+   "attchmntFile": "http://insecure.example.com/rating.pdf"},
+  {"symbol": "DEMOIT", "desc": "Dividend", "an_dt": "14-Jun-2024 11:00:00", "seq_id": "104511003",
+   "sm_name": "Demo Infotech Limited", "attchmntText": "Record date for final dividend of Rs 12 per share"},
+  {"symbol": "DEMOIT", "desc": "", "an_dt": "14-Jun-2024 11:05:00", "seq_id": "104511004"}
+]

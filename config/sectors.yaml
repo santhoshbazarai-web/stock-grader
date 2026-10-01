@@ -1,0 +1,26 @@
+# sectors.yaml — validated at startup by app.core.config (fail fast on invalid values).
+# All values are starting points — tune after backtests.
+
+sectors:
+  default:
+    model: fcff
+    weights: {dcf_base: 0.40, band_pe: 0.25, band_ev_ebitda: 0.15, relative: 0.20}
+  it_services:        {model: fcff, weights: {dcf_base: 0.45, band_pe: 0.30, relative: 0.25}}
+  fmcg:               {model: fcff, weights: {dcf_base: 0.40, band_pe: 0.35, relative: 0.25}}
+  pharma:             {model: fcff, weights: {dcf_base: 0.40, band_pe: 0.30, relative: 0.30}}
+  capital_goods:      {model: fcff, weights: {dcf_base: 0.35, band_pe: 0.35, relative: 0.30}}
+  banks:
+    model: bank
+    weights: {justified_pb: 0.45, band_pb: 0.35, relative_pb: 0.20}
+    long_run_growth: 0.10
+  nbfc:
+    model: bank
+    long_run_growth: 0.10
+    weights: {justified_pb: 0.40, band_pb: 0.35, relative_pb: 0.25}
+  insurance:          {model: insurance, weights: {band_p_ev: 0.60, relative_p_ev: 0.40}, manual_inputs: [embedded_value, vnb]}
+  metals:             {model: cyclical, normalise_years: 10, weights: {normalised_ev_ebitda: 0.60, band_ev_ebitda: 0.25, band_pb: 0.15}, asset_heavy: true}
+  cement:             {model: cyclical, normalise_years: 8,  weights: {normalised_ev_ebitda: 0.50, band_ev_ebitda: 0.30, relative: 0.20}, asset_heavy: true}
+  chemicals:          {model: cyclical, normalise_years: 7,  weights: {normalised_ev_ebitda: 0.40, dcf_base: 0.30, band_pe: 0.30}}
+  auto:               {model: cyclical, normalise_years: 7,  weights: {normalised_ev_ebitda: 0.40, dcf_base: 0.30, band_pe: 0.30}}
+  real_estate:        {model: nav, nav_discount: 0.20, manual_inputs: [nav]}
+  holding_company:    {model: sotp, holding_discount: 0.30}

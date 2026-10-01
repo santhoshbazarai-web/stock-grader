@@ -1,0 +1,6 @@
+{"data": [
+  {"comName": "Demo Bank Ltd.", "shp": "31-Mar-2024", "totIssuedShares": "100000000",
+   "totPromoterHolding": "40000000", "percPromoterHolding": "40.00", "numSharesPledged": "12000000",
+   "percPromoterShares": "30.00", "percTotShares": "12.00", "broadcastDt": "12-Jun-2024 19:10:00",
+   "reasonForPledge": "Invocation of pledge by lender"}
+]}

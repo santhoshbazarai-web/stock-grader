@@ -1,0 +1,6 @@
+{
+ "status": "error",
+ "message": "invalid token",
+ "data": null,
+ "error_type": "InputException"
+}

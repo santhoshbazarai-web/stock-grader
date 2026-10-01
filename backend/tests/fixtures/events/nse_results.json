@@ -1,0 +1,14 @@
+{"data": [
+  {"symbol": "DEMOIT", "companyName": "Demo Infotech Limited", "isin": "INE9DEMO0001",
+   "fromDate": "01-Jan-2024", "toDate": "31-Mar-2024", "consolidated": "Consolidated",
+   "audited": "Audited", "relatingTo": "Fourth Quarter", "financialYear": "01-Apr-2023 To 31-Mar-2024",
+   "xbrl": "https://nsearchives.nseindia.com/corporate/xbrl/DEMOIT_Q4_CONS.xml",
+   "broadCastDate": "14-Jun-2024 16:05:00", "seqNumber": "9001"},
+  {"symbol": "DEMOIT", "companyName": "Demo Infotech Limited", "fromDate": "01-Jan-2024",
+   "toDate": "31-Mar-2024", "consolidated": "Non-Consolidated", "audited": "Audited",
+   "relatingTo": "Fourth Quarter", "xbrl": "-", "exchdisstime": "14-Jun-2024 16:07:00"},
+  {"symbol": "OTHERCO", "companyName": "Other Co Ltd", "fromDate": "01-Jan-2024",
+   "toDate": "31-Mar-2024", "consolidated": "Consolidated",
+   "xbrl": "https://evil.example.com/x.xml", "filingDate": "14-Jun-2024 17:00:00"},
+  {"companyName": "No Symbol Ltd", "toDate": "31-Mar-2024"}
+]}

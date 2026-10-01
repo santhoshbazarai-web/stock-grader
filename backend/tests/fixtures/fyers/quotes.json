@@ -1,0 +1,49 @@
+{
+ "code": 200,
+ "d": [
+  {
+   "n": "NSE:TCS-EQ",
+   "s": "ok",
+   "v": {
+    "ch": 12.5,
+    "chp": 0.33,
+    "lp": 3815.4,
+    "spread": 0.1,
+    "ask": 3815.5,
+    "bid": 3815.4,
+    "open_price": 3801.0,
+    "high_price": 3830.0,
+    "low_price": 3795.2,
+    "prev_close_price": 3802.9,
+    "volume": 1843211,
+    "short_name": "TCS-EQ",
+    "exchange": "NSE",
+    "description": "NSE:TCS-EQ",
+    "original_name": "NSE:TCS-EQ",
+    "symbol": "NSE:TCS-EQ",
+    "fyToken": "10100000011536",
+    "tt": "1711670400"
+   }
+  },
+  {
+   "n": "NSE:BAJAJ-AUTO-EQ",
+   "s": "ok",
+   "v": {
+    "ch": -40.0,
+    "chp": -0.44,
+    "lp": 9050.0,
+    "symbol": "NSE:BAJAJ-AUTO-EQ",
+    "volume": 312004
+   }
+  },
+  {
+   "n": "NSE:NOSUCH-EQ",
+   "s": "error",
+   "v": {
+    "errmsg": "invalid symbol"
+   }
+  }
+ ],
+ "message": "",
+ "s": "ok"
+}

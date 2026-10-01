@@ -1,0 +1,31 @@
+{
+ "status": "success",
+ "data": {
+  "user_type": "individual",
+  "email": "user@example.com",
+  "user_name": "Test User",
+  "user_shortname": "Test",
+  "broker": "ZERODHA",
+  "exchanges": [
+   "NSE",
+   "BSE"
+  ],
+  "products": [
+   "CNC"
+  ],
+  "order_types": [
+   "LIMIT"
+  ],
+  "avatar_url": null,
+  "user_id": "AB1234",
+  "api_key": "kitekey",
+  "access_token": "kite-access-token-abc123",
+  "public_token": "pub",
+  "refresh_token": "",
+  "enctoken": "",
+  "login_time": "2024-03-29 09:10:11",
+  "meta": {
+   "demat_consent": "consent"
+  }
+ }
+}
