@@ -20,15 +20,31 @@ from sqlalchemy import func, select
 from app.core.config import Dataset
 from app.core.settings import config_dir_from_env
 from app.data.gaps import GapRecord
-from app.data.indianapi_parse import Mapped, map_statements, quarter_sums, verify_identity
+from app.data.indianapi_checks import (
+    board_meetings,
+    corporate_action_checks,
+    key_metric_checks,
+    latest_year_end,
+    vendor_corporate_actions,
+)
+from app.data.indianapi_parse import (
+    Mapped,
+    map_statements,
+    number,
+    quarter_sums,
+    verify_identity,
+)
 from app.data.indianapi_store import (
     cached_answers,
     candidate_names,
     endpoint_key,
+    our_split_bonus,
     refresh_due,
     remember_name,
     save_answer,
+    save_board_meetings,
     save_differences,
+    save_key_metric_checks,
     store_mapped,
 )
 from app.data.providers.base import ProviderError
@@ -41,7 +57,7 @@ from app.data.providers.indianapi import (
     VendorNotFound,
     usage_text,
 )
-from app.db.models import Instrument, ResultFiling, VendorResponse
+from app.db.models import Instrument, PriceDaily, ResultFiling, VendorResponse
 from app.fundamentals.indianapi_map import get_indianapi_map
 from app.fundamentals.xbrl_map import get_xbrl_map
 from app.jobs.common import ensure_instruments, universe
@@ -67,6 +83,8 @@ class SymbolOutcome:
     differences: int = 0
     gaps: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    key_metric_issues: int = 0
+    board_meetings: int = 0
 
 
 def _gap(ctx: JobContext, symbol: str, reason: str) -> None:
@@ -119,6 +137,7 @@ def fetch_symbol(ctx: JobContext, symbol: str, *, user: bool = False,
         hists = {k: v for k, v in answers.items() if k != "/stock"}
         mapped = map_statements(answers["/stock"], hists, amap)
         _store(ctx, session, inst, mapped, amap.version, out)
+        _cross_check(ctx, session, inst, answers["/stock"], mapped, out)
         out.status = "stored" if fetched else "cached"
         out.message = (f"{_years_text(out.years)} ({mapped.model} model; "
                        f"{'fetched' if fetched else due.reason})")  # fmt: skip
@@ -231,6 +250,32 @@ def _store(ctx: JobContext, session: Any, inst: Instrument, mapped: Mapped, vers
             _gap(ctx, inst.symbol, msg)
 
 
+def _cross_check(ctx: JobContext, session: Any, inst: Instrument, stock: Any, mapped: Mapped,
+                 out: SymbolOutcome) -> None:  # fmt: skip
+    """keyMetrics vs ours, the vendor's bonus / split list vs ours, and its board-meeting
+    calendar (events). Never changes our statements or corporate actions."""
+    amap = get_indianapi_map(config_dir_from_env())
+    close = session.scalar(select(PriceDaily.close).where(PriceDaily.instrument_id == inst.id)
+                           .order_by(PriceDaily.date.desc()).limit(1))  # fmt: skip
+    price = float(close) if close is not None else None
+    if price is None:
+        price = number(((stock or {}).get("currentPrice") or {}).get("NSE"))
+        out.notes.append("keyMetrics: no stored close, compared at the vendor's NSE price")
+    checks = key_metric_checks(stock, mapped, amap, price)
+    fy_end = latest_year_end(mapped)
+    out.key_metric_issues = save_key_metric_checks(session, inst.id, checks, fy_end, ctx.clock())
+    out.notes += [c.text for c in checks if c.ok is False]
+    vendor, since = vendor_corporate_actions(stock)
+    for msg in corporate_action_checks(vendor, since, our_split_bonus(session, inst.id),
+                                       amap.checks.corporate_action_window_days):  # fmt: skip
+        out.notes.append(msg)
+        ctx.gaps.record(GapRecord(Dataset.CORPORATE_ACTIONS, inst.symbol, msg, [SOURCE],
+                                  "indianapi"))  # fmt: skip
+    out.board_meetings = save_board_meetings(
+        session, board_meetings(stock, symbol=inst.symbol, isin=inst.isin),
+        ctx.config.jobs.event_classification, ctx.now())  # fmt: skip
+
+
 def _years_text(years: dict[str, int]) -> str:
     return ", ".join(f"{k} {v} yr" for k, v in years.items()) or "no statements"
 
@@ -278,5 +323,9 @@ def fundamentals_indianapi(ctx: JobContext, options: JobOptions) -> JobOutcome:
         "usage": usage,
         "stopped": stopped,
         "differences": {r.symbol: r.differences for r in results if r.differences},
+        "key_metric_issues": {
+            r.symbol: r.key_metric_issues for r in results if r.key_metric_issues
+        },
+        "board_meetings": sum(r.board_meetings for r in results),
     }
     return JobOutcome(sum(r.status != "failed" for r in results), details)

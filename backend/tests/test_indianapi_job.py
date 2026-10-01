@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 from pydantic import SecretStr
-from sqlalchemy import func, insert, select, update
+from sqlalchemy import delete, func, insert, select, update
 
 from app.core.config import JobName
 from app.data.providers.indianapi import DbQuota, IndianApiClient
@@ -307,3 +307,103 @@ def test_pipeline_step_without_key_is_a_warning_not_a_failure(env: Env) -> None:
     setup(env, FakeVendor(), key=None)
     status, msg = _pipeline_step(env, "HDFCBANK")
     assert status == "warning" and "add indianapi_key in .env" in msg.lower()
+
+
+def test_events_and_corporate_action_cross_check(env: Env) -> None:
+    from datetime import UTC, datetime
+
+    from app.db.models import Event
+    from app.jobs.events import board_calendar
+
+    setup(env, FakeVendor())
+    rec = run(env, "HDFCBANK")
+    assert rec.outcome.details["board_meetings"] == 26
+    with env.session() as s:
+        ev = s.scalars(select(Event).where(Event.exchange == "indianapi")).all()
+    assert len(ev) == 26 and {e.kind.value for e in ev} == {"board_meeting"}
+    # no corporate actions stored: the vendor's 1:1 bonus is reported, never written
+    assert any("bonus ex 2025-08-26" in g and "not in our corporate actions" in g
+               for g in gaps(env, "HDFCBANK"))  # fmt: skip
+    # the results watcher's calendar reads the vendor's meetings like NSE's
+    env.ctx.clock = lambda: datetime(2026, 10, 10, 6, 0, tzinfo=UTC)
+    assert board_calendar(env.ctx, ["HDFCBANK"]) == [{"symbol": "HDFCBANK", "date": "2026-10-17"}]
+
+
+def _filed(s: Any, iid: int, end: date, code: str, value: float, ptype: PeriodType) -> None:
+    stmt = LineStatement.BS if ptype is PeriodType.INSTANT else LineStatement.PL
+    s.execute(insert(FinLineItem), [{
+        "instrument_id": iid, "period_end": end, "period_type": ptype, "statement": stmt,
+        "basis": StatementType.CONSOLIDATED, "item_code": code, "value_inr": value,
+        "unit": "per_share" if code.startswith("eps") else "amount", "version": 1,
+        "source": "nse", "derived": False,
+    }])  # fmt: skip
+
+
+def test_reconciliation_compares_the_vendor_with_the_filing(env: Env) -> None:
+    from app.db.enums import CorporateActionType
+    from app.db.models import CorporateAction, ReconciliationIssue
+    from app.jobs.reconcile import reconcile_symbol
+
+    setup(env, FakeVendor())
+    fy26, fy25 = date(2026, 3, 31), date(2025, 3, 31)
+    with env.session() as s:
+        iid = s.scalar(select(Instrument.id).where(Instrument.symbol == "HDFCBANK"))
+        assert iid is not None
+        _filed(s, iid, fy26, "pat", 76025.97e7, PeriodType.YEAR)  # = vendor
+        _filed(s, iid, fy26, "eps_diluted", 49.30, PeriodType.YEAR)  # vendor 49.28
+        _filed(s, iid, fy26, "deposits", 2_900_000e7, PeriodType.INSTANT)  # vendor 3,099,638
+        _filed(s, iid, fy25, "pat", 70792.25e7, PeriodType.YEAR)
+        _filed(s, iid, fy25, "eps_diluted", 92.40, PeriodType.YEAR)  # as filed, pre-bonus
+        s.add(CorporateAction(instrument_id=iid, ex_date=date(2025, 8, 26), source="nse",
+                              action_type=CorporateActionType.BONUS, ratio_old=1, ratio_new=2,
+                              fetched_at=NOW))  # fmt: skip
+        s.commit()
+    run(env, "HDFCBANK")  # the vendor fills around the filed figures; its answers are cached
+    out = reconcile_symbol(env.ctx, "HDFCBANK")
+    assert "Indian API" in out["sources"], out
+    with env.session() as s:
+        issues = s.scalars(select(ReconciliationIssue).where(
+            ReconciliationIssue.instrument_id == iid,
+            ReconciliationIssue.source == "indianapi")).all()  # fmt: skip
+    assert [(i.item_code, i.period_end) for i in issues] == [("deposits", fy26)]
+    assert issues[0].reasons[0].startswith("Deposits (year to 31 Mar 2026, consolidated): "
+                                           "Indian API ₹3,099,638.29 cr vs NSE XBRL")  # fmt: skip
+    # FY2025 EPS: the vendor's 46.20 is on today's (post-bonus) basis: not compared with 92.40.
+    # Without the bonus on record the two would be compared (and differ by half).
+    with env.session() as s:
+        s.execute(delete(CorporateAction))
+        s.commit()
+    reconcile_symbol(env.ctx, "HDFCBANK")
+    with env.session() as s:
+        codes = s.execute(select(ReconciliationIssue.item_code, ReconciliationIssue.period_end)
+                          .where(ReconciliationIssue.source == "indianapi")).all()  # fmt: skip
+    assert sorted(codes) == [("deposits", fy26), ("eps_diluted", fy25)]
+
+
+def test_key_metric_difference_is_an_open_issue(env: Env) -> None:
+    from app.db.models import ReconciliationIssue
+
+    COMPANIES["ITC"] = ("itc", "INE154A01025", "ITC Limited", "ITC")
+    try:
+        setup(env, FakeVendor())
+        run(env, "ITC")
+    finally:
+        del COMPANIES["ITC"]
+    with env.session() as s:
+        issues = s.scalars(select(ReconciliationIssue).where(
+            ReconciliationIssue.source == "indianapi_keymetrics")).all()  # fmt: skip
+    assert [(i.item_code, i.cause) for i in issues] == [("km_book_value_per_share", "key_metric")]
+    assert issues[0].value_inr == pytest.approx(54.46)
+
+
+def test_analyst_consensus_is_loaded_for_the_report_only(env: Env) -> None:
+    from app.reports.data import load_analyst_consensus
+
+    setup(env, FakeVendor())
+    run(env, "HDFCBANK")
+    with env.session() as s:
+        iid = s.scalar(select(Instrument.id).where(Instrument.symbol == "HDFCBANK"))
+        assert iid is not None
+        got = load_analyst_consensus(s, iid)
+    assert got is not None and got["recommendations"] == 40 and got["as_of"] == NOW.date()
+    assert got["mean_rating"] == pytest.approx(1.525)

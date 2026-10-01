@@ -105,6 +105,7 @@ export type StockReport = {
   data_gaps: string[];
   thesis: string | null;
   shareholding?: ShareholdingSummary | null; // absent in reports built before Prompt A
+  analyst_consensus?: AnalystConsensus | null; // informational only, never scored
   reconciliation_issues?: string[]; // SPEC v0.2 §3.9 (absent in reports built before P21)
   provisional_grade: Grade | null;
   mos_grade: Grade | null;
@@ -210,6 +211,14 @@ export type ShareholdingSummary = {
   promoter_change_pp: number | null;
   pledge_prev_pct: number | null;
   quarters: number;
+};
+
+export type AnalystConsensus = {
+  source: string;
+  as_of: string;
+  recommendations: number;
+  mean_rating: number | null; // 1 Strong Buy … 5 Strong Sell
+  ratings: Record<string, number>;
 };
 
 export type FundamentalsHistory = {
@@ -722,7 +731,13 @@ export type ReconciliationIssue = {
   reference_value_inr: number;
   diff_rel: number;
   values: Record<string, number>;
-  cause: "units" | "basis" | "restatement" | null;
+  cause:
+    | "units"
+    | "basis"
+    | "restatement"
+    | "vendor_internal"
+    | "key_metric"
+    | null;
   reasons: string[];
   status: "open" | "resolved" | "ignored";
   detected_at: string;

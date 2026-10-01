@@ -21,10 +21,19 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Any
 
+import pandas as pd
 from sqlalchemy import delete, insert, select
 from sqlalchemy.orm import Session
 
-from app.core.config import IndianApiConfig, IndianApiEndpoint, NseResultsConfig, Provider
+from app.core.config import (
+    EventClassificationConfig,
+    IndianApiConfig,
+    IndianApiEndpoint,
+    NseResultsConfig,
+    Provider,
+)
+from app.data.event_store import store_events
+from app.data.indianapi_checks import EXCHANGE, MetricCheck, OurAction
 from app.data.indianapi_parse import Difference, Mapped, VendorValue
 from app.data.providers.indianapi import VendorResponse as Answer
 from app.data.raw_store import RawStore
@@ -36,8 +45,15 @@ from app.data.results_store import (
     _fy_end_month,
     rebuild_wide,
 )
-from app.db.enums import IssueStatus, LineStatement, PeriodType, StatementType
+from app.db.enums import (
+    CorporateActionType,
+    IssueStatus,
+    LineStatement,
+    PeriodType,
+    StatementType,
+)
 from app.db.models import (
+    CorporateAction,
     FinLineItem,
     Instrument,
     ReconciliationIssue,
@@ -51,6 +67,7 @@ PROVIDER = Provider.INDIANAPI.value
 # fields the reconciliation compares; vendor-internal differences on these are open issues
 RECONCILED_ITEMS = frozenset({"revenue", "pat", "profit_after_tax", "total_equity", "deposits",
                               "advances", "eps_diluted"})  # fmt: skip
+KEY_METRICS_SOURCE = "indianapi_keymetrics"
 _LIMITED = re.compile(r"\s+(limited|ltd\.?)$", re.IGNORECASE)
 
 
@@ -258,3 +275,56 @@ def save_differences(session: Session, instrument_id: int, diffs: Iterable[Diffe
                update=["reference_value_inr", "value_inr", "diff_rel", "values", "reasons",
                        "checked_at"])  # fmt: skip
     return len(rows)
+
+
+def save_key_metric_checks(session: Session, instrument_id: int, checks: Iterable[MetricCheck],
+                           period_end: date | None, now: datetime) -> int:  # fmt: skip
+    """keyMetrics that differ from ours → open issues (``cause='key_metric'``; the values are
+    the metric itself, not rupees); one that agrees again resolves its open issue."""
+    if period_end is None:
+        return 0
+    rows, agree = [], []
+    for c in checks:
+        code = f"km_{c.name}"
+        if c.ok is True:
+            agree.append(code)
+        if c.ok is not False or c.vendor is None or c.ours is None or c.rel is None:
+            continue
+        rows.append({
+            "instrument_id": instrument_id, "period_end": period_end,
+            "period_type": PeriodType.YEAR, "basis": StatementType.CONSOLIDATED,
+            "item_code": code, "source": KEY_METRICS_SOURCE, "reference_source": "derived",
+            "reference_value_inr": c.ours, "value_inr": c.vendor, "diff_rel": c.rel,
+            "values": {KEY_METRICS_SOURCE: c.vendor, "derived": c.ours},
+            "cause": "key_metric", "reasons": [c.text], "status": IssueStatus.OPEN,
+            "detected_at": now, "checked_at": now, "resolved_at": None,
+        })  # fmt: skip
+    if rows:
+        upsert(session, ReconciliationIssue, rows,
+               update=["reference_value_inr", "value_inr", "diff_rel", "values", "reasons",
+                       "checked_at"])  # fmt: skip
+    if agree:
+        for issue in session.scalars(select(ReconciliationIssue).where(
+                ReconciliationIssue.instrument_id == instrument_id,
+                ReconciliationIssue.source == KEY_METRICS_SOURCE,
+                ReconciliationIssue.item_code.in_(agree),
+                ReconciliationIssue.status == IssueStatus.OPEN)):  # fmt: skip
+            issue.status, issue.resolved_at, issue.checked_at = IssueStatus.RESOLVED, now, now
+    return len(rows)
+
+
+def our_split_bonus(session: Session, instrument_id: int) -> list[OurAction]:
+    return [OurAction(a.ex_date, a.action_type, a.ratio_old, a.ratio_new)
+            for a in session.scalars(select(CorporateAction).where(
+                CorporateAction.instrument_id == instrument_id,
+                CorporateAction.action_type.in_([CorporateActionType.SPLIT,
+                                                 CorporateActionType.BONUS])))]  # fmt: skip
+
+
+def save_board_meetings(session: Session, frame: pd.DataFrame, cfg: EventClassificationConfig,
+                        now: datetime) -> int:  # fmt: skip
+    """The vendor's board-meeting calendar as events (``exchange='indianapi'``): the results
+    watcher's board calendar reads them like NSE's."""
+    if frame.empty:
+        return 0
+    return store_events(session, frame, exchange=EXCHANGE, cfg=cfg, now=now).rows

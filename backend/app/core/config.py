@@ -1179,7 +1179,7 @@ class ResultsWatchJobConfig(_Strict):
     notify: ResultsNotifyConfig
 
 
-ReconSource = Literal["nse_xbrl", "annual_report_pdf", "yfinance", "market_lens"]
+ReconSource = Literal["nse_xbrl", "annual_report_pdf", "indianapi", "yfinance", "market_lens"]
 
 
 class ReconciliationConfig(_Strict):
@@ -1199,10 +1199,11 @@ class ReconciliationConfig(_Strict):
     @model_validator(mode="after")
     def _check(self) -> Self:
         from app.data.canonical import fields_for
+        from app.fundamentals.xbrl_map import get_xbrl_map
 
-        unknown = set(self.items) - set(fields_for("fin_annual"))
+        unknown = set(self.items) - set(fields_for("fin_annual")) - set(get_xbrl_map().items)
         if unknown:
-            raise ValueError(f"items not in fin_annual: {sorted(unknown)}")
+            raise ValueError(f"items not in fin_annual or xbrl_map: {sorted(unknown)}")
         if len(set(self.sources)) != len(self.sources):
             raise ValueError("sources lists a source twice")
         return self

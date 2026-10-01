@@ -16,6 +16,8 @@ from app.core.config import AppConfig
 from app.data import prices
 from app.data.adjust import restate_per_share
 from app.data.canonical import fields_for
+from app.data.indianapi_checks import analyst_consensus
+from app.data.indianapi_store import cached_answers
 from app.data.reconcile_store import issue_text, open_issues
 from app.db.enums import EventKind, StatementType, SurveillanceList, Timeframe
 from app.db.models import (
@@ -66,6 +68,17 @@ class StockData:
     auditor_resignations: list[date] | None = None
     industry_label: str | None = None  # the classification label the sector came from
     industry_source: str | None = None  # "nse" | "yfinance" | None (not classified yet)
+    # Indian API recosBar (informational only, never scored): analyst_consensus() + as_of
+    analyst_consensus: dict[str, Any] | None = None
+
+
+def load_analyst_consensus(session: Session, iid: int) -> dict[str, Any] | None:
+    """From the latest verified Indian API /stock answer on file (no call)."""
+    row = cached_answers(session, iid).get("/stock")
+    got = analyst_consensus(row.payload) if row is not None else None
+    if row is None or got is None:
+        return None
+    return {**got, "as_of": row.fetched_at.date()}
 
 
 def load_financials(
@@ -269,6 +282,7 @@ def load_stock_data(
             notes.append(f"RS percentile from {snap[0]} is stale (prices to {last_day})")
 
     overrides = load_overrides(session, inst.id)
+    consensus = load_analyst_consensus(session, inst.id)
     resignations, flags = load_events(session, inst.id, last_day, config)
     issues = [issue_text(i) for i in open_issues(session, inst.id)]
     sector_key = overrides.sector or inst.sector or "default"
@@ -304,4 +318,5 @@ def load_stock_data(
         reconciliation_issues=issues,
         event_red_flags=flags,
         auditor_resignations=resignations,
+        analyst_consensus=consensus,
     )

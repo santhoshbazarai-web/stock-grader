@@ -189,6 +189,28 @@ export function FlagsPanel({ report }: { report: StockReport }) {
           </details>
         )}
       </section>
+      {report.analyst_consensus && <AnalystConsensusNote c={report.analyst_consensus} />}
     </div>
+  );
+}
+
+function AnalystConsensusNote({ c }: { c: NonNullable<StockReport["analyst_consensus"]> }) {
+  const parts = Object.entries(c.ratings)
+    .filter(([, n]) => n > 0)
+    .map(([name, n]) => `${name} ${n}`);
+  return (
+    <section className="flex flex-col gap-1" aria-label="Analyst consensus">
+      <h3 className="font-semibold">
+        Analyst consensus <span className="text-muted-foreground text-xs font-normal">(informational, not scored)</span>
+      </h3>
+      <p className="text-xs">
+        {c.recommendations} analysts
+        {c.mean_rating != null && ` · mean ${c.mean_rating.toFixed(2)} (1 Strong Buy … 5 Strong Sell)`}
+        {parts.length > 0 && ` · ${parts.join(", ")}`}
+      </p>
+      <p className="text-muted-foreground text-xs">
+        {c.source}, {c.as_of}. Never part of the grade, zone or action.
+      </p>
+    </section>
   );
 }

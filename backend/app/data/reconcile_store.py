@@ -9,6 +9,8 @@ Sources (``jobs.reconciliation.sources``; all in rupees):
   Its superseded versions and its other-basis figures are the clues for the cause.
 - ``annual_report_pdf``: values read from annual reports that were accepted (automatically or
   by the owner); values waiting in the review queue are not compared.
+- ``indianapi``: the Indian API's statements, re-mapped from its cached answers
+  (``add_vendor``); its EPS only for periods after the latest split / bonus.
 - ``yfinance`` (the fundamentals fallback) and ``market_lens`` (optional): fetched by the
   caller through the router and passed in as frames.
 
@@ -26,6 +28,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import ReconciliationConfig
 from app.data.canonical import Table
+from app.data.indianapi_parse import Mapped
 from app.data.results_store import EXCHANGE_SOURCE
 from app.data.xbrl import ItemValue, wide_record
 from app.db.enums import IssueStatus, PeriodType, ReviewStatus, StatementType
@@ -53,9 +56,19 @@ class Collected:
 
 
 def _wide(items: Mapping[str, ItemValue], group: str, xmap: XbrlMap) -> dict[str, Any]:
-    """Canonical record in rupees (wide_record works in crore)."""
+    """Canonical record in rupees (wide_record works in crore), with the ``extra`` items (bank
+    deposits, advances ...) flattened in. Per-share and share-count items stay as they are."""
     rec = wide_record(items, _TABLE[group], xmap)
-    return {k: v * CRORE for k, v in rec.items() if isinstance(v, int | float) and k != "extra"}
+    flat = {**{k: v for k, v in rec.items() if k != "extra"}, **(rec.get("extra") or {})}
+    return {k: v * CRORE if _is_amount(k, xmap) else v for k, v in flat.items()
+            if isinstance(v, int | float)}  # fmt: skip
+
+
+def _is_amount(code: str, xmap: XbrlMap) -> bool:
+    spec = xmap.items.get(code)
+    if spec is not None:
+        return spec.unit == "amount"
+    return code not in ("shares_diluted_cr", "book_value_per_share")  # derived wide columns
 
 
 def company_basis(session: Session, iid: int) -> StatementType:
@@ -229,3 +242,24 @@ def issue_text(issue: ReconciliationIssue) -> str:
     """One line for the report: what differs, and the likely cause when one was found."""
     what = issue.reasons[0] if issue.reasons else f"{issue.item_code} {issue.period_end}"
     return f"{what}; {issue.reasons[1]}" if issue.cause and len(issue.reasons) > 1 else what
+
+
+def add_vendor(out: Collected, mapped: Mapped, items: Iterable[str], source: str,
+               restated_before: date | None = None) -> int:  # fmt: skip
+    """The Indian API's figures (re-mapped from its cached answers, so they are compared even
+    where a filed figure has replaced them in fin_line_items). Its EPS is on today's share
+    basis, so EPS of periods before the latest split / bonus (``restated_before``) is not
+    compared with the as-filed figure."""
+    wanted = set(out.periods)
+    codes = set(items)
+    n = 0
+    for v in mapped.values:
+        group = "quarter" if v.period_type == "quarter" else "year"
+        if (v.period_end, group) not in wanted or v.item_code not in codes:
+            continue
+        if v.unit == "per_share" and restated_before is not None \
+                and v.period_end < restated_before:  # fmt: skip
+            continue
+        out.add((v.period_end, group, v.item_code), source, v.value)
+        n += 1
+    return n

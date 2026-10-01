@@ -140,3 +140,14 @@ def test_lower_confidence() -> None:
     assert lower_confidence(Confidence.LOW, 1) is Confidence.LOW
     assert lower_confidence(Confidence.HIGH, 0) is Confidence.HIGH
     assert lower_confidence(Confidence.HIGH, 2) is Confidence.LOW
+
+
+def test_per_share_items_skip_the_rupee_floor() -> None:
+    # EPS 92.40 vs 46.20: below the ₹50-lakh floor in rupees, but EPS is per share
+    values = {(FY24, "year", "eps_diluted"): {"nse_xbrl": 92.40, "yfinance": 46.20}}
+    assert run(values) == []
+    [f] = run(values, per_share={"eps_diluted"})
+    assert f.reasons[0] == ("Diluted EPS (year to 31 Mar 2024, consolidated): yfinance ₹46.20 vs "
+                            "NSE XBRL ₹92.40, 50.0% apart")  # fmt: skip
+    assert run({(FY24, "year", "eps_diluted"): {"nse_xbrl": 49.30, "yfinance": 49.28}},
+               per_share={"eps_diluted"}) == []  # fmt: skip

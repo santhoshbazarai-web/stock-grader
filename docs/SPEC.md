@@ -373,8 +373,14 @@ Implementation notes (`fundamentals/reconcile.py` (pure), `data/reconcile_store.
   - `nse_xbrl`: latest line-item versions, excluding summed quarters. EBITDA = PBT + interest + depreciation − other income, as in the canonical tables.
   - `annual_report_pdf`: auto-accepted, accepted or corrected PDF values; values still in the review queue are not compared.
   - `market_lens`: only when `providers.market_lens.enabled`.
-  - `yfinance`: its EBITDA includes other income, so it is not compared (`exclude`).
+  - `indianapi`: the Indian API's statements, re-mapped from its cached answers (no call). They are compared even where a filed figure has replaced them in `fin_line_items`.
+    - Compared only for consolidated companies (the vendor is consolidated).
+    - Its EBITDA is not compared (`exclude`).
+    - Its EPS is on today's share basis, so EPS of periods ending before the latest split or bonus is not compared with the as-filed figure.
+  - `yfinance`: its EBITDA includes other income, and its EPS basis is unknown, so neither is compared (`exclude`).
   - BSE XBRL is not ingested yet, so it is not a source.
+- **Items** (`items`): sales, EBITDA, PAT, CFO, total assets, equity (net worth), and for banks deposits and advances (loans), plus diluted EPS.
+  - EPS is per share, so the ₹50-lakh floor does not apply to it.
 - **Issue:** a source differing from the reference by more than `tolerance_rel` (2%) **and** `min_diff_inr` (₹50 lakh, the lakh-vs-crore rounding gap). Its cause is checked in this order:
   - **units:** the ratio is within tolerance of 100, 1,000, 1 lakh or 1 crore, or their inverse.
   - **basis:** the figure matches the reference source's other-basis figure.
@@ -389,6 +395,43 @@ Implementation notes (`fundamentals/reconcile.py` (pure), `data/reconcile_store.
   - The valuation confidence drops `valuation.yaml` → `confidence.reconciliation_steps_down` levels (1, floored at low), with a reason in the valuation reasons.
   - The stock page shows a banner with each difference, its likely cause and an Ignore button (`POST /api/stocks/{symbol}/reconciliation/{id}/ignore`, `/reopen`; `GET …/reconciliation`).
 - **Market Lens** (`data/providers/market_lens.py`): disabled by default. It reads the page's JSON with every field name in `providers.market_lens`. Periods whose type or basis is not recognised are skipped, and non-numeric values are left out (never 0).
+
+### 3.9a Indian API (stock.indianapi.in)
+The bulk fundamentals source when NSE is blocked: 10+ years of statements per stock in five calls. Files: `data/providers/indianapi.py` (client), `data/indianapi_parse.py` (pure mapping), `data/indianapi_checks.py` (pure cross-checks), `data/indianapi_store.py`, `jobs/indianapi.py`; config in `providers.yaml` → `indianapi` and `config/indianapi_map.yaml`.
+
+- **Calls:** `/stock?name=` plus `/historical_stats?stats=` for `yoy_results`, `balancesheet`, `cashflow` and `quarter_results`. `ratios` is never called.
+  - Auth is the `X-Api-Key` header from `INDIANAPI_KEY`. Without a key the source shows "not configured: add INDIANAPI_KEY in .env" and nothing is called.
+  - The key is never logged or stored; stored request parameters and error texts never contain it.
+- **Budget:** `monthly_request_budget` (500) per IST calendar month, counted in `api_usage` with one atomic reservation per call.
+  - Calls stop at `stop_at_fraction` (90%) of the budget.
+  - Usage is shown on the Data sources page and in the pipeline panel ("Indian API: 123/500 calls this month").
+  - 429 / 5xx / network errors are retried with backoff (`providers.retry`) under the per-provider rate limit.
+- **Identity:** the vendor looks stocks up by name. Candidates are tried in this order:
+  - the name that last answered;
+  - the master name with and without "Limited";
+  - the symbol;
+  - `indianapi.name_fallbacks`.
+
+  An answer counts only if its ISIN (`companyProfile.isInId`) or NSE code matches ours. A different company is stored for audit but never used, and is recorded as the data gap "vendor returned a different company".
+- **Raw cache:** every answer goes into `vendor_responses` (and `data/raw/indianapi/yyyy/mm/dd/`) before it is read. Analysis reads only our tables.
+  - A stock is fetched again only when: results were announced after the last fetch; the cache is older than `refresh_days` (30); or the user presses Refresh and the cache is older than `user_refresh_min_age_hours` (24).
+- **Units:** `/stock` financials and `/historical_stats` are in ₹ crore, and share counts in crore. keyMetrics amounts are in ₹ million, and its market cap is in crore.
+  - These were read from the fixtures (NetIncome = EPS × diluted shares) and are re-checked on every answer. An answer whose unit check fails is not stored.
+- **Mapping** (`indianapi_map.yaml`, `general` and `bank` models):
+  - Values go to `fin_line_items` with `source='indianapi'`, consolidated basis and `vendor_reclassified=true`. "Mar 2026" is FY2026.
+  - `/stock` is primary; the history extends it to older years. Where both have a figure and they differ by more than 2%, the `/stock` figure is kept and the difference is an open reconciliation issue (`cause='vendor_internal'`).
+  - Quarters come from `quarter_results`. The four quarters must sum to the year within 1%.
+  - An item no source gives is None plus a data gap, never 0. NIM, GNPA, NNPA and CAR are not in the vendor's data and stay gaps.
+  - `/stock` shareholding is stale and is not used; shareholding stays NSE-sourced.
+- **Priority** (`priority.fin_results`: nse > indianapi > yfinance): a vendor value fills only a key that no exchange-filed or annual-report figure covers. It is removed when a filed figure arrives, and the wide row keeps the better source's label.
+- **Cross-checks** (`checks` in `indianapi_map.yaml`):
+  - keyMetrics (BVPS, P/B, ROA, market cap) are compared with our values for the latest fiscal year: equity / shares, price / BVPS, profit (including minority interest) / average total assets, and price × shares.
+    - Our latest stored close is used, or the vendor's NSE price when none is stored.
+    - A difference above `key_metric_tolerance` (5%) is an open issue (`cause='key_metric'`), and is resolved when they agree again. keyMetrics are never stored as data or scored.
+  - The vendor's bonus and split list (`stockCorporateActionData`) is compared with our corporate actions: ex-dates within `corporate_action_window_days`, and the ratio ("1:1" bonus = 2 for 1; a split of face value 10 → 1 = 10 for 1).
+    - A vendor action we lack, ours missing from the vendor's window, or a different ratio is a corporate-actions data gap. Nothing is written to `corporate_actions`.
+- **Events:** `boardMeetings` become board-meeting events (`exchange='indianapi'`), so the results watcher's board calendar knows the next results date without NSE.
+- **Analyst consensus** (`recosBar`) is shown in the report as informational only and is never part of a score, zone or action.
 
 ### 3.10 Home deployment
 - Runs with Docker Desktop (WSL2 on Windows). `restart: unless-stopped` on all services, and Postgres data on a named volume with a nightly `pg_dump` to a separate drive.

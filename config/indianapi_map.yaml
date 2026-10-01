@@ -199,10 +199,17 @@ models:
 fallbacks:
   pat: profit_after_tax
 
-# keyMetrics read for cross-checks against our own derived values (never stored).
+# keyMetrics read for cross-checks against our own derived values (never stored). The keys are
+# the vendor's own spelling, typos included ("MostRecenFiscalYear", "FiscalYear)").
 key_metrics:
   book_value_per_share: {group: persharedata, key: bookValuePerShareMostRecentFiscalYear}
   price_to_book: {group: valuation, key: priceToBookMostRecentFiscalYear}
   roa_pct: {group: mgmtEffectiveness, key: returnOnAverageAssetsMostRecenFiscalYear}
   roe_pct: {group: mgmtEffectiveness, key: returnOnAverageEquityMostRecentFiscalYear)}
   market_cap_cr: {group: priceandVolume, key: marketCap}
+
+checks:
+  # keyMetrics vs ours: BVPS and market cap agree to <0.2% on the fixtures; P/B and ROA differ
+  # by the vendor's price date and profit definition (~2%), so 5% before it is listed
+  key_metric_tolerance: 0.05
+  corporate_action_window_days: 3   # vendor and exchange ex-dates this close: the same action

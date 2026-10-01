@@ -175,6 +175,16 @@ class ShareholdingDto(_Dto):
     quarters: int = Field(description="Patterns on file")
 
 
+class AnalystConsensusDto(_Dto):
+    """The vendor's analyst consensus: informational only, never scored."""
+
+    source: str
+    as_of: date = Field(description="When the vendor answer was fetched")
+    recommendations: int
+    mean_rating: float | None = Field(description="1 Strong Buy … 5 Strong Sell")
+    ratings: dict[str, int] = Field(description="Analysts per rating")
+
+
 class StockReport(_Dto):
     symbol: str
     name: str | None
@@ -198,6 +208,9 @@ class StockReport(_Dto):
     data_gaps: list[str]
     thesis: str | None = None
     shareholding: ShareholdingDto | None = None
+    analyst_consensus: AnalystConsensusDto | None = Field(
+        default=None, description="Informational only: never part of a score, zone or action"
+    )
     reconciliation_issues: list[str] = Field(
         default_factory=list,
         description="Open cross-source differences (SPEC §3.9); they lower the confidence",

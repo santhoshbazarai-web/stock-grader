@@ -18,6 +18,7 @@ from app.fundamentals.forensic import altman_z2, beneish, piotroski
 from app.fundamentals.metrics import Metric, annual_metrics, by_year, summary_metrics
 from app.reports.data import StockData
 from app.reports.dto import (
+    AnalystConsensusDto,
     BuyZoneDto,
     ConditionDto,
     DcfScenarioDto,
@@ -571,6 +572,11 @@ def _assemble(
     )
     return StockReport(
         shareholding=_shareholding_dto(data.shareholding),
+        analyst_consensus=(
+            AnalystConsensusDto(source="Indian API", **data.analyst_consensus)
+            if data.analyst_consensus
+            else None
+        ),
         symbol=data.symbol,
         name=data.name,
         cmp=cmp,

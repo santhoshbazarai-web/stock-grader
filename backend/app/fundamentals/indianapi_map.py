@@ -88,6 +88,11 @@ class KeyMetric(_Strict):
     key: str
 
 
+class Checks(_Strict):
+    key_metric_tolerance: PositiveFloat  # keyMetrics vs our derived values (relative)
+    corporate_action_window_days: int = Field(ge=0)  # ex-dates this close are the same action
+
+
 class IndianApiMap(_Strict):
     version: int = Field(ge=1)
     units: Units
@@ -95,6 +100,7 @@ class IndianApiMap(_Strict):
     zero_means_missing: list[str] = Field(default_factory=list)
     models: dict[Model, dict[str, VendorItem]]
     key_metrics: dict[str, KeyMetric] = Field(default_factory=dict)
+    checks: Checks
     fallbacks: dict[str, str] = Field(default_factory=dict)  # item → item used when missing
 
     @model_validator(mode="after")

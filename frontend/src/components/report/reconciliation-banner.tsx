@@ -15,6 +15,8 @@ const CAUSE: Record<NonNullable<ReconciliationIssue["cause"]>, string> = {
   units: "units mix-up",
   basis: "consolidated / standalone mix-up",
   restatement: "restatement",
+  vendor_internal: "the Indian API's /stock and history disagree",
+  key_metric: "Indian API keyMetrics differ from our derived value",
 };
 
 export function ReconciliationBanner({

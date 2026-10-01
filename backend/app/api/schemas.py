@@ -505,7 +505,9 @@ class IssueOut(BaseModel):
     reference_value_inr: float
     diff_rel: float
     values: dict[str, float]
-    cause: Literal["units", "basis", "restatement"] | None
+    # units | basis | restatement (cross-source); vendor_internal (Indian API /stock vs its own
+    # history); key_metric (Indian API keyMetrics vs our derived value)
+    cause: Literal["units", "basis", "restatement", "vendor_internal", "key_metric"] | None
     reasons: list[str]
     status: IssueStatus
     detected_at: datetime

@@ -934,6 +934,7 @@ class ApiUsage(Base):
     """Calls made to a metered API per calendar month (IST), for its budget (SPEC §3.2)."""
 
     __tablename__ = "api_usage"
+    __upsert_key__ = ("provider", "month")
     __table_args__ = (UniqueConstraint("provider", "month"),)
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
@@ -948,6 +949,7 @@ class VendorResponse(Base):
     §3.2a): analysis reads only from our tables. ``params`` never hold the API key."""
 
     __tablename__ = "vendor_responses"
+    __upsert_key__ = ("id",)  # append-only: every answer is kept
     __table_args__ = (
         Index("ix_vendor_responses_lookup", "provider", "instrument_id", "endpoint", "params_hash"),
     )
