@@ -138,6 +138,14 @@ def test_negative_cfo_with_partial_history(
     assert ("negative_cfo" in r.unknown) is (outcome == "unknown")
 
 
+def test_negative_cfo_does_not_apply_to_lenders() -> None:
+    r = knockouts(replace(CLEAN, cfo_history=None, cfo_applies=False), KO)
+    assert "negative_cfo" not in r.unknown and "negative_cfo" not in r.triggered
+    assert "knock-out check 'negative_cfo' not applicable to a lender / insurer" in r.reasons
+    hit = knockouts(replace(CLEAN, cfo_history=[-1, -1, -1, -1, -1], cfo_applies=False), KO)
+    assert hit.triggered == []
+
+
 def test_missing_data_is_unknown_not_pass_or_fail() -> None:
     r = knockouts(KnockoutInputs(as_of=AS_OF), KO)
     assert r.cap is None and r.triggered == []

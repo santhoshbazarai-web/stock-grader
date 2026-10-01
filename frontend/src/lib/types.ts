@@ -607,6 +607,7 @@ export type CoverageCell = {
   sources: CoverageSource[];
   items: number;
   pending_review: number;
+  note?: string | null;
 };
 
 export type CoverageGrid = {

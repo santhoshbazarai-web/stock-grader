@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.data.results_store import PDF_SOURCE
 from app.db.enums import LineStatement, PeriodType, ReviewStatus, StatementType
-from app.db.models import FinAnnual, FinLineItem, Instrument, PdfLineCandidate
+from app.db.models import FinAnnual, FinLineItem, Instrument, PdfLineCandidate, ResultFiling
 
 # statement → the line items that make a fiscal year of it, the same for the CLI and the stock
 # page grid (P&L: full-year flows, filed or summed from four quarters; balance sheet:
@@ -121,6 +121,7 @@ class GridCell:
     sources: list[str]  # best first (SOURCE_ORDER); empty = a gap
     items: int  # line items stored for the cell
     pending_review: int  # annual-report values waiting in the review queue
+    note: str | None = None  # why a gap is expected (e.g. cash flow not in results XBRL)
 
 
 @dataclass(frozen=True)
@@ -129,11 +130,37 @@ class BasisGrid:
     cells: list[GridCell]
 
 
+CF_NOT_IN_XBRL = "not in XBRL: use the annual report"
+
+
+def cf_gap_note(fiscal_year: int, *, bank: bool, cash_flow_from_fy: int | None) -> str | None:
+    """A cash-flow gap the results XBRL cannot fill: banks' results have no cash-flow
+    statement, and nobody's had one before ``cash_flow_from_fy``."""
+    if bank or (cash_flow_from_fy is not None and fiscal_year < cash_flow_from_fy):
+        return CF_NOT_IN_XBRL
+    return None
+
+
+def files_as_bank(session: Session, instrument_id: int) -> bool:
+    """The exchange lists the company's results in the banking format."""
+    q = select(func.bool_or(ResultFiling.is_bank)).where(
+        ResultFiling.instrument_id == instrument_id
+    )
+    return bool(session.scalar(q))
+
+
 def coverage_grid(
-    session: Session, instrument_id: int, years: list[int], fy_end_month: int
+    session: Session,
+    instrument_id: int,
+    years: list[int],
+    fy_end_month: int,
+    *,
+    bank: bool = False,
+    cash_flow_from_fy: int | None = None,
 ) -> list[BasisGrid]:
     """Years by statements per basis, for the stock page. A basis with nothing stored is left
-    out unless neither has anything (then consolidated, all gaps)."""
+    out unless neither has anything (then consolidated, all gaps). A cash-flow gap the
+    results XBRL cannot fill carries a note (:func:`cf_gap_note`)."""
     ends = {
         y: (pd.Timestamp(year=y, month=fy_end_month, day=1) + pd.offsets.MonthEnd(0)).date()
         for y in years
@@ -183,6 +210,8 @@ def coverage_grid(
                 sorted(found.get((y, name), set()),
                        key=lambda s: SOURCE_ORDER.index(s) if s in SOURCE_ORDER else 99),
                 counts.get((y, name), 0), pending.get((y, name), 0),
+                cf_gap_note(y, bank=bank, cash_flow_from_fy=cash_flow_from_fy)
+                if name == "CF" and not found.get((y, name)) else None,
             )
             for y in years for name in STATEMENTS
         ]  # fmt: skip

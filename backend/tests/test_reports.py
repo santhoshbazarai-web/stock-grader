@@ -190,6 +190,24 @@ def test_bank_sector_never_uses_fcff_dcf(db: Session) -> None:
     assert next(p for p in r.pillars if p.pillar == "quality").subs[0].name == "roa_pct"
 
 
+def test_a_bank_needs_no_cash_flow(db: Session) -> None:
+    """Bank results XBRL has no cash-flow statement: the bank's valuation, pillars and
+    knock-outs must not depend on it, nor list it as a gap."""
+    from sqlalchemy import update
+
+    from app.db.models import FinAnnual
+
+    seed_index(db)
+    seed_company(db, sector="banks")
+    db.execute(
+        update(FinAnnual).values(cfo=None, purchase_of_fixed_assets=None, sale_of_fixed_assets=None)
+    )
+    r = build_for(db, "SYNTH", CFG).report
+    assert {m.name for m in r.valuation.methods} == {"justified_pb", "band_pb", "relative_pb"}
+    assert "negative_cfo" not in r.knockouts.unknown
+    assert not [g for g in r.data_gaps if "cfo" in g.lower() or "cash flow" in g.lower()]
+
+
 def test_overrides_change_the_valuation(seeded: Session) -> None:
     iid = seeded.scalar(select(Instrument.id).where(Instrument.symbol == "SYNTH"))
     base = build_for(seeded, "SYNTH", CFG).report

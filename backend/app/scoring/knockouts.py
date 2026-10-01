@@ -32,6 +32,9 @@ class KnockoutInputs:
     mcap_cr: float | None = None
     avg_traded_value_cr_20d: float | None = None
     beneish_m: float | None = None
+    # False for banks / NBFCs / insurers: their operating cash flow moves with deposits and
+    # loans, so the negative-CFO check does not apply (and needs no cash-flow data)
+    cfo_applies: bool = True
 
 
 @dataclass(frozen=True)
@@ -79,8 +82,11 @@ def knockouts(inputs: KnockoutInputs, cfg: KnockoutsConfig) -> KnockoutResult:
         "pledge data unavailable",
     )
 
-    hit, why = _negative_cfo(inputs.cfo_history, cfg)
-    check("negative_cfo", hit, why, why)
+    if inputs.cfo_applies:
+        hit, why = _negative_cfo(inputs.cfo_history, cfg)
+        check("negative_cfo", hit, why, why)
+    else:
+        reasons.append("knock-out check 'negative_cfo' not applicable to a lender / insurer")
 
     if inputs.auditor_resignations is None:
         check("auditor", None, "", "auditor-resignation record unavailable")

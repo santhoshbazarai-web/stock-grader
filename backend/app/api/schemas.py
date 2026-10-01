@@ -413,6 +413,8 @@ class CoverageCellOut(BaseModel):
                                "empty = a gap")  # fmt: skip
     items: int
     pending_review: int
+    note: str | None = Field(None, description="Why a gap is expected, e.g. cash flow not in "
+                             "results XBRL (banks; before FY2020)")  # fmt: skip
 
 
 class CoverageBasis(BaseModel):

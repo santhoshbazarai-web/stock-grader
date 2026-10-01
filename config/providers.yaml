@@ -96,6 +96,9 @@ providers:
       list_truncated_at: 50
       list_window_years: 2
       list_history_years: 12
+      # results XBRL has a cash-flow statement from FY2020 (banks: never); the coverage grid
+      # marks earlier (and bank) cash-flow gaps "not in XBRL: use the annual report"
+      cash_flow_from_fy: 2020
       available_after_ist: "15:30"  # disseminated at/after the close → usable from the next day
       # XBRL amounts should be absolute rupees. A filing that states a rounding level and keyed
       # its amounts in that unit (decimals >= 0, or PAT/EPS implying < min_plausible_shares

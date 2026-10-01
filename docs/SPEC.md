@@ -282,6 +282,7 @@ Implementation notes (annual-report PDFs, §3.6 steps 3-4: `data/annual_report.p
   Labels are Indian fiscal years named by the year they end in (FY24 = April 2023 to March 2024) in the grid, the fundamentals charts and the CLI.
   - Each cell lists its line-item sources, best first: XBRL, then PDF, then summed quarters. A cell with no line items shows its wide row's source (Screener, yfinance) when the statement's marker column (revenue / total assets / CFO) is filled.
   - Each cell also counts the values pending review. The stock page shows it as the "Data coverage" grid.
+  - An empty CF cell that results XBRL cannot fill is marked "not in XBRL: use the annual report" (`AR`), not shown as a failure: every year for a bank, NBFC or insurer (sector model, or results filed in the banking format), and years before `nse.results.cash_flow_from_fy` (2020) for everyone.
 - **Tools:** `python -m app.jobs pdf-inspect <report.pdf> [--fy YEAR]` prints the pages found, each value with its confidence, and the warnings, without a database. `python -m app.jobs pdf-reparse [--symbols …]` re-reads cached reports. Scanned reports (no text layer) are refused; OCR is not supported.
 
 ### 3.7 On-demand pipeline (when you type a stock)
@@ -676,6 +677,7 @@ Implementation notes (`scoring/`, pure functions; every threshold, map and the m
 
 Knock-outs
 - A check with missing input is reported as *unknown* (a data gap). It never passes or fails silently.
+- The CFO check does not apply to banks, NBFCs and insurers (their operating cash flow moves with deposits and loans; their results carry no cash-flow statement). Their valuation (justified P/B, P/B band, relative P/B) and pillars use no cash flow either.
 - The CFO check looks at the last `negative_cfo_window_years` years. It is decided from partial data only when the known years settle it: enough negatives already, or too few even if every missing year were negative.
 - An auditor resignation counts if it falls on or after `as_of` minus `auditor_resignation_years`.
 

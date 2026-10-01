@@ -355,6 +355,7 @@ def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> B
             as_of=as_of,
             pledge_pct=shp["pledge"],
             cfo_history=[_v(v) for v in cfo.tolist()] if len(cfo) else None,
+            cfo_applies=not is_financial,
             auditor_resignations=data.overrides.auditor_resignations
             if data.overrides.auditor_resignations is not None
             else data.auditor_resignations,
