@@ -193,6 +193,7 @@ Implementation notes (results XBRL, `data/xbrl.py`, `data/results_store.py`, `da
   - Derived in the wide rows: `ebit` = PBT + finance cost; `ebitda` = PBT + finance cost + D&A − other income; `shares_diluted_cr` = PAT / diluted EPS; book value per share = equity / shares.
   - Bank filings (marked by `InterestEarned`) fill `extra` for `fundamentals/banking.py`; period-end balances (`carry_to_year`: NPAs, CRAR, advances, deposits, investments) reported only in the Q4 quarter context also apply to the fiscal year.
   - SG&A is not in the results format (a data gap; a Screener upload can fill it).
+- **Bank equity (`xbrl_map.yaml` v3):** banking results file `Capital` and `ReservesAndSurplus` but no total-equity element, so `total_equity` is their sum (`sum_of`) for the `bank` group. Before v3, banks had no book value (P/B and BVPS bands were missing).
 - **Units (§3.6 step 2):** XBRL amounts are rupees by rule, so the rounding level a filing states (`LevelOfRoundingUsedInFinancialStatements`) is presentation only.
   - A filer that keyed amounts in that level instead is detected once per filing. The primary check: PAT ÷ diluted EPS implies fewer than `nse.results.min_plausible_shares` shares unscaled, but enough once scaled. Without EPS: most monetary facts carry `decimals ≥ 0`.
   - All amounts are then multiplied by the level's factor from `nse.results.rounding_levels` (lakh 1e5, million 1e6, crore 1e7...), with a warning on the filing.
@@ -888,3 +889,8 @@ Pick 10 stocks you know well, one per model type: a large private bank, an NBFC,
 - PE band median and σ
 
 Every valuation or scoring change must keep these tests green.
+
+### 13.1 v1 acceptance (end to end)
+v1 is done when `frontend/e2e/acceptance.spec.ts` passes against live data (`make acceptance`): for each of five golden stocks (default HDFC Bank, TCS, Hindustan Unilever, UltraTech Cement, Bajaj Finance) it types the company name in the header search, opens the stock, watches the on-demand pipeline (§3.7) complete, and checks the report shows Baseline / FV / Top band, the zone, grade and action, a coverage grid with ≥10 fiscal years of P&L, and the data-sources panel (where prices, fundamentals and shareholding came from).
+
+The same test runs without the network on the **offline exchange** (`app/devtools/offline_exchange.py`, `make acceptance-offline`): five synthetic companies whose quarterly results XBRL (FY2014 onwards, SEBI Ind AS and banking layouts), prices and shareholding are generated deterministically. With `OFFLINE_EXCHANGE=1` (refused unless `APP_ENV=development`) a worker routes every dataset to it (provider `offline`, no rate limit, no other provider), and everything stored from it carries `source=offline` (results ledger `exchange=offline`, line items `offline_xbrl`), never a real provider's name. It checks the wiring, not the real data; it does not replace the live run.

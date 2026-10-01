@@ -18,6 +18,7 @@ import { PipelineProgress } from "./pipeline-progress";
 import { PriceChart } from "./price-chart";
 import { ReconciliationBanner } from "./reconciliation-banner";
 import { Scorecard } from "./scorecard";
+import { SourcesPanel } from "./sources-panel";
 import { ValuationPanel } from "./valuation-panel";
 import { ZoneGauge } from "./zone-gauge";
 
@@ -163,6 +164,9 @@ export function ReportView({ symbol }: { symbol: string }) {
           </Section>
           <Section title="Data coverage">
             <CoverageGrid symbol={report.symbol} />
+          </Section>
+          <Section title="Data sources">
+            <SourcesPanel report={report} />
           </Section>
         </>
       )}

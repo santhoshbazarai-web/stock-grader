@@ -61,6 +61,10 @@ class Settings(BaseSettings):
     kite_api_secret: SecretStr | None = None
     kite_redirect_uri: str | None = None
 
+    # Development / acceptance test only: the worker uses the deterministic offline exchange
+    # (app/devtools/offline_exchange.py) instead of NSE and the brokers. Refused otherwise.
+    offline_exchange: bool = False
+
     # Optional Telegram delivery for alert notifications (never logged).
     telegram_bot_token: SecretStr | None = None
     telegram_chat_id: str | None = None
@@ -80,6 +84,12 @@ class Settings(BaseSettings):
         if not v.get_secret_value():
             raise ValueError("APP_PASSWORD must not be empty")
         return v
+
+    @model_validator(mode="after")
+    def _offline_only_in_development(self) -> "Settings":
+        if self.offline_exchange and self.app_env != "development":
+            raise ValueError("OFFLINE_EXCHANGE is for APP_ENV=development only (synthetic data)")
+        return self
 
     @model_validator(mode="after")
     def _production_checks(self) -> "Settings":

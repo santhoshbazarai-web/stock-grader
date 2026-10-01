@@ -1,5 +1,6 @@
 .DEFAULT_GOAL := help
 .PHONY: help install up down logs migrate revision test check fmt demo e2e \
+	acceptance acceptance-offline offline-seed \
 	prod-config prod-up prod-down prod-logs prod-ps prod-backup prod-restore \
 	home-config home-up home-down home-logs home-ps home-backup home-restore doctor doctor-local
 
@@ -45,6 +46,15 @@ demo: ## Seed synthetic DEMO* stocks and build their reports (local dev DB only)
 
 e2e: ## Playwright UI tests against the running stack + demo data (E2E_PASSWORD=<APP_PASSWORD>)
 	$(FRONTEND) npm run e2e
+
+acceptance: ## v1 acceptance on real data: search, pipeline, full report for 5 golden stocks (needs NSE access)
+	$(FRONTEND) E2E_ACCEPTANCE=live npx playwright test e2e/acceptance.spec.ts
+
+offline-seed: ## Seed the 5 synthetic offline-exchange companies (local dev DB only)
+	$(BACKEND) uv run python -m app.devtools.offline_exchange seed
+
+acceptance-offline: offline-seed ## v1 acceptance on the synthetic offline exchange (worker: OFFLINE_EXCHANGE=1)
+	$(FRONTEND) E2E_ACCEPTANCE=offline npx playwright test e2e/acceptance.spec.ts
 
 fmt: ## Auto-format backend code
 	$(BACKEND) uv run ruff check --fix .

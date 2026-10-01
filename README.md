@@ -601,6 +601,9 @@ through a same-origin `/api` proxy in Next.js, so the session cookie works witho
 - **Data coverage:** fiscal years × P&L / BS / CF per basis, each cell labelled and coloured
   by source (XBRL, annual-report PDF, summed quarters, Screener, yfinance); dashed cells are
   gaps, and ⚑ links to values waiting for review.
+- **Data sources:** where the prices, fundamentals (and their basis) and shareholding came
+  from: Fyers / Kite, NSE bhavcopy, exchange results XBRL, a Screener upload, yfinance.
+  Synthetic data (demo, offline exchange) is labelled as such.
 
 Chart colours are one validated palette, defined as `--viz-*` tokens in `globals.css`, with
 light and dark steps. The app follows the OS colour scheme.
@@ -634,6 +637,43 @@ or the worker) and demo data seeded, run `E2E_PASSWORD=<APP_PASSWORD> make e2e`.
 - backtest form validation, queueing and history; with
   `E2E_BACKTEST_CMD="cd backend && uv run python -m app.jobs run backtests"` set, it also
   runs the job and checks the results page (metrics, equity curve, grade × zone table)
+
+## Acceptance test (v1)
+
+`frontend/e2e/acceptance.spec.ts` is the v1 sign-off test. For each of five golden stocks it
+types the company name in the header search ("hdfc bank"), opens the stock, watches the
+on-demand pipeline finish (forcing a run with "Refresh data" when the stored report is
+fresh), and checks the report shows Baseline / FV / Top band, the zone, grade and action, a
+coverage grid with at least 10 fiscal years of P&L, and the data-sources panel. It is skipped
+unless `E2E_ACCEPTANCE` is set. **v1 is done only when the live run passes.**
+
+**Live** (real data; run on a machine that can reach NSE, e.g. the home stack, after the
+nightly symbol master has run and a broker is connected or bhavcopy history is built):
+
+```bash
+E2E_PASSWORD=<APP_PASSWORD> make acceptance
+# other stocks: E2E_ACCEPTANCE_STOCKS="hdfc bank=HDFCBANK;infosys=INFY;..." make acceptance
+```
+
+The default five are one per model type: HDFC Bank (private bank), TCS (IT services),
+Hindustan Unilever (FMCG), UltraTech Cement (cement) and Bajaj Finance (NBFC). A first run
+fetches 10+ years of filings per stock at ≤1 request/s, so allow up to 15 minutes each.
+
+**Offline** (no network; development and CI). The *offline exchange*
+(`app/devtools/offline_exchange.py`) stands in for NSE and the broker: five synthetic
+companies (`OFFBANK`, `OFFIT`, `OFFAUTO`, `OFFFMCG`, `OFFCEM`, names ending in "(synthetic)")
+with quarterly results XBRL from FY2014 in the SEBI layout the real parser reads, prices and
+shareholding. The real pipeline runs on them end to end; everything it stores is labelled
+`source=offline`, and the report's sources panel says "synthetic". It is refused unless
+`APP_ENV=development`.
+
+```bash
+OFFLINE_EXCHANGE=1 python -m app.jobs pipeline-worker   # this worker uses the offline exchange
+E2E_PASSWORD=<APP_PASSWORD> make acceptance-offline     # seeds the 5 companies, then runs
+```
+
+The offline run checks the app's wiring (search → pipeline → report) without the network. It
+does not replace the live run, which checks the real NSE and broker data.
 
 ## Technical debug endpoint
 

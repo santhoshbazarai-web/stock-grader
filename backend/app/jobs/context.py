@@ -4,7 +4,7 @@ from redis import Redis
 
 from app.alerts.telegram import build_notifier
 from app.core.config import AppConfig, Provider
-from app.core.rate_limiter import RateLimiter
+from app.core.rate_limiter import Limiter, RateLimiter
 from app.core.security import TokenCipher
 from app.core.settings import Settings
 from app.data.broker_tokens import BrokerTokenStore
@@ -54,8 +54,22 @@ def build_context(settings: Settings, config: AppConfig) -> JobContext:
         if not pc.brokers[broker].enabled:
             candidates[Provider(broker.value)] = None
     providers = {k: v for k, v in candidates.items() if v is not None}
+    route_cfg = pc
+    route_limiter: Limiter = limiter
+    if settings.offline_exchange:  # development / P25 acceptance: synthetic, no network
+        from app.devtools.offline_exchange import (
+            NoLimiter,
+            offline_providers,
+            offline_router_config,
+        )
+
+        providers, route_cfg, route_limiter = (
+            offline_providers(),
+            offline_router_config(pc),
+            NoLimiter(),
+        )
     gaps = DbGapRecorder(session_factory)
-    router = DataRouter(providers, pc, limiter=limiter, gaps=gaps)
+    router = DataRouter(providers, route_cfg, limiter=route_limiter, gaps=gaps)
     notifier = build_notifier(settings, config.jobs.alerts.telegram_timeout_s)
     return JobContext(
         config, session_factory, router, redis, gaps, notifier=notifier, raw_store=raw_store

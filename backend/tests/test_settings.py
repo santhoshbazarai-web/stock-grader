@@ -163,3 +163,12 @@ def test_home_rejects_unsafe_settings(
 ) -> None:
     with pytest.raises(ValidationError, match=message):
         _home(monkeypatch, **changes)
+
+
+def test_offline_exchange_only_in_development(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OFFLINE_EXCHANGE", "1")
+    assert Settings(_env_file=None).offline_exchange  # type: ignore[call-arg]
+    with pytest.raises(ValidationError, match="APP_ENV=development only"):
+        _home(monkeypatch, OFFLINE_EXCHANGE="1")
+    with pytest.raises(ValidationError, match="APP_ENV=development only"):
+        _prod(monkeypatch, OFFLINE_EXCHANGE="1")

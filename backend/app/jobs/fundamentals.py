@@ -12,6 +12,7 @@ from app.data.canonical import fields_for
 from app.data.gaps import GapRecord
 from app.data.raw_store import RawStoreError
 from app.data.results_ingest import FALLBACK_GAP_FIELD, cache_raw, cutoff, ingest
+from app.data.results_store import OFFLINE_SOURCE
 from app.db.enums import FilingStatus, StatementType
 from app.db.models import FinQuarterly, Instrument, ResultFiling, Shareholding
 from app.db.upsert import upsert
@@ -126,7 +127,7 @@ def list_results(
                 if n:
                     flagged.append(symbol)
             continue
-        listed += _list_filings(ctx, symbol, res.data, oldest)
+        listed += _list_filings(ctx, symbol, res.data, oldest, res.source)
         ctx.redis.set(key, 1, ex=jcfg.index_recheck_days * 86400)
     return {"listed_new": listed, "index_failed": index_failed,
             "fallback_flagged": flagged, "fallback_written": fallback_written}  # fmt: skip
@@ -144,7 +145,7 @@ def download_results(ctx: JobContext, symbols: list[str], *, limit: int) -> dict
             .join(Instrument, Instrument.id == ResultFiling.instrument_id)
             .where(
                 Instrument.symbol.in_(symbols),
-                ResultFiling.exchange == "nse",
+                ResultFiling.exchange.in_(("nse", OFFLINE_SOURCE)),
                 (ResultFiling.status == FilingStatus.PENDING)
                 | (
                     (ResultFiling.status == FilingStatus.FAILED)
@@ -190,8 +191,13 @@ def download_results(ctx: JobContext, symbols: list[str], *, limit: int) -> dict
     return {"downloaded": downloaded, "parsed": parsed, "failed": dict(list(failed.items())[:50])}
 
 
-def _list_filings(ctx: JobContext, symbol: str, listing: pd.DataFrame, oldest: date) -> int:
-    """Add unseen documents to the ledger as pending. Returns how many were new."""
+def _list_filings(
+    ctx: JobContext, symbol: str, listing: pd.DataFrame, oldest: date, source: Provider | None
+) -> int:
+    """Add unseen documents to the ledger as pending. Returns how many were new. Filings from
+    the development offline exchange are ledgered as such, so their figures never pass for
+    NSE-filed ones."""
+    exchange = OFFLINE_SOURCE if source is Provider.OFFLINE else "nse"
     session = ctx.session_factory()
     try:
         iid = ensure_instruments(session, [symbol])[symbol]
@@ -210,7 +216,7 @@ def _list_filings(ctx: JobContext, symbol: str, listing: pd.DataFrame, oldest: d
             rows.append(
                 {
                     "instrument_id": iid,
-                    "exchange": "nse",
+                    "exchange": exchange,
                     "document": rec["url"],
                     "period_start": rec["period_start"],
                     "period_end": rec["period_end"],

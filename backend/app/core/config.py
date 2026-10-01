@@ -86,6 +86,7 @@ class Provider(StrEnum):
     SCREENER = "screener"
     BSE = "bse"
     MARKET_LENS = "market_lens"  # NSE Market Lens (beta): reconciliation only, off by default
+    OFFLINE = "offline"  # development only: the synthetic offline exchange (app.devtools)
 
 
 class Dataset(StrEnum):
