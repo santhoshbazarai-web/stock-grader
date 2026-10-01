@@ -69,6 +69,8 @@ class XbrlMap(_Strict):
     items: dict[str, ItemSpec]
     bank_marker: str
     info: dict[str, list[str]]
+    # dimension axes that only label a context consolidated / standalone (not a segment)
+    basis_axes: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _check(self) -> "XbrlMap":

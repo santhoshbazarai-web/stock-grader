@@ -10,12 +10,13 @@ import pytest
 import yaml
 
 from app.core.config import load_config
-from app.data.xbrl import parse_results
+from app.data.xbrl import CRORE, XbrlFormatError, parse_results
 from tests.conftest import REPO_CONFIG_DIR
 
 GOLDEN = Path(__file__).parent / "fixtures" / "golden_xbrl"
 SPEC: dict[str, Any] = yaml.safe_load((GOLDEN / "expected.yaml").read_text())["companies"]
 CFG = load_config(REPO_CONFIG_DIR).providers.nse.results
+REGRESSION = sorted((GOLDEN / "regression").glob("*.xml"))
 TOLERANCE = 0.005  # AGENTS.md rule 3: 0.5% for reported figures and ratios
 
 
@@ -42,7 +43,8 @@ def test_golden_filing(symbol: str, company: dict[str, Any], filing: dict[str, A
     path = GOLDEN / filing["file"]
     if not path.is_file():
         pytest.skip(f"{filing['file']} not downloaded yet (see golden_xbrl/README.md)")
-    expected: dict[str, Any] = {**filing["expected_crore"],
+    lines = filing.get("expected_line_crore") or {}
+    expected: dict[str, Any] = {**filing["expected_crore"], **lines,
                                 **(filing.get("expected_extra_crore") or {})}  # fmt: skip
     missing = sorted(k for k, v in expected.items() if v is None)
     if missing:
@@ -56,7 +58,11 @@ def test_golden_filing(symbol: str, company: dict[str, Any], filing: dict[str, A
     assert year["fiscal_year"] == filing["fiscal_year"]
     extra = year.get("extra") or {}
     for field, want in expected.items():
-        got = year.get(field) if field in filing["expected_crore"] else extra.get(field)
+        if field in lines:
+            item = parsed.year_items.get(field)
+            got = None if item is None else item.value / CRORE
+        else:
+            got = year.get(field) if field in filing["expected_crore"] else extra.get(field)
         if want == "not_in_xbrl":
             assert got is None, f"{field}: expected no value, parsed {got}"
             continue
@@ -80,3 +86,16 @@ def test_harness_compares_filled_entries() -> None:
     unchecked = {**filing, "checked_against": None}
     with pytest.raises(AssertionError, match="record where"):
         test_golden_filing("ACME", company, unchecked)
+
+
+@pytest.mark.parametrize("path", REGRESSION or [None], ids=lambda p: p.name if p else "none")
+def test_regression_filings_parse(path: Path | None) -> None:
+    """Real filings that once failed (e.g. the 2018-2023 BANKING_*.xml files) must keep
+    parsing: copy them to golden_xbrl/regression/ (see README.md)."""
+    if path is None:
+        pytest.skip("no files in golden_xbrl/regression/ yet (see golden_xbrl/README.md)")
+    try:
+        parsed = parse_results(path.read_bytes(), CFG)
+    except XbrlFormatError as exc:
+        pytest.fail(f"{path.name}: {exc}")
+    assert parsed.quarter is not None or parsed.annual is not None

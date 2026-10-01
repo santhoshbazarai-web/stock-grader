@@ -23,9 +23,14 @@ companies:
           revenue: null   # interest earned
           interest: null   # interest expended
           pat: null   # net profit for the period
+          total_equity: null   # net worth: capital + reserves and surplus
+        expected_line_crore:   # fin_line_items only (not a wide column)
+          total_income: null   # total income
         expected_extra_crore:   # fin_annual.extra (bank inputs)
           gross_npa: null   # gross NPAs
           net_npa: null   # net NPAs
+          advances: null   # advances (balance sheet at 31 March)
+          deposits: null   # deposits (balance sheet at 31 March)
       - fiscal_year: 2020
         file: HDFCBANK/FY2020_Q4_standalone.xml   # results for the quarter ended 31-Mar-2020
         checked_against: null
@@ -33,9 +38,14 @@ companies:
           revenue: null   # interest earned
           interest: null   # interest expended
           pat: null   # net profit for the period
+          total_equity: null   # net worth: capital + reserves and surplus
+        expected_line_crore:   # fin_line_items only (not a wide column)
+          total_income: null   # total income
         expected_extra_crore:   # fin_annual.extra (bank inputs)
           gross_npa: null   # gross NPAs
           net_npa: null   # net NPAs
+          advances: null   # advances (balance sheet at 31 March)
+          deposits: null   # deposits (balance sheet at 31 March)
       - fiscal_year: 2024
         file: HDFCBANK/FY2024_Q4_standalone.xml   # results for the quarter ended 31-Mar-2024
         checked_against: null
@@ -43,9 +53,14 @@ companies:
           revenue: null   # interest earned
           interest: null   # interest expended
           pat: null   # net profit for the period
+          total_equity: null   # net worth: capital + reserves and surplus
+        expected_line_crore:   # fin_line_items only (not a wide column)
+          total_income: null   # total income
         expected_extra_crore:   # fin_annual.extra (bank inputs)
           gross_npa: null   # gross NPAs
           net_npa: null   # net NPAs
+          advances: null   # advances (balance sheet at 31 March)
+          deposits: null   # deposits (balance sheet at 31 March)
   MARUTI:
     kind: manufacturer
     basis: consolidated

@@ -447,6 +447,27 @@ def _flag_yn(value: Any) -> bool | None:
     return True if text in ("y", "yes") else False if text in ("n", "no") else None
 
 
+def results_list_windows(today: date, history_years: int, window_years: int
+                         ) -> list[tuple[date, date]]:  # fmt: skip
+    """``[from, to]`` date windows covering the last ``history_years`` years, newest first,
+    each at most ``window_years`` long and not overlapping."""
+    out: list[tuple[date, date]] = []
+    oldest = _years_before(today, history_years)
+    end = today
+    while end > oldest:
+        start = max(_years_before(end, window_years) + timedelta(days=1), oldest)
+        out.append((start, end))
+        end = start - timedelta(days=1)
+    return out
+
+
+def _years_before(day: date, years: int) -> date:
+    try:
+        return day.replace(year=day.year - years)
+    except ValueError:  # 29 Feb
+        return day.replace(year=day.year - years, day=28)
+
+
 def parse_results_index(payload: Any, hosts: list[str]) -> tuple[pd.DataFrame, list[str]]:
     """``corporates-financial-results`` → one row per XBRL document (deduplicated by URL).
 
@@ -704,21 +725,37 @@ class NseProvider:
         """Every results filing NSE lists for ``symbol`` (all ``results.periods``)."""
         self._http.begin_call()
         cfg = self._cfg.results
+        sym = symbol.strip().upper()
         frames, warnings = [], []
-        for period in cfg.periods:
-            payload = self._http.get_json(
-                f"{self._cfg.base_url}{cfg.index_path}",
-                params={"index": "equities", "symbol": symbol.strip().upper(), "period": period},
-            )
+
+        def listing(period: str, window: tuple[date, date] | None) -> int:
+            params = {"index": "equities", "symbol": sym, "period": period}
+            name = f"results_{sym}_{period}"
+            if window is not None:
+                params |= {"from_date": f"{window[0]:%d-%m-%Y}", "to_date": f"{window[1]:%d-%m-%Y}"}
+                name += f"_{window[0]:%Y%m%d}_{window[1]:%Y%m%d}"
+            payload = self._http.get_json(f"{self._cfg.base_url}{cfg.index_path}", params=params)
             if self._raw is not None and payload is not None:  # cache before parsing (§3.2a)
-                name = f"results_{symbol.strip().upper()}_{period}.json"
                 try:
-                    self._raw.save("nse", name, json.dumps(payload).encode())
+                    self._raw.save("nse", f"{name}.json", json.dumps(payload).encode())
                 except RawStoreError as exc:
                     raise ProviderUnavailable(str(exc)) from exc
-            df, w = parse_results_index(payload if payload is not None else [], cfg.xbrl_hosts)
+            rows = payload if payload is not None else []
+            df, w = parse_results_index(rows, cfg.xbrl_hosts)
             frames.append(df)
-            warnings += w
+            warnings.extend(w)
+            return len(_records(rows))
+
+        for period in cfg.periods:
+            if listing(period, None) < cfg.list_truncated_at:
+                continue
+            for window in results_list_windows(self._today(), cfg.list_history_years,
+                                               cfg.list_window_years):  # fmt: skip
+                if listing(period, window) >= cfg.list_truncated_at:
+                    warnings.append(
+                        f"{period} filings {window[0]}..{window[1]}: {cfg.list_truncated_at}+ "
+                        "listed, the list may be cut off (lower results.list_window_years)"
+                    )
         out = pd.concat(frames, ignore_index=True).drop_duplicates("url", ignore_index=True)
         out.attrs["warnings"] = warnings
         return out

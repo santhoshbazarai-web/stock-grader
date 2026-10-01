@@ -90,6 +90,12 @@ providers:
       max_xbrl_bytes: 20000000
       quarter_days: {min: 80, max: 100}    # context spans (days) classified as a quarter
       year_days: {min: 350, max: 380}      # ... and as a fiscal year
+      # The list returns only the latest ~50 filings. A list that long is requested again in
+      # date windows (&from_date=dd-mm-yyyy&to_date=..., as NSE's other corporate lists take)
+      # back list_history_years, deduplicated by document URL.
+      list_truncated_at: 50
+      list_window_years: 2
+      list_history_years: 12
       available_after_ist: "15:30"  # disseminated at/after the close → usable from the next day
       # XBRL amounts should be absolute rupees. A filing that states a rounding level and keyed
       # its amounts in that unit (decimals >= 0, or PAT/EPS implying < min_plausible_shares

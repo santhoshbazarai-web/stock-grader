@@ -66,6 +66,8 @@ class Context:
     end: date | None  # duration end, or the instant
     instant: bool
     dimensional: bool  # has a segment/scenario (e.g. a business segment): ignored
+    # ``Axis=Member`` local names of the context's dimensions (typed members: ``Axis=*``)
+    members: tuple[str, ...] = ()
 
     @property
     def days(self) -> int | None:
@@ -97,12 +99,15 @@ class Instance:
         return out
 
     def text(self, names: tuple[str, ...]) -> str | None:
-        """A descriptive fact (company name, period dates...) from any non-dimensional context."""
-        for name in names:
-            for f in self.facts:
-                ctx = self.contexts.get(f.context)
-                if f.name == name and f.text.strip() and ctx is not None and not ctx.dimensional:
-                    return f.text.strip()
+        """A descriptive fact (company name, period dates...), from a non-dimensional context
+        if there is one, else from any context (some filings put every fact in one)."""
+        for plain_only in (True, False):
+            for name in names:
+                for f in self.facts:
+                    ctx = self.contexts.get(f.context)
+                    if (f.name == name and f.text.strip() and ctx is not None
+                            and not (plain_only and ctx.dimensional)):  # fmt: skip
+                        return f.text.strip()
         return None
 
 
@@ -148,12 +153,13 @@ def parse_instance(content: bytes) -> Instance:
             el.find(f"{{{XBRLI}}}entity/{{{XBRLI}}}segment") is not None
             or el.find(f"{{{XBRLI}}}scenario") is not None
         )
+        members = tuple(_member(m) for m in el.iter() if _local(m.tag)[1] in _MEMBER_TAGS)
         if instant is not None:
-            contexts[cid] = Context(cid, None, _date(instant), True, dimensional)
+            contexts[cid] = Context(cid, None, _date(instant), True, dimensional, members)
         else:
             start = _date(period.findtext(f"{{{XBRLI}}}startDate"))
             end = _date(period.findtext(f"{{{XBRLI}}}endDate"))
-            contexts[cid] = Context(cid, start, end, False, dimensional)
+            contexts[cid] = Context(cid, start, end, False, dimensional, members)
 
     units: dict[str, str] = {}
     for el in root.iter(f"{{{XBRLI}}}unit"):
@@ -177,6 +183,15 @@ def parse_instance(content: bytes) -> Instance:
     if not facts:
         raise XbrlFormatError("XBRL instance has no facts")
     return Instance(contexts, facts)
+
+
+_MEMBER_TAGS = frozenset({"explicitMember", "typedMember"})
+
+
+def _member(el: Any) -> str:
+    axis = _local_measure(el.get("dimension") or "")
+    member = _local_measure(el.text or "") if _local(el.tag)[1] == "explicitMember" else "*"
+    return f"{axis}={member or '*'}"
 
 
 def _local_measure(measure: str) -> str:
@@ -515,8 +530,110 @@ def parse_results(
     ``period_start`` / ``period_end`` (e.g. from the exchange's filing list) are used when the
     document does not state its reporting period."""
     xmap = xmap or get_xbrl_map()
-    info = {k: tuple(v) for k, v in xmap.info.items()}
     inst = parse_instance(content)
+    try:
+        return _parse(inst, cfg, xmap, period_start, period_end)
+    except NoResults as exc:
+        view = basis_view(inst, xmap)
+        if view is None:
+            raise XbrlFormatError(f"{exc}: {why_no_results(inst, exc.end, xmap)}") from exc
+        basis, label = view
+        try:
+            filing = _parse(basis, cfg, xmap, period_start, period_end)
+        except NoResults as again:
+            raise XbrlFormatError(f"{again}: {why_no_results(inst, again.end, xmap)}") from again
+    filing.warnings.append(f"figures read from contexts carrying only the {label} "
+                           "dimension (basis_axes in xbrl_map.yaml)")  # fmt: skip
+    return filing
+
+
+class NoResults(XbrlFormatError):
+    def __init__(self, end: date) -> None:
+        super().__init__(f"no quarter or fiscal-year results for the period ending {end}")
+        self.end = end
+
+
+def _basis_kind(member: str) -> StatementType | None:
+    m = member.lower()
+    if "standalone" in m or "separate" in m:
+        return StatementType.STANDALONE
+    if "consolidated" in m:
+        return StatementType.CONSOLIDATED
+    return None
+
+
+def basis_view(inst: Instance, xmap: XbrlMap) -> tuple[Instance, str] | None:
+    """Some filings put every figure in contexts whose only dimension says consolidated or
+    standalone (an axis listed in ``basis_axes``). Those contexts are not segments: treated as
+    plain, for the basis the filing states (or the only one present). None when the filing
+    has no such contexts or both bases without saying which it is."""
+    axes = set(xmap.basis_axes)
+    kinds: dict[str, StatementType] = {}
+    for c in inst.contexts.values():
+        if not c.dimensional or not c.members:
+            continue
+        pairs = [m.partition("=") for m in c.members]
+        if len(pairs) != 1 or pairs[0][0] not in axes:
+            continue
+        kind = _basis_kind(pairs[0][2])
+        if kind is not None:
+            kinds[c.id] = kind
+    if not kinds:
+        return None
+    stated = statement_type_from_text(inst.text(tuple(xmap.info["nature"])))
+    present = set(kinds.values())
+    if stated is not None:
+        want = stated if stated in present else None  # never the basis the filing is not
+    else:
+        want = next(iter(present)) if len(present) == 1 else None
+    if want is None:
+        return None
+    contexts = {
+        cid: (Context(c.id, c.start, c.end, c.instant, False, c.members)
+              if kinds.get(cid) == want else c)
+        for cid, c in inst.contexts.items()
+    }  # fmt: skip
+    return Instance(contexts, inst.facts), f"{want.value} ({xmap.basis_axes[0]})"
+
+
+def why_no_results(inst: Instance, end: date, xmap: XbrlMap, limit: int = 8) -> str:
+    """What the filing holds for ``end``, so the cause of a parse failure shows in the error
+    (and in ``xbrl-inspect``): the contexts ending then, the P&L elements the map knows and
+    where they sit, and numeric elements the map does not read."""
+    at_end = [c for c in inst.contexts.values() if c.end == end]
+    plain = sorted(f"{c.id}({'instant' if c.instant else f'{c.days}d'})"
+                   for c in at_end if not c.dimensional)  # fmt: skip
+    dims = sorted({"/".join(c.members) or "segment" for c in at_end if c.dimensional})
+    pl_names = {n for s in xmap.items.values() if s.statement == "pl"
+                for g in (s.tags, s.sum_of) for grp in g.values() for n in grp}  # fmt: skip
+    ids = {c.id for c in at_end}
+    found = sorted({
+        f"{f.name}@{f.context}[{f.unit or 'no unit'}]"
+        for f in inst.facts if f.name in pl_names
+    })  # fmt: skip
+    mapped = xmap.all_elements()
+    unmapped = sorted({
+        f.name for f in inst.facts
+        if f.context in ids and f.unit is not None and f.name not in mapped
+    })  # fmt: skip
+    parts = [
+        f"plain contexts ending then: {', '.join(plain) or 'none'}",
+        f"dimensional: {', '.join(dims[:limit]) or 'none'}",
+        f"mapped P&L elements: {', '.join(found[:limit]) or 'none'}",
+        f"unmapped numeric elements then: {', '.join(unmapped[:limit]) or 'none'}"
+        + (f" (+{len(unmapped) - limit} more)" if len(unmapped) > limit else ""),
+    ]
+    return "; ".join(parts)
+
+
+def _parse(
+    inst: Instance,
+    cfg: NseResultsConfig,
+    xmap: XbrlMap,
+    period_start: date | None,
+    period_end: date | None,
+) -> ResultsFiling:
+    info = {k: tuple(v) for k, v in xmap.info.items()}
     warnings: list[str] = []
     end = _date(inst.text(info["period_end"])) or period_end
     start = _date(inst.text(info["period_start"])) or period_start
@@ -564,9 +681,7 @@ def parse_results(
         warnings.append("fiscal-year context has no revenue, PBT or PAT; ignored")
         annual, y_items = None, {}
     if quarter is None and annual is None:
-        raise XbrlFormatError(
-            f"no quarter or fiscal-year results for the period ending {end.isoformat()}"
-        )
+        raise NoResults(end)
 
     period_items = _period_items(
         inst, xmap, cfg, scale, end,
@@ -622,7 +737,10 @@ def describe(content: bytes, cfg: NseResultsConfig) -> str:
     documents: what was read, from which contexts, and which numeric elements in those
     contexts the mapping does not use (candidates to add to ``fundamentals/xbrl_map.yaml``)."""
     inst = parse_instance(content)
-    filing = parse_results(content, cfg)
+    try:
+        filing = parse_results(content, cfg)
+    except XbrlFormatError as exc:
+        return _describe_failure(inst, exc)
     used = {cid: role for role, cid in filing.contexts.items()}
     lines = [
         f"xbrl_map.yaml version {filing.map_version}  rounding {filing.rounding!r}  "
@@ -665,6 +783,23 @@ def describe(content: bytes, cfg: NseResultsConfig) -> str:
     lines += [f"  {name}  [{cid}]" for name, cid in unmapped]
     if filing.warnings:
         lines += ["", "warnings:", *[f"  {w}" for w in filing.warnings]]
+    return "\n".join(lines)
+
+
+def _describe_failure(inst: Instance, exc: XbrlFormatError) -> str:
+    """xbrl-inspect on a filing that does not parse: the error, every context (with its
+    dimension members) and each numeric element per context, to find the cause."""
+    lines = [f"NOT PARSED: {exc}", "", "contexts:"]
+    for c in sorted(inst.contexts.values(), key=lambda c: (c.end or date.min, c.id)):
+        span = f"instant {c.end}" if c.instant else f"{c.start}..{c.end} ({c.days}d)"
+        dims = " ".join(c.members) or ("segment/scenario" if c.dimensional else "plain")
+        lines.append(f"  {c.id:<14} {span:<34} {len(inst.plain(c.id)):>4} facts  {dims}")
+    lines += ["", "numeric facts (element [context] unit):"]
+    seen: set[tuple[str, str]] = set()
+    for f in inst.facts:
+        if f.unit is not None and (f.name, f.context) not in seen:
+            seen.add((f.name, f.context))
+            lines.append(f"  {f.name}  [{f.context}]  {f.unit}  {f.text.strip()[:24]}")
     return "\n".join(lines)
 
 

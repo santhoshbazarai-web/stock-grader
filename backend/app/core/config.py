@@ -165,6 +165,12 @@ class NseResultsConfig(_Strict):
     max_xbrl_bytes: PositiveInt
     quarter_days: DayRange  # a duration context this long is a quarter
     year_days: DayRange  # ... and this long a fiscal year
+    # The list answers with at most about this many filings per request: a list this long
+    # is re-requested in from_date/to_date windows of ``list_window_years`` going back
+    # ``list_history_years``, so older filings are listed too.
+    list_truncated_at: PositiveInt
+    list_window_years: PositiveInt
+    list_history_years: PositiveInt
     # Filings disseminated at or after this IST time count as known from the next day (rule 4).
     available_after_ist: time
     # Rounding levels a filing may state (LevelOfRoundingUsedInFinancialStatements), keyword →
