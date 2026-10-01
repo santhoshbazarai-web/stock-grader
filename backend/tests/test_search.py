@@ -8,7 +8,7 @@ from datetime import date
 from pathlib import Path
 
 import pytest
-from sqlalchemy import insert, select
+from sqlalchemy import insert, select, text
 
 from app.core.config import JobName
 from app.data.search import SearchHit, search
@@ -226,7 +226,14 @@ def test_under_100ms_on_a_full_size_master(master: Env) -> None:
         "capital finance 42",
         "SYN01234",
     ]
-    find(master, "warm up")
+    # planner statistics for the bulk-loaded tables (autovacuum does this in production), and
+    # every query run once first so the timed runs measure warm plans, not first-run planning
+    with master.session() as s:
+        for table in ("instruments", "symbols", "symbol_aliases"):
+            s.execute(text(f"ANALYZE {table}"))
+        s.commit()
+    for q in queries:
+        find(master, q)
     timings = []
     for q in queries * 3:
         t0 = time.perf_counter()
