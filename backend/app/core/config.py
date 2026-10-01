@@ -23,6 +23,7 @@ from pydantic import (
     ConfigDict,
     Field,
     NonNegativeFloat,
+    NonNegativeInt,
     PositiveFloat,
     PositiveInt,
     RootModel,
@@ -86,6 +87,7 @@ class Provider(StrEnum):
     SCREENER = "screener"
     BSE = "bse"
     MARKET_LENS = "market_lens"  # NSE Market Lens (beta): reconciliation only, off by default
+    OFFLINE = "offline"  # development only: the synthetic offline exchange (app.devtools)
 
 
 class Dataset(StrEnum):
@@ -862,6 +864,7 @@ class JobName(StrEnum):
     RECONCILE = "reconcile"
     BHAVCOPY_HISTORY = "bhavcopy_history"
     BROKER_TOKEN_CHECK = "broker_token_check"
+    THESIS = "thesis"
 
 
 class Season(_Strict):
@@ -886,6 +889,73 @@ class EodPricesJobConfig(_Strict):
 
 class CorporateActionsJobConfig(_Strict):
     lookback_days: PositiveInt
+
+
+class DoctorConfig(_Strict):
+    """``make doctor`` thresholds (SPEC v0.2 §3.10 home deployment)."""
+
+    disk_warn_gb: PositiveFloat  # free space below this is a warning
+    disk_fail_gb: PositiveFloat  # ... and below this a failure
+    backup_max_age_hours: PositiveFloat  # the last successful backup older than this: warning
+    worker_max_idle_hours: PositiveFloat  # no job run for this long: is the worker running?
+    bot_max_idle_minutes: PositiveFloat  # Telegram bot heartbeat older than this: warning
+    nse_timeout_s: PositiveFloat
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        if self.disk_fail_gb > self.disk_warn_gb:
+            raise ValueError("disk_fail_gb must be <= disk_warn_gb")
+        return self
+
+
+class CatchUpConfig(_Strict):
+    """Missed scheduled jobs run once on worker start (SPEC v0.2 §3.10)."""
+
+    enabled: bool
+    lookback_hours: PositiveFloat  # a fire time older than this is not caught up
+    skip: list[str]  # left to their next trigger (high-frequency jobs, on-demand queues)
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        unknown = set(self.skip) - {j.value for j in JobName}
+        if unknown:
+            raise ValueError(f"catch_up.skip: unknown jobs {sorted(unknown)}")
+        return self
+
+
+ThesisUnit = Literal["pct", "x", "days", "cr", "inr", "count"]
+
+
+class ThesisFact(_Strict):
+    label: str = Field(min_length=1)
+    unit: ThesisUnit
+
+
+class ThesisConfig(_Strict):
+    """Optional LLM thesis (SPEC §8a): a paragraph written from the report's numbers only.
+    Every number in the text must match a fact (``number_rel_tolerance``); drafts with an
+    unknown number or a ``forbidden_phrases`` entry are rejected."""
+
+    enabled: bool
+    model: str = Field(min_length=1)
+    timeout_s: PositiveFloat
+    temperature: Annotated[float, Field(ge=0, le=2)]
+    seed: int
+    max_words: PositiveInt
+    min_words: NonNegativeInt
+    max_attempts: Annotated[int, Field(ge=1, le=10)]
+    number_rel_tolerance: Annotated[float, Field(ge=0, le=0.05)]
+    max_reasons: NonNegativeInt
+    nightly_scope: Literal["watchlist", "none"]
+    max_per_run: PositiveInt
+    forbidden_phrases: list[str]
+    fundamentals: dict[str, ThesisFact]
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        if self.min_words >= self.max_words:
+            raise ValueError("min_words must be below max_words")
+        return self
 
 
 class TelegramBotConfig(_Strict):
@@ -1064,6 +1134,9 @@ class JobsConfig(_Strict):
     corporate_actions: CorporateActionsJobConfig
     alerts: AlertsJobConfig
     telegram_bot: TelegramBotConfig
+    thesis: ThesisConfig
+    catch_up: CatchUpConfig
+    doctor: DoctorConfig
     backtest: BacktestConfig
     results_backfill: ResultsBackfillJobConfig
     results_watch: ResultsWatchJobConfig

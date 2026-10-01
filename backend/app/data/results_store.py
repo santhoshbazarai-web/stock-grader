@@ -38,6 +38,9 @@ EXCHANGE_SOURCE = Provider.NSE.value
 # fin_line_items.source of values read from annual-report PDFs (SPEC §3.6 step 3). They only
 # fill gaps: never stored where an exchange-filed figure exists, and dropped when one arrives.
 PDF_SOURCE = "annual_report_pdf"
+# Source of figures from the development offline exchange (app.devtools.offline_exchange): XBRL
+# like an exchange filing, but synthetic, so it is labelled as such everywhere.
+OFFLINE_SOURCE = Provider.OFFLINE.value
 
 FinModel = type[FinAnnual] | type[FinQuarterly]
 
@@ -92,7 +95,9 @@ def record_line_items(
     first). A figure equal to the previous one (within :func:`_same`) adds nothing; a different
     one is a restatement and becomes the next ``version``. Re-parsing the same filing replaces
     its own figure instead of adding one. Returns the (period_end, period_type) touched."""
-    source = "upload_xbrl" if filing_row.exchange == "upload" else "nse_xbrl"
+    source = {"upload": "upload_xbrl", OFFLINE_SOURCE: "offline_xbrl"}.get(
+        filing_row.exchange, "nse_xbrl"
+    )
     observations: dict[tuple[Any, ...], dict[str, Any]] = {}
     for period in filing.period_items:
         for code, item in period.items.items():
@@ -419,8 +424,10 @@ def store_filing(
     quarters = {end for end, ptype in touched if ptype is PeriodType.QUARTER}
     touched |= derive_years(session, instrument_id=instrument_id, basis=statement_type,
                             quarters=quarters, cfg=cfg, xmap=xmap)  # fmt: skip
+    source = OFFLINE_SOURCE if filing_row.exchange == OFFLINE_SOURCE else EXCHANGE_SOURCE
     written = rebuild_wide(session, instrument_id=instrument_id, basis=statement_type,
-                           touched=touched, xmap=xmap, fetched_at=fetched_at)  # fmt: skip
+                           touched=touched, xmap=xmap, fetched_at=fetched_at,
+                           source=source)  # fmt: skip
     own = {f"quarter {filing.period_end}", f"year {filing.period_end}"}
     return [p for p in written if p in own]
 

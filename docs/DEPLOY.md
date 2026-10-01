@@ -1,5 +1,9 @@
 # Deploying Stock Grader
 
+> For a home PC (Docker Desktop on Windows/WSL2, phone access over Tailscale, nothing public),
+> use the home stack instead: README → "Home deployment" (`docker-compose.home.yml`,
+> `make home-up`, `make doctor`).
+
 This guide runs the production stack (`docker-compose.prod.yml`) on one Linux server.
 Caddy terminates HTTPS with an automatic Let's Encrypt certificate. Postgres is backed up
 every night, and all settings come from `.env.production`.
@@ -140,7 +144,9 @@ it; the login state travels in Kite's `redirect_params`. So if the app still poi
 `http://localhost:8000/...`, a production login lands on localhost and fails.
 
 To keep a local development setup working, use a separate Kite app (and a separate Fyers
-app, if you prefer) with the localhost redirect URI from `.env.example`.
+app, if you prefer) with the local redirect URI from `.env.example`
+(`https://stockgrader.localtest.me:8443/api/brokers/<broker>/callback`, served by
+`Caddyfile.local`; see the README, "Local HTTPS").
 
 **Apply and check:**
 1. After editing `.env.production`, run `make prod-up`; it recreates only the changed

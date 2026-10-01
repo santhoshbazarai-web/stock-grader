@@ -13,6 +13,7 @@ from app.jobs.reports import refresh_queue, valuation_scores
 from app.jobs.runner import JobSpec
 from app.jobs.symbols import symbol_master
 from app.jobs.technicals import technicals
+from app.jobs.thesis import thesis
 
 REGISTRY: dict[JobName, JobSpec] = {
     spec.name: spec
@@ -65,5 +66,6 @@ REGISTRY: dict[JobName, JobSpec] = {
         JobSpec(
             JobName.RECONCILE, "Cross-source checks of the latest periods (§3.9)", reconcile_job
         ),
+        JobSpec(JobName.THESIS, "LLM thesis for watchlist reports (local model, §8a)", thesis),
     )
 }

@@ -1,0 +1,213 @@
+# Home deployment (SPEC §3.10): Docker Desktop on Windows (WSL2) or any Linux/macOS box.
+#   cp .env.home.example .env.home   # then fill it in
+#   make home-up                     # build, migrate, start; `make doctor` checks everything
+# The web app is on http://127.0.0.1:3000 and the API (broker callbacks) on 127.0.0.1:8000,
+# bound to this machine only. For your phone use Tailscale (`tailscale serve`), never router
+# port-forwarding. Every service restarts unless stopped, so the stack comes back with Docker
+# Desktop; the worker catches up the jobs missed while the machine was off or asleep, and the
+# backup service takes a nightly pg_dump to BACKUP_PATH (put it on another drive).
+name: stock-grader-home
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+x-backend: &backend
+  build: ./backend
+  image: stock-grader-backend:${IMAGE_TAG:-latest}
+  env_file: .env.home
+  # optional LLM thesis: Ollama on the Windows / WSL2 host (THESIS_LLM_URL in .env.home)
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  environment:
+    APP_ENV: home  # refuses public URLs, weak passwords, wrong redirect URIs (fail fast)
+    CONFIG_DIR: /config
+    RAW_DATA_DIR: /data/raw
+    DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-stockgrader}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.home}@db:5432/${POSTGRES_DB:-stockgrader}
+    REDIS_URL: redis://redis:6379/0
+    WEB_URL: ${WEB_URL:-http://127.0.0.1:3000}
+    SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+    # Registered in the broker consoles (SPEC §3.10). With Tailscale HTTPS use
+    # https://<machine>.<tailnet>.ts.net/api/brokers/<broker>/callback instead.
+    FYERS_REDIRECT_URI: ${FYERS_REDIRECT_URI:-http://127.0.0.1:8000/api/brokers/fyers/callback}
+    KITE_REDIRECT_URI: ${KITE_REDIRECT_URI:-http://127.0.0.1:8000/api/brokers/kite/callback}
+    # Only the web container may report the client IP (X-Forwarded-For) for the login lockout.
+    TRUSTED_PROXIES: '["${WEB_IP:-172.31.0.10}"]'
+  volumes:
+    - ${CONFIG_PATH:-./config}:/config:ro
+    - rawdata:/data/raw
+  networks: [home]
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  logging: *logging
+  restart: unless-stopped
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-stockgrader}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-stockgrader}
+    volumes:
+      - pgdata:/var/lib/postgresql/data  # named volume: lives inside Docker's WSL2 disk
+      - ./backend/docker/initdb:/docker-entrypoint-initdb.d:ro
+    networks: [home]
+    shm_size: 256mb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    logging: *logging
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "300", "1"]
+    volumes:
+      - redisdata:/data
+    networks: [home]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    logging: *logging
+    restart: unless-stopped
+
+  # Applies Alembic migrations, then exits; api and worker start only after it succeeds.
+  migrate:
+    <<: *backend
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+
+  api:
+    <<: *backend
+    ports:
+      - "127.0.0.1:8000:8000"  # broker OAuth callbacks land here; this machine only
+    volumes:
+      # Read-write: Settings → Config saves here.
+      - ${CONFIG_PATH:-./config}:/config
+      - rawdata:/data/raw
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # Scheduler + on-demand pipeline + Telegram bot; catches up missed jobs on start.
+  worker:
+    <<: *backend
+    command: ["python", "-m", "app.jobs.worker"]
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    build: ./frontend
+    image: stock-grader-web:${IMAGE_TAG:-latest}
+    environment:
+      API_URL: http://api:8000
+    ports:
+      - "127.0.0.1:3000:3000"  # this machine only; phone via `tailscale serve`
+    networks:
+      home:
+        ipv4_address: ${WEB_IP:-172.31.0.10}
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/login"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging: *logging
+    restart: unless-stopped
+
+  # Nightly pg_dump at BACKUP_AT into BACKUP_PATH (another drive), plus one at start-up when
+  # the last is older than a day (the machine was off at BACKUP_AT). See deploy/backup/.
+  backup:
+    image: postgres:16-alpine
+    entrypoint: ["/backup/run.sh"]
+    environment:
+      PGHOST: db
+      PGUSER: ${POSTGRES_USER:-stockgrader}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB:-stockgrader}
+      BACKUP_AT: ${BACKUP_AT:-02:00}
+      BACKUP_TZ: ${BACKUP_TZ:-IST-5:30}
+      TZ: ${BACKUP_TZ:-IST-5:30}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+      BACKUP_KEEP_MONTHS: ${BACKUP_KEEP_MONTHS:-12}
+    volumes:
+      - ./deploy/backup:/backup:ro
+      - ${BACKUP_PATH:?set BACKUP_PATH in .env.home (a folder on another drive)}:/backups
+    networks: [home]
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "/backup/healthcheck.sh"]
+      interval: 5m
+      timeout: 10s
+      start_period: 10m
+    logging: *logging
+    restart: unless-stopped
+
+  # `make doctor`: runs the checks with the backup folder mounted read-only (profile: tools,
+  # so `up` never starts it).
+  doctor:
+    <<: *backend
+    profiles: [tools]
+    command: ["python", "-m", "app.doctor"]
+    # root, to read the backup folder the backup service writes as root with umask 077;
+    # a one-shot diagnostic with read-only mounts.
+    user: "0"
+    environment:
+      APP_ENV: home
+      CONFIG_DIR: /config
+      RAW_DATA_DIR: /data/raw
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-stockgrader}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-stockgrader}
+      REDIS_URL: redis://redis:6379/0
+      WEB_URL: ${WEB_URL:-http://127.0.0.1:3000}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      FYERS_REDIRECT_URI: ${FYERS_REDIRECT_URI:-http://127.0.0.1:8000/api/brokers/fyers/callback}
+      KITE_REDIRECT_URI: ${KITE_REDIRECT_URI:-http://127.0.0.1:8000/api/brokers/kite/callback}
+      BACKUP_DIR: /backups
+    volumes:
+      - ${CONFIG_PATH:-./config}:/config:ro
+      - rawdata:/data/raw
+      - ${BACKUP_PATH}:/backups:ro
+    restart: "no"
+
+networks:
+  home:
+    ipam:
+      config:
+        - subnet: ${HOME_SUBNET:-172.31.0.0/24}
+
+volumes:
+  pgdata:
+  redisdata:
+  rawdata:   # re-downloadable raw files (not in the backups)

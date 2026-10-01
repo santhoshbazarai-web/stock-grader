@@ -37,7 +37,7 @@
 # carried no cash-flow statement before FY2019-20 (SEBI made the half-yearly cash flow part of
 # results then); older cash flows come from annual-report PDFs (SPEC §3.6 step 3).
 
-version: 2
+version: 3
 
 items:
   # ───────── P&L ─────────
@@ -198,6 +198,8 @@ items:
     tags:
       ind_as: [EquityAttributableToOwnersOfParent, Equity]
       pre_ind_as: [ShareholdersFunds, TotalShareholdersFunds]
+    sum_of:   # banking results report Capital and Reserves, no total (v3)
+      bank: [Capital, ReservesAndSurplus]
   equity_share_capital:
     statement: bs
     unit: amount

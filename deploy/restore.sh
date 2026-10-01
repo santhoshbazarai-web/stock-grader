@@ -1,5 +1,6 @@
 #!/bin/sh
-# Restore a backup into the production database (run on the host, from the repo root):
+# Restore a backup into the production (or, with COMPOSE_FILE/ENV_FILE, the home) database.
+# Run on the host, from the repo root:
 #   deploy/restore.sh backups/daily/stockgrader-2026-09-28T233000.dump [--yes]
 # Takes a safety backup first, stops the API/worker/web, replaces every table from the dump in
 # one transaction, applies any newer migrations, and starts the services again.
@@ -7,10 +8,10 @@ set -eu
 
 file="${1:-}"
 [ -n "$file" ] && [ -f "$file" ] || { echo "usage: $0 <backup.dump> [--yes]" >&2; exit 2; }
-compose="docker compose -f docker-compose.prod.yml --env-file ${ENV_FILE:-.env.production}"
+compose="docker compose -f ${COMPOSE_FILE:-docker-compose.prod.yml} --env-file ${ENV_FILE:-.env.production}"
 
 if [ "${2:-}" != "--yes" ]; then
-  printf 'Replace ALL data in the production database with %s? [y/N] ' "$file"
+  printf 'Replace ALL data in the database with %s? [y/N] ' "$file"
   read -r answer
   [ "$answer" = "y" ] || [ "$answer" = "Y" ] || { echo "aborted"; exit 1; }
 fi

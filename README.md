@@ -12,6 +12,7 @@ grade and action. See [`AGENTS.md`](AGENTS.md) and [`docs/SPEC.md`](docs/SPEC.md
 | `config/` | `providers.yaml`, `valuation.yaml`, `sectors.yaml`, `scoring.yaml`, `technical.yaml` — every threshold and weight, validated at startup |
 | `docs/` | Spec, build prompts and the [deployment guide](docs/DEPLOY.md) |
 | `deploy/` | Production Caddyfile, backup and restore scripts |
+| `Caddyfile.local` | Local HTTPS proxy for development (broker redirect URIs); see [Local HTTPS](#local-https-caddyfilelocal) |
 
 ## Quick start
 
@@ -25,6 +26,85 @@ make migrate   # alembic upgrade head
 ```
 
 Health check: `curl localhost:8000/api/health`.
+
+## Home deployment (Windows / WSL2)
+
+The intended set-up (SPEC §3.10) is one home PC running Docker Desktop. The app is opened on
+that PC and reached from your phone over Tailscale. Nothing is exposed to the internet.
+
+```
+PC: http://127.0.0.1:3000 ─▶ web ─▶ api (127.0.0.1:8000, broker callbacks) ─┬─▶ db ◀── backup ─▶ D:\stock-grader-backups
+phone ──Tailscale (tailscale serve, HTTPS)──▶ 127.0.0.1:3000          worker ─┴─▶ redis
+```
+
+**1. Prerequisites (Windows 10/11)**
+- Install WSL2 with Ubuntu (`wsl --install`), and Docker Desktop with *Use the WSL 2 based
+  engine* and *WSL integration → Ubuntu* on.
+- In Docker Desktop, turn on *Start Docker Desktop when you sign in*. Every service has
+  `restart: unless-stopped`, so the stack comes back on its own after a reboot.
+- Clone the repo inside WSL (`~/stock-grader`), not under `/mnt/c`: builds and the database
+  are much faster on the Linux file system. Run the `make` commands from the WSL shell.
+- Set Windows not to sleep while the evening jobs run (18:00–23:30 IST), or accept the
+  catch-up below.
+
+**2. Configure.** Run `cp .env.home.example .env.home` and fill in:
+- `APP_PASSWORD` (12 or more characters), `FERNET_KEY` and `POSTGRES_PASSWORD`;
+- `BACKUP_PATH`: a folder on another drive, e.g. `/mnt/d/stock-grader-backups` (create it
+  first);
+- broker and Telegram credentials, all optional.
+
+`APP_ENV=home` refuses a public address, a weak password, the development database password
+and wrong redirect URIs at start-up.
+
+**3. Start and check.**
+```bash
+make home-up        # build, migrate, start: web on http://127.0.0.1:3000
+make doctor         # env, config, database + migrations, Redis, broker tokens, NSE, disk, backups, worker
+make demo           # optional synthetic stocks to explore (dev DB only; skip on real data)
+```
+`make doctor` prints ✓ / ! / ✗ per check and exits 1 on a failure. Warnings name the fix,
+e.g. "fyers: token expired — reconnect in Settings → Brokers". `make doctor-local` runs the
+same checks without Docker.
+
+**4. Missed jobs and backups.**
+- When the worker starts, it runs once each scheduled job missed while the PC was off or
+  asleep (within `jobs.yaml` → `catch_up.lookback_hours`, 72 h), in the order they were due.
+  It skips `alerts_intraday` and the queues.
+- `backup` takes a `pg_dump` every night at `BACKUP_AT` (02:00 IST) into
+  `BACKUP_PATH/daily`, with monthly copies. If the PC was off at 02:00, it takes one at
+  start-up instead.
+- Restore: `make home-restore file=/mnt/d/stock-grader-backups/daily/stockgrader-….dump`.
+  It takes a safety backup first. `make home-backup` takes one now.
+- Postgres data lives in the named volume `stock-grader-home_pgdata`, inside Docker's WSL2
+  disk.
+
+**5. Phone access with Tailscale.**
+- Never port-forward on your router. Install Tailscale on the PC (Windows app) and on your
+  phone, signed in to the same tailnet.
+- On the PC: `tailscale serve --bg 3000`. The app is then at
+  `https://<pc-name>.<tailnet>.ts.net` from your devices only. Leave Funnel off: Funnel would
+  publish it to the internet.
+- If you also connect brokers from the phone, set `WEB_URL=https://<pc-name>.<tailnet>.ts.net`
+  and `SESSION_COOKIE_SECURE=true` in `.env.home`, then `make home-up`. Logging in from the PC
+  then also goes through that address.
+
+**6. Broker redirect URIs.** Register exactly these in the developer consoles. They are the
+defaults in `.env.home`:
+- Fyers (myapi.fyers.in → your app → Redirect URL): `http://127.0.0.1:8000/api/brokers/fyers/callback`
+- Kite (developers.kite.trade → your app → Redirect URL): `http://127.0.0.1:8000/api/brokers/kite/callback`
+  (Kite is disabled in `providers.yaml` until you enable it.)
+
+If a console refuses a plain-http or 127.0.0.1 URL, use the Tailscale address. Register
+`https://<pc-name>.<tailnet>.ts.net/api/brokers/<broker>/callback` in the console, then set
+`FYERS_REDIRECT_URI` / `KITE_REDIRECT_URI` and `WEB_URL` to match in `.env.home`. The login
+then has to run from a device on your tailnet. Tokens expire daily, and the worker reminds
+you at 08:45 (Telegram, if set up).
+
+**7. Telegram** uses outbound calls only, so it needs no open port or public IP. See
+"Notifications and the Telegram bot" below.
+
+**Day to day:** `make home-ps` (health), `make home-logs s=worker`, `make home-down` (data
+and backups are kept). After `git pull`, run `make home-up` to rebuild, migrate and restart.
 
 ## Production
 
@@ -56,6 +136,63 @@ make test      # pytest; DB tests use TEST_DATABASE_URL
                # likewise use TEST_REDIS_URL (default redis://localhost:6379/15)
 make check     # ruff + mypy --strict + eslint + tsc
 ```
+
+### Local HTTPS (Caddyfile.local)
+
+The broker redirect URIs in `.env.example` are
+`https://stockgrader.localtest.me:8443/api/brokers/{fyers,kite}/callback`. `Caddyfile.local`
+serves that address with Caddy's own local certificate authority (`tls internal`), in front of
+the API (`127.0.0.1:8000`) and the web app (`127.0.0.1:3000`). It also serves
+`https://localhost:8443` and `https://127.0.0.1:8443`. `localtest.me` and all its
+subdomains resolve to `127.0.0.1` in public DNS, so nothing needs configuring. If your router
+or DNS filter blocks names that resolve to `127.0.0.1` (DNS-rebinding protection), add
+`127.0.0.1 stockgrader.localtest.me` to your hosts file (`/etc/hosts`, or
+`C:\Windows\System32\drivers\etc\hosts` on Windows).
+
+1. Install [Caddy](https://caddyserver.com/docs/install) (v2) and start the API and web app
+   (`make up`, or uvicorn on :8000 and `npm run dev` on :3000).
+2. From the repo root: `caddy run --config Caddyfile.local --adapter caddyfile`. It listens
+   on :8443 only (no :80 redirect, so it needs no root). The API and web addresses can be
+   overridden with `STOCKGRADER_API` / `STOCKGRADER_WEB` (e.g. `api:8000` inside Docker).
+3. **Trust Caddy's local root certificate**, once per machine and browser, or the browser shows
+   a certificate warning for `https://stockgrader.localtest.me:8443`. Caddy creates its root CA
+   on first start and signs a short-lived certificate for each of the three names, renewing
+   them automatically. Trusting the root covers all three names, and stays valid across
+   restarts.
+   - **Linux / macOS:** `caddy trust` adds the root to the system store (it may ask for your
+     password), plus Firefox's and Java's stores when their tools are installed. `caddy untrust`
+     removes it.
+   - **By hand:** the root is `root.crt` in Caddy's data directory under
+     `pki/authorities/local/`. On Linux and WSL that is `~/.local/share/caddy/`, on macOS
+     `~/Library/Application Support/Caddy/`, and on Windows `%AppData%\Caddy\`. Import it as a
+     trusted root CA:
+     - Windows: `certutil -addstore -f ROOT root.crt` in an admin prompt, or `certmgr.msc` →
+       Trusted Root Certification Authorities.
+     - macOS: Keychain Access → System → Always Trust.
+     - Firefox: Settings → Privacy & Security → Certificates → View Certificates → Authorities
+       → Import → "Trust this CA to identify websites".
+   - **WSL2:** when Caddy runs inside WSL, Windows browsers don't see the WSL trust store. Copy
+     `~/.local/share/caddy/pki/authorities/local/root.crt` to Windows and import it as above.
+     Windows reaches `127.0.0.1:8443` in WSL through localhost forwarding.
+   - **Check:** `curl --cacert <path>/root.crt https://stockgrader.localtest.me:8443/api/health`
+     returns `{"status":"ok",...}`, and the browser shows a padlock without a warning.
+
+   The root key stays in Caddy's data directory: it can sign certificates your machine trusts,
+   so never share it or copy it to another machine. Trust only this machine's own root.
+
+**Broker login over local HTTPS.** The login start (`/api/brokers/<broker>/login`) needs your
+app session, and the session cookie belongs to the address you logged in at. Either way works:
+
+- **Use the app at the HTTPS address:** set `WEB_URL=https://stockgrader.localtest.me:8443`
+  and `SESSION_COOKIE_SECURE=true`, log in at `https://stockgrader.localtest.me:8443`, then
+  open `https://stockgrader.localtest.me:8443/api/brokers/fyers/login` (or Settings → Brokers
+  → Connect). The broker sends you back to the callback on the same address, and the API then
+  redirects to `$WEB_URL/settings?broker=fyers&status=connected`.
+- **Keep using `http://localhost:3000`:** leave `WEB_URL=http://localhost:3000` and click
+  Connect there. The broker redirects to the HTTPS callback, which needs no cookie because the
+  login state is a signed, short-lived token. The API then returns you to `WEB_URL`. Confirm
+  that `WEB_URL` is the address you actually use the app at, or you land on a page where you are
+  not logged in. The token is still saved in that case.
 
 ## Config
 
@@ -121,15 +258,19 @@ Every result carries `source`, `fetched_at` and `reasons`.
   - it scans `app/` for order, GTT, holdings, positions or funds calls.
 
 Fyers: set `FYERS_APP_ID`, `FYERS_SECRET`, `FYERS_REDIRECT_URI` (register the same redirect URI,
-`http://localhost:8000/api/brokers/fyers/callback` locally, in the Fyers developer console), then
-open `http://localhost:8000/api/brokers/fyers/login`. After login Fyers calls back, the token is
+`https://stockgrader.localtest.me:8443/api/brokers/fyers/callback` locally, in the Fyers
+developer console; it needs [local HTTPS](#local-https-caddyfilelocal) running). Then, logged in
+at `https://stockgrader.localtest.me:8443`, open
+`https://stockgrader.localtest.me:8443/api/brokers/fyers/login`, or click Connect in Settings →
+Brokers at the address you set as `WEB_URL`. After login Fyers calls back, the token is
 Fernet-encrypted into `broker_tokens` with its JWT expiry, and you are redirected to
 `$WEB_URL/settings?broker=fyers&status=connected`. Tokens expire daily; `GET /api/brokers/status`
 shows validity. With no valid token the router falls through to the next provider.
 
 Kite: set `KITE_API_KEY`, `KITE_API_SECRET` and register `KITE_REDIRECT_URI`
-(`http://localhost:8000/api/brokers/kite/callback` locally) as the redirect URL in the Kite
-developer console, then open `http://localhost:8000/api/brokers/kite/login`. Kite tokens expire
+(`https://stockgrader.localtest.me:8443/api/brokers/kite/callback` locally) as the redirect URL
+in the Kite developer console, then open
+`https://stockgrader.localtest.me:8443/api/brokers/kite/login` in the same way. Kite tokens expire
 at 06:00 IST (`token_daily_expiry_ist`). Historical candles need Kite's paid historical-data
 add-on; without it the provider reports `unavailable` and the router uses the next provider.
 The NSE instruments dump (symbol → instrument token) is cached in Redis for
@@ -337,6 +478,7 @@ python -m app.jobs run events                            # announcements, pledge
 python -m app.jobs run reconcile --symbols TCS           # cross-source checks for one stock
 python -m app.jobs run bhavcopy_history [--full]         # build the NSE bhavcopy price history
 python -m app.jobs run broker_token_check                # remind if a broker token expired
+python -m app.doctor                                     # deployment checks (make doctor in Docker)
 python -m app.jobs pipeline-worker                       # only the on-demand pipeline loop (dev)
 python -m app.jobs run annual_reports --symbols TCS      # annual-report PDFs for BS/CF gap years
 python -m app.jobs pdf-inspect report.pdf --fy 2014      # what the PDF reader finds (no DB)
@@ -460,6 +602,28 @@ To run a check outside market hours:
 - **Your chat ID:** send your bot a message, then open
   `https://api.telegram.org/bot<token>/getUpdates` once and copy `message.chat.id`.
 
+### LLM thesis (optional, local)
+
+A short paragraph on the stock page explaining the grade, zone and action, written by a model
+on your own machine from the report's numbers only (SPEC §8a). It is off by default and free:
+no paid API, and the numbers never leave your network.
+
+1. Install [Ollama](https://ollama.com) and pull a model: `ollama pull llama3.1:8b` (or set
+   `thesis.model` in `config/jobs.yaml` to one you have).
+2. Set `thesis.enabled: true` in `config/jobs.yaml`, and `THESIS_LLM_URL` in your env file:
+   `http://127.0.0.1:11434` when the API runs on the host, or
+   `http://host.docker.internal:11434` from the home Docker stack. For the containers to reach
+   it, Ollama must listen beyond localhost (`OLLAMA_HOST=0.0.0.0`).
+3. `make doctor` checks that the server answers and has the model.
+
+Then use **Write thesis** on a stock page; the nightly `thesis` job also writes one for each
+watchlist stock whose numbers changed. Every number in a draft must match a fact in the report.
+A draft that cites anything else (a made-up target, a converted figure, another grade) is retried
+with the problems listed and, if it never passes, not shown. The card says why. The text is
+tied to the exact numbers it was written from: after a refresh changes them, it disappears until
+it is rewritten. For development, `THESIS_LLM_URL=fake` uses a built-in stand-in instead of a
+model.
+
 ### Backtests
 
 Backtests ask one question: over a period, would buying the stocks whose grade and zone
@@ -521,6 +685,10 @@ through a same-origin `/api` proxy in Next.js, so the session cookie works witho
 - **Data coverage:** fiscal years × P&L / BS / CF per basis, each cell labelled and coloured
   by source (XBRL, annual-report PDF, summed quarters, Screener, yfinance); dashed cells are
   gaps, and ⚑ links to values waiting for review.
+- **Thesis:** an optional paragraph written by a local model from these numbers (below).
+- **Data sources:** where the prices, fundamentals (and their basis) and shareholding came
+  from: Fyers / Kite, NSE bhavcopy, exchange results XBRL, a Screener upload, yfinance.
+  Synthetic data (demo, offline exchange) is labelled as such.
 
 Chart colours are one validated palette, defined as `--viz-*` tokens in `globals.css`, with
 light and dark steps. The app follows the OS colour scheme.
@@ -554,6 +722,43 @@ or the worker) and demo data seeded, run `E2E_PASSWORD=<APP_PASSWORD> make e2e`.
 - backtest form validation, queueing and history; with
   `E2E_BACKTEST_CMD="cd backend && uv run python -m app.jobs run backtests"` set, it also
   runs the job and checks the results page (metrics, equity curve, grade × zone table)
+
+## Acceptance test (v1)
+
+`frontend/e2e/acceptance.spec.ts` is the v1 sign-off test. For each of five golden stocks it
+types the company name in the header search ("hdfc bank"), opens the stock, watches the
+on-demand pipeline finish (forcing a run with "Refresh data" when the stored report is
+fresh), and checks the report shows Baseline / FV / Top band, the zone, grade and action, a
+coverage grid with at least 10 fiscal years of P&L, and the data-sources panel. It is skipped
+unless `E2E_ACCEPTANCE` is set. **v1 is done only when the live run passes.**
+
+**Live** (real data; run on a machine that can reach NSE, e.g. the home stack, after the
+nightly symbol master has run and a broker is connected or bhavcopy history is built):
+
+```bash
+E2E_PASSWORD=<APP_PASSWORD> make acceptance
+# other stocks: E2E_ACCEPTANCE_STOCKS="hdfc bank=HDFCBANK;infosys=INFY;..." make acceptance
+```
+
+The default five are one per model type: HDFC Bank (private bank), TCS (IT services),
+Hindustan Unilever (FMCG), UltraTech Cement (cement) and Bajaj Finance (NBFC). A first run
+fetches 10+ years of filings per stock at ≤1 request/s, so allow up to 15 minutes each.
+
+**Offline** (no network; development and CI). The *offline exchange*
+(`app/devtools/offline_exchange.py`) stands in for NSE and the broker: five synthetic
+companies (`OFFBANK`, `OFFIT`, `OFFAUTO`, `OFFFMCG`, `OFFCEM`, names ending in "(synthetic)")
+with quarterly results XBRL from FY2014 in the SEBI layout the real parser reads, prices and
+shareholding. The real pipeline runs on them end to end; everything it stores is labelled
+`source=offline`, and the report's sources panel says "synthetic". It is refused unless
+`APP_ENV=development`.
+
+```bash
+OFFLINE_EXCHANGE=1 python -m app.jobs pipeline-worker   # this worker uses the offline exchange
+E2E_PASSWORD=<APP_PASSWORD> make acceptance-offline     # seeds the 5 companies, then runs
+```
+
+The offline run checks the app's wiring (search → pipeline → report) without the network. It
+does not replace the live run, which checks the real NSE and broker data.
 
 ## Technical debug endpoint
 

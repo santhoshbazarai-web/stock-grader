@@ -16,6 +16,7 @@ from app.alerts.bot import build_bot
 from app.core.config import AppConfig, JobName, get_config
 from app.core.logging import configure_logging
 from app.core.settings import get_settings
+from app.jobs.catch_up import catch_up
 from app.jobs.registry import REGISTRY
 from app.jobs.runner import JobContext, JobSpec, run_job
 from app.pipeline.runner import worker_loop
@@ -62,6 +63,8 @@ def main() -> None:
     pipeline = threading.Thread(target=worker_loop, args=(ctx, stop), name="pipeline",
                                 daemon=True)  # fmt: skip
     pipeline.start()  # on-demand pipeline runs (SPEC §3.7), picked up within poll_interval_s
+    # SPEC §3.10: jobs missed while the machine was off or asleep run once now, in due order
+    threading.Thread(target=catch_up, args=(ctx, stop), name="catch-up", daemon=True).start()
     bot = build_bot(settings, config, ctx.session_factory, ctx.redis)
     if bot is not None:  # read-only Telegram bot (P23): long polling, owner's chat only
         threading.Thread(target=bot.run, args=(stop,), name="telegram-bot", daemon=True).start()

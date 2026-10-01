@@ -84,8 +84,14 @@ def coverage(session: Session, symbols: list[str], fy_end_month: int = 3) -> lis
 
 # Source of a cell, best first: exchange XBRL, annual-report PDF, FY summed from quarters, or a
 # wide-table source (Screener upload, yfinance) with no line items behind it.
-_LINE_SOURCES = {"nse_xbrl": "xbrl", "upload_xbrl": "xbrl", PDF_SOURCE: "pdf", "derived": "derived"}
-SOURCE_ORDER = ("xbrl", "pdf", "derived", "screener", "yfinance", "nse")
+_LINE_SOURCES = {
+    "nse_xbrl": "xbrl",
+    "upload_xbrl": "xbrl",
+    "offline_xbrl": "xbrl",
+    PDF_SOURCE: "pdf",
+    "derived": "derived",
+}
+SOURCE_ORDER = ("xbrl", "pdf", "derived", "screener", "yfinance", "nse", "offline")
 # a wide fin_annual column that shows the statement is present
 _WIDE_MARKER: dict[StatementName, str] = {"P&L": "revenue", "BS": "total_assets", "CF": "cfo"}
 _NAMES: dict[LineStatement, StatementName] = {

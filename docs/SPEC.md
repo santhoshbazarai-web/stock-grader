@@ -20,6 +20,7 @@ Version 0.2 · Owner: Santhosh · Single-user personal research tool (see §12 C
 | Hosting | Owner's home desktop via Docker. Redirect URIs on `http://127.0.0.1`. Remote/phone access only through Tailscale (no public exposure) |
 | Alerts | In-app + Telegram bot |
 | Budget | Free sources only. No paid data, no paid LLM API |
+| LLM thesis | Optional, off by default. A **local** model only (Ollama on the owner's machine or network); numbers in → text out, no new facts (§8a) |
 | NSE Market Lens | NSE's beta screener (marketlens.nseindia.com). Used only as an optional **reconciliation** source, never primary: it is beta, undocumented and may change or be restricted |
 
 ---
@@ -193,6 +194,7 @@ Implementation notes (results XBRL, `data/xbrl.py`, `data/results_store.py`, `da
   - Derived in the wide rows: `ebit` = PBT + finance cost; `ebitda` = PBT + finance cost + D&A − other income; `shares_diluted_cr` = PAT / diluted EPS; book value per share = equity / shares.
   - Bank filings (marked by `InterestEarned`) fill `extra` for `fundamentals/banking.py`; period-end balances (`carry_to_year`: NPAs, CRAR, advances, deposits, investments) reported only in the Q4 quarter context also apply to the fiscal year.
   - SG&A is not in the results format (a data gap; a Screener upload can fill it).
+- **Bank equity (`xbrl_map.yaml` v3):** banking results file `Capital` and `ReservesAndSurplus` but no total-equity element, so `total_equity` is their sum (`sum_of`) for the `bank` group. Before v3, banks had no book value (P/B and BVPS bands were missing).
 - **Units (§3.6 step 2):** XBRL amounts are rupees by rule, so the rounding level a filing states (`LevelOfRoundingUsedInFinancialStatements`) is presentation only.
   - A filer that keyed amounts in that level instead is detected once per filing. The primary check: PAT ÷ diluted EPS implies fewer than `nse.results.min_plausible_shares` shares unscaled, but enough once scaled. Without EPS: most monetary facts carry `decimals ≥ 0`.
   - All amounts are then multiplied by the level's factor from `nse.results.rounding_levels` (lakh 1e5, million 1e6, crore 1e7...), with a warning on the filing.
@@ -362,6 +364,33 @@ Implementation notes (`fundamentals/reconcile.py` (pure), `data/reconcile_store.
 - Web UI at `http://127.0.0.1:3000`. For phone access, use Tailscale (private network). Never port-forward the router.
 - Broker redirect URIs are `http://127.0.0.1:8000/api/brokers/{fyers|kite}/callback`, registered in each developer console. Check that the broker accepts localhost redirects; if not, use the Tailscale HTTPS hostname.
 - Telegram uses outbound-only calls to the Bot API, so no public IP or webhook is needed. The bot token and chat ID live in `.env`. The bot also answers `/grade SYMBOL` and `/buyzone` read-only queries via long-polling.
+
+Implementation notes for the home deployment (P24; `docker-compose.home.yml`, `.env.home.example`, `jobs/catch_up.py`, `doctor.py`; README "Home deployment"):
+- **Stack:** db, redis, migrate (one-shot), api, worker, web and backup, plus a `doctor` service under the `tools` profile.
+  - Every long-running service has `restart: unless-stopped` and a healthcheck.
+  - Only `web` (127.0.0.1:3000) and `api` (127.0.0.1:8000, the broker callbacks) are published, bound to loopback; Postgres and Redis publish nothing.
+  - Postgres data is in a named volume.
+- **`APP_ENV=home`** refuses at start-up:
+  - a `WEB_URL` that is neither loopback nor Tailscale (`*.ts.net`, 100.64.0.0/10);
+  - a cookie `Secure` flag that doesn't match the scheme;
+  - an `APP_PASSWORD` under 12 characters, or the development database password;
+  - redirect URIs other than `http://127.0.0.1:8000/api/brokers/<broker>/callback` or `<WEB_URL>/api/brokers/<broker>/callback`.
+- **Backups:** `pg_dump` (custom format, verified with `pg_restore --list`) at `BACKUP_AT` (02:00 IST) into `BACKUP_PATH`. That path is required, meant for another drive.
+  - The 14 newest daily dumps and 12 monthly ones are kept.
+  - A backup is taken at start-up when the last is older than a day.
+  - `make home-restore` restores, taking a safety backup first.
+- **Catch-up on worker start:** for each implemented, scheduled job not in `catch_up.skip`, the latest cron fire time within `lookback_hours` (72) is compared with the job's latest `job_runs` start.
+  - A job with no run since that time is missed. Missed jobs run once each, in due order, through `run_job` (Redis lock, `job_runs` row), in a background thread, so the scheduler starts at once.
+  - Seasonal jobs skip themselves off-season.
+  - The default skip list is `refresh_queue`, `backtests` and `alerts_intraday`.
+- **`make doctor`** (`python -m app.doctor`; `--json`) checks the following, each independently (a crashing check is reported as its own failure). It prints ✓ / ! / ✗ and exits 1 on any failure:
+  - env (settings load, password length, database password, credentials for enabled brokers and Telegram) and config validity;
+  - Postgres connection and migration head, and Redis;
+  - each enabled broker's token;
+  - NSE site / archives reachability (a warning only);
+  - free disk at the raw-data and backup paths (`jobs.yaml` → `doctor` thresholds);
+  - the last backup's age, the last job run (is the worker alive?) and the Telegram bot heartbeat.
+  - The compose `doctor` service runs it with the backup folder mounted read-only.
 
 Implementation notes for notifications and the Telegram bot (P23; `alerts/notify.py`, `alerts/bot.py`, `api/notifications.py`; `jobs.yaml` → `telegram_bot`):
 - **Both channels:** every notification is created by `notify()`. This covers price alerts (P14), results changes (§3.8), broker-token reminders (§3.3) and tests.
@@ -763,6 +792,27 @@ Implementation notes (alerts, P14):
 - **Delivery:** each firing writes a `notifications` row (the in-app bell) and, when `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are set, sends a Telegram message. A Telegram failure is stored on the row and never loses the in-app notification, and the bot token never reaches logs or stored errors.
 - **Scope:** alerts are notifications only. No orders or broker GTTs (rule 7).
 
+### 8a. LLM thesis (P26)
+An optional paragraph explaining the report, written by a local model from the report's own numbers. It adds no facts and never changes a score, zone, grade or action.
+
+- **Off by default.** It needs `jobs.yaml` → `thesis.enabled: true` and `THESIS_LLM_URL`: a local Ollama server (`/api/generate`, non-streaming, `temperature` and `seed` fixed). The URL must be loopback, a private address, a Docker service name, `host.docker.internal`, `*.local` or the tailnet, so the numbers never leave the owner's network and no paid API is used. `THESIS_LLM_URL=fake` (development only) is a built-in deterministic stand-in for tests and demos.
+- **Fact sheet** (`reports/thesis.py`, pure). Labelled lines with numbers already in display units:
+  - company, sector and model, report date, CMP, Baseline / FV / Top band, confidence, MoS;
+  - zone, grade, action, buy zone and invalidation;
+  - pillar and total scores, earned premium, valuation methods, reverse-DCF implied vs historical growth;
+  - technical stage, trend, RS percentile, distance from the 52-week high;
+  - the fundamentals listed in `thesis.fundamentals`, each with its label and unit;
+  - red flags, knock-outs, open source differences, and the first `max_reasons` decision / report reasons.
+  Missing values are left out, never written as 0. The prompt asks for one paragraph of `min_words`–`max_words` words using only these facts, copying numbers as written, with no predictions or targets.
+- **Check** (pure, before anything is kept):
+  - every number in the draft matches a number in the fact sheet, within `number_rel_tolerance` or the rounding of the number as written (₹2,452 cites ₹2,452.36). Thousands separators (Western or Indian) are ignored, and so are signs. Dates must be ones the facts state.
+  - no `forbidden_phrases` (case-insensitive);
+  - no grade, multi-word action or multi-word zone that the facts don't name;
+  - length within bounds.
+  A failing draft is retried with the problems listed, up to `max_attempts`; then the outcome is `rejected` and no text is shown. Numbers written as words and sign errors are not caught, so the UI labels the text as machine-written and unchecked in wording.
+- **Storage:** `report_theses`, keyed by (instrument, digest of the fact sheet + `PROMPT_VERSION`), with status `ok` / `rejected` / `failed`, the model, attempts, problems and the facts used. A thesis is shown (`GET /stocks/{s}/report` → `thesis`, `GET /stocks/{s}/thesis`) only when its digest matches the latest report's, so text never sits next to numbers it was not written from. A digest that already passed is reused without calling the model.
+- **When:** `POST /api/stocks/{s}/thesis` (the stock page's "Write thesis" button; `force` rewrites), and the nightly `thesis` job for watchlist stocks (`nightly_scope`, `max_per_run`) after `valuation_scores`. `make doctor` checks that the model server answers and has `thesis.model` pulled.
+
 ---
 
 ## 9. Frontend pages
@@ -800,8 +850,8 @@ Auth: a single user with a password login (NextAuth credentials or FastAPI sessi
 | `reconcile` | After each pipeline (a pipeline step) + nightly 23:00 for stocks with new filings | Cross-source checks (§3.9) |
 | `broker_token_check` | 08:45 weekdays | In-app + Telegram reminder if an enabled broker's token is expired (§3.3) |
 | `bhavcopy_history` | Nightly 01:30 (implementation addition) | Backfill the NSE bhavcopy OHLCV history, the price fallback after the brokers (§3.2) |
-| `backup` | Daily 02:00 | pg_dump |
-| `catch_up` | On worker start | Run jobs missed while the machine was off |
+| `backup` | Daily 02:00 (`BACKUP_AT`; at start-up if the last is over a day old) | pg_dump to `BACKUP_PATH` (home: another drive) |
+| `catch_up` | On worker start | Run jobs missed while the machine was off: once each, in due order, within `catch_up.lookback_hours` (§3.10 notes) |
 
 Every job writes to `job_runs`, uses a Redis lock so it doesn't run twice, and is idempotent (upserts).
 
@@ -861,3 +911,8 @@ Pick 10 stocks you know well, one per model type: a large private bank, an NBFC,
 - PE band median and σ
 
 Every valuation or scoring change must keep these tests green.
+
+### 13.1 v1 acceptance (end to end)
+v1 is done when `frontend/e2e/acceptance.spec.ts` passes against live data (`make acceptance`): for each of five golden stocks (default HDFC Bank, TCS, Hindustan Unilever, UltraTech Cement, Bajaj Finance) it types the company name in the header search, opens the stock, watches the on-demand pipeline (§3.7) complete, and checks the report shows Baseline / FV / Top band, the zone, grade and action, a coverage grid with ≥10 fiscal years of P&L, and the data-sources panel (where prices, fundamentals and shareholding came from).
+
+The same test runs without the network on the **offline exchange** (`app/devtools/offline_exchange.py`, `make acceptance-offline`): five synthetic companies whose quarterly results XBRL (FY2014 onwards, SEBI Ind AS and banking layouts), prices and shareholding are generated deterministically. With `OFFLINE_EXCHANGE=1` (refused unless `APP_ENV=development`) a worker routes every dataset to it (provider `offline`, no rate limit, no other provider), and everything stored from it carries `source=offline` (results ledger `exchange=offline`, line items `offline_xbrl`), never a real provider's name. It checks the wiring, not the real data; it does not replace the live run.

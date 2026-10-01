@@ -108,3 +108,102 @@ def test_invalid_key_error_does_not_echo_it(monkeypatch: pytest.MonkeyPatch) -> 
 def test_development_is_lenient(monkeypatch: pytest.MonkeyPatch) -> None:
     s = _prod(monkeypatch, APP_ENV="development", WEB_URL="http://localhost:3000", APP_PASSWORD="x")
     assert s.app_env == "development"
+
+
+HOME = {
+    "APP_ENV": "home",
+    "WEB_URL": "http://127.0.0.1:3000",
+    "SESSION_COOKIE_SECURE": "false",
+    "APP_PASSWORD": "a-long-enough-password",
+    "DATABASE_URL": "postgresql+psycopg://stockgrader:s3cr3t-hex@db:5432/stockgrader",
+    "FYERS_REDIRECT_URI": "http://127.0.0.1:8000/api/brokers/fyers/callback",
+}
+
+
+def _home(monkeypatch: pytest.MonkeyPatch, **changes: str | None) -> Settings:
+    for key, value in {**HOME, **changes}.items():
+        if value is None:
+            monkeypatch.delenv(key, raising=False)
+        else:
+            monkeypatch.setenv(key, value)
+    return Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {},
+        {"WEB_URL": "http://localhost:3000"},
+        # phone access through `tailscale serve`: HTTPS on the tailnet name
+        {"WEB_URL": "https://desk.tail1234.ts.net", "SESSION_COOKIE_SECURE": "true",
+         "FYERS_REDIRECT_URI": "https://desk.tail1234.ts.net/api/brokers/fyers/callback"},
+        {"WEB_URL": "http://100.101.102.103:3000"},  # a Tailscale IP
+    ],
+)  # fmt: skip
+def test_home_settings_accepted(monkeypatch: pytest.MonkeyPatch, changes: dict[str, str]) -> None:
+    assert _home(monkeypatch, **changes).app_env == "home"
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"WEB_URL": "http://grader.example.com"}, "never a public one"),
+        ({"WEB_URL": "http://203.0.113.7:3000"}, "never a public one"),
+        ({"WEB_URL": "https://desk.tail1234.ts.net"}, "SESSION_COOKIE_SECURE must be true"),
+        ({"SESSION_COOKIE_SECURE": "true"}, "SESSION_COOKIE_SECURE must be false"),
+        ({"APP_PASSWORD": "short"}, "at least 12 characters"),
+        ({"DATABASE_URL": "postgresql+psycopg://stockgrader:stockgrader@db:5432/x"},
+         "real password"),
+        ({"FYERS_REDIRECT_URI": "http://localhost:8000/api/brokers/fyers/callback"},
+         "FYERS_REDIRECT_URI must be one of"),
+    ],
+)  # fmt: skip
+def test_home_rejects_unsafe_settings(
+    monkeypatch: pytest.MonkeyPatch, changes: dict[str, str], message: str
+) -> None:
+    with pytest.raises(ValidationError, match=message):
+        _home(monkeypatch, **changes)
+
+
+def test_offline_exchange_only_in_development(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OFFLINE_EXCHANGE", "1")
+    assert Settings(_env_file=None).offline_exchange  # type: ignore[call-arg]
+    with pytest.raises(ValidationError, match="APP_ENV=development only"):
+        _home(monkeypatch, OFFLINE_EXCHANGE="1")
+    with pytest.raises(ValidationError, match="APP_ENV=development only"):
+        _prod(monkeypatch, OFFLINE_EXCHANGE="1")
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["http://127.0.0.1:11434", "http://localhost:11434", "http://ollama:11434",
+     "http://host.docker.internal:11434", "http://192.168.1.20:11434",
+     "http://desk.tail1234.ts.net:11434", "http://[::1]:11434"],
+)  # fmt: skip
+def test_thesis_llm_must_be_local(monkeypatch: pytest.MonkeyPatch, url: str) -> None:
+    monkeypatch.setenv("THESIS_LLM_URL", url)
+    assert Settings(_env_file=None).thesis_llm_url == url  # type: ignore[call-arg]
+
+
+@pytest.mark.parametrize(
+    ("url", "message"),
+    [("https://api.example.com/v1", "local or private host"),
+     ("http://8.8.8.8:11434", "local or private host"),
+     ("ollama:11434", "http\\(s\\) URL")],
+)  # fmt: skip
+def test_remote_thesis_llm_refused(monkeypatch: pytest.MonkeyPatch, url: str, message: str) -> None:
+    monkeypatch.setenv("THESIS_LLM_URL", url)
+    with pytest.raises(ValidationError, match=message):
+        Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+def test_blank_thesis_llm_url_is_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("THESIS_LLM_URL", "")  # THESIS_LLM_URL= in a .env file
+    assert Settings(_env_file=None).thesis_llm_url is None  # type: ignore[call-arg]
+
+
+def test_fake_thesis_llm_only_in_development(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("THESIS_LLM_URL", "fake")
+    assert Settings(_env_file=None).thesis_llm_url == "fake"  # type: ignore[call-arg]
+    with pytest.raises(ValidationError, match="development only"):
+        _home(monkeypatch, THESIS_LLM_URL="fake")

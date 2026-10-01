@@ -31,6 +31,7 @@ from app.reports.dto import StockReport
 from app.reports.history import FundamentalsHistory, load_history
 from app.reports.overrides import Overrides
 from app.reports.service import latest_report, latest_sensitivity, refresh_report
+from app.reports.thesis_service import attach as attach_thesis
 
 router = APIRouter(prefix="/stocks", tags=["stocks"])
 
@@ -155,7 +156,7 @@ def report(
     if not rebuild:
         stored = latest_report(session, symbol)
         if stored is not None:
-            return stored
+            return attach_thesis(session, stored, config.jobs.thesis)
     return _rebuild(session, symbol, config)
 
 
