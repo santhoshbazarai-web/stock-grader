@@ -47,7 +47,7 @@ from app.core.config import AppConfig, ConfigError, load_config
 from app.core.security import TokenCipher
 from app.core.settings import MIN_PROD_PASSWORD, Settings, config_dir_from_env
 from app.data.broker_tokens import BrokerTokenStore, broker_configured
-from app.data.providers.nse import BROWSER_HEADERS
+from app.data.providers.web_session import BROWSER_HEADERS
 from app.db.enums import Broker
 from app.db.models import JobRun
 
@@ -228,7 +228,14 @@ class Doctor:
             self.add(
                 f"nse {name}",
                 "ok" if ok else "warn",
-                f"HTTP {code}" + ("" if ok else ": blocked? (browser session refused)"),
+                f"HTTP {code}"
+                + (
+                    ""
+                    if ok
+                    else ": blocked for plain clients; run "
+                    "`python -m app.jobs nse-diagnose` to test every session "
+                    "method"
+                ),
             )
 
     def _thesis(self, settings: Settings, config: AppConfig) -> None:

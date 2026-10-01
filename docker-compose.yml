@@ -5,10 +5,13 @@ x-backend: &backend
   env_file: .env
   environment:
     CONFIG_DIR: /config
+    HOME: /home/app
+    XDG_CACHE_HOME: /data/cache   # yfinance cache (py-yfinance), owned by the app user
     RAW_DATA_DIR: /data/raw   # raw XBRL / filing-list cache, parsed from here (SPEC §3.2a)
   volumes:
     - ./config:/config:ro
     - rawdata:/data/raw
+    - appcache:/data/cache   # yfinance and other XDG caches (writable by the app user)
   depends_on:
     db:
       condition: service_healthy
@@ -77,3 +80,4 @@ volumes:
   pgdata:
   redisdata:
   rawdata:
+  appcache:   # XDG caches (yfinance); safe to delete

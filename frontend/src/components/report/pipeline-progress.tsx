@@ -13,6 +13,11 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import {
+  BlockedNotice,
+  blockedSuffix,
+  isBlocked,
+} from "@/components/blocked-notice";
 import type { PipelineRun, PipelineStep } from "@/lib/types";
 
 /** Follows a run: the latest state, updated on every server event; closes when it ends. */
@@ -187,11 +192,18 @@ export function PipelineProgress({
                     </span>
                   )}
                 </span>
-                {s.message && (
-                  <span className="text-muted-foreground text-xs">
-                    {s.message}
-                  </span>
-                )}
+                {s.message &&
+                  (isBlocked(s.message) ? (
+                    <BlockedNotice
+                      site={s.message.startsWith("BSE") ? "BSE" : "NSE"}
+                      suffix={blockedSuffix(s.message)}
+                      compact
+                    />
+                  ) : (
+                    <span className="text-muted-foreground text-xs">
+                      {s.message}
+                    </span>
+                  ))}
               </div>
             </li>
           ))}

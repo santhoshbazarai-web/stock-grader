@@ -33,10 +33,19 @@ test("refresh runs the pipeline with live progress and swaps in the new report",
   await expect(
     steps.getByRole("listitem", { name: "Reconciliation: ok" }),
   ).toContainText("no exchange-filed figures to check");
-  // optional steps without data (no network in the test stack) are warnings …
-  await expect(
-    steps.getByRole("listitem", { name: "Filings index: warning" }),
-  ).toContainText("NSE results list unavailable");
+  // optional steps without data (no network in the test stack) are warnings: either NSE is
+  // unreachable, or (behind a proxy that refuses it) blocking — then with links to the uploads
+  const unavailable =
+    /NSE results list unavailable|NSE is blocking automated access/;
+  const filings = steps.getByRole("listitem", {
+    name: "Filings index: warning",
+  });
+  await expect(filings).toContainText(unavailable);
+  if ((await filings.textContent())?.includes("is blocking")) {
+    await expect(
+      filings.getByRole("link", { name: "XBRL files" }),
+    ).toHaveAttribute("href", "/settings#results-filings");
+  }
   // … and the rebuilt report lists them as data gaps
   const gaps = page
     .locator("details")
@@ -44,7 +53,9 @@ test("refresh runs the pipeline with live progress and swaps in the new report",
   if ((await gaps.getAttribute("open")) === null)
     await gaps.locator("summary").click();
   await expect(
-    page.getByText("pipeline filings index: NSE results list unavailable"),
+    page
+      .getByText(/^pipeline filings index: /)
+      .filter({ hasText: unavailable }),
   ).toBeVisible();
 });
 

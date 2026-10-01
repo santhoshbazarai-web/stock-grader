@@ -3,10 +3,13 @@ surveillance lists (ASM long/short term, GSM, F&O ban), corporate actions, share
 financial-results filings (the list per symbol and each XBRL document, parsed by
 ``app.data.xbrl``).
 
-NSE's JSON APIs reject clients without a browser-like session: :class:`NseSession` sends
-browser headers, visits the homepage first to collect cookies (re-visiting after
-``nse.cookie_ttl_s`` or on a 401/403), and takes a rate-limit token for every request after
-the first of a call (the router pays for the first) — ``rate_limits.nse`` keeps it polite.
+NSE's JSON APIs reject clients without a browser-like session: :class:`NseSession` sends them
+through :class:`~app.data.providers.web_session.WebSession`, which tries the ``nse.session``
+methods in order (curl_cffi with a Chrome fingerprint, headless Chromium, plain requests),
+visits the warm-up pages first for cookies (again after ``nse.cookie_ttl_s`` or on a
+401/403), remembers the method that worked, and raises a clear ``ProviderUnavailable`` when NSE
+refuses them all. Every request after the first of a call takes a rate-limit token (the router
+pays for the first) — ``rate_limits.nse`` keeps it polite.
 Archive CSVs are preferred where they exist. Respect NSE's terms of use; personal use only.
 
 Response shapes are parsed defensively (NSE changes them without notice): unknown shapes
@@ -29,7 +32,13 @@ import pandas as pd
 import requests
 from sqlalchemy.orm import Session
 
-from app.core.config import BhavcopyHistoryConfig, NseConfig, Provider, ProvidersConfig
+from app.core.config import (
+    BhavcopyHistoryConfig,
+    NseConfig,
+    Provider,
+    ProvidersConfig,
+    SessionMethod,
+)
 from app.core.rate_limiter import Limiter
 from app.data.bhavcopy_store import BhavcopyStore
 from app.data.canonical import labels_for, pick
@@ -45,6 +54,15 @@ from app.data.events import (
     parse_nse_sast,
 )
 from app.data.providers.base import ProviderError, ProviderUnavailable
+from app.data.providers.web_session import (
+    BROWSER_HEADERS,
+    FetcherFactory,
+    MethodMemory,
+    RedisMemory,
+    SiteProfile,
+    WebResponse,
+    WebSession,
+)
 from app.data.raw_store import RawStore, RawStoreError
 from app.data.symbol_master import (
     MasterFormatError,
@@ -60,17 +78,6 @@ from app.db.enums import CorporateActionType, EventKind, SurveillanceList
 
 logger = logging.getLogger(__name__)
 
-BROWSER_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Accept": "text/html,application/json,text/csv,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate",
-    "Referer": "https://www.nseindia.com/",
-    "Connection": "keep-alive",
-}
 EQUITY_SERIES = ("EQ", "BE")  # rolling-settlement equity series we track
 DELIVERY_COLUMNS = [
     "symbol",
@@ -103,6 +110,8 @@ RESULTS_COLUMNS = [
     "disseminated_at",
 ]
 IST = ZoneInfo("Asia/Kolkata")
+CORPORATE_ACTIONS_PATH = "/api/corporates-corporateActions"
+SHAREHOLDING_PATH = "/api/corporate-share-holdings-master"
 SHP_PARTIAL = (
     "NSE shareholding master has promoter/public split only; FII, DII, MF and pledge need a "
     "Screener upload or the XBRL filing"
@@ -134,7 +143,16 @@ def _num(value: Any) -> float | None:
 # ───────────────────────── session ─────────────────────────
 
 
+def nse_site(config: NseConfig) -> SiteProfile:
+    return SiteProfile("nse", "NSE", Provider.NSE, tuple(config.session), config.browser,
+                       config.request_timeout_s, config.cookie_ttl_s)  # fmt: skip
+
+
 class NseSession:
+    """NSE requests: JSON API calls on www.nseindia.com go through the browser-like
+    :class:`WebSession` (curl_cffi → Playwright → requests, see ``web_session.py``); archive
+    files (nsearchives, niftyindices) are plain GETs. Both share one rate-limit counter."""
+
     def __init__(
         self,
         config: NseConfig,
@@ -143,66 +161,40 @@ class NseSession:
         rate_limit_timeout_s: float = 0.0,
         session_factory: Callable[[], requests.Session] = requests.Session,
         clock: Callable[[], float] = time.monotonic,
+        memory: MethodMemory | None = None,
+        factories: dict[SessionMethod, FetcherFactory] | None = None,
+        methods: list[SessionMethod] | None = None,
     ) -> None:
         self._cfg = config
-        self._limiter = limiter
-        self._rl_timeout = rate_limit_timeout_s
-        self._session_factory = session_factory
-        self._clock = clock
-        self._session = session_factory()
-        self._session.headers.update(BROWSER_HEADERS)
-        self._warmed_at: float | None = None
-        self._requests = 0
+        self.web = WebSession(nse_site(config), memory=memory, limiter=limiter,
+                              rate_limit_timeout_s=rate_limit_timeout_s, factories=factories,
+                              clock=clock, methods=methods)  # fmt: skip
+        self._plain = session_factory()
+        self._plain.headers.update(BROWSER_HEADERS)
 
     def begin_call(self) -> None:
-        self._requests = 0
+        self.web.begin_call()
 
-    def _send(self, url: str, params: dict[str, str] | None = None) -> requests.Response:
-        if self._requests > 0 and self._limiter is not None:
-            self._limiter.acquire(Provider.NSE, timeout=self._rl_timeout)
-        self._requests += 1
+    def get(self, url: str, *, params: dict[str, str] | None = None) -> WebResponse | None:
+        """A plain GET (archives, documents). ``None`` for 404 (e.g. no bhavcopy on a
+        holiday)."""
+        self.web.take()
         try:
-            return self._session.get(url, params=params, timeout=self._cfg.request_timeout_s)
+            resp = self._plain.get(url, params=params, timeout=self._cfg.request_timeout_s)
         except requests.RequestException as exc:
             raise ProviderError(f"NSE {url}: {type(exc).__name__}") from exc
-
-    def _warm_up(self) -> None:
-        """Visit the homepage so NSE sets its session cookies."""
-        self._session = self._session_factory()
-        self._session.headers.update(BROWSER_HEADERS)
-        resp = self._send(f"{self._cfg.base_url}/")
-        if resp.status_code >= 400:
-            raise ProviderError(f"NSE homepage warm-up failed: HTTP {resp.status_code}")
-        self._warmed_at = self._clock()
-
-    def _stale(self) -> bool:
-        return self._warmed_at is None or (self._clock() - self._warmed_at > self._cfg.cookie_ttl_s)
-
-    def get(
-        self, url: str, *, params: dict[str, str] | None = None, needs_cookies: bool = False
-    ) -> requests.Response | None:
-        """GET with NSE etiquette. ``None`` for 404 (e.g. no bhavcopy on a holiday)."""
-        if needs_cookies and self._stale():
-            self._warm_up()
-        resp = self._send(url, params)
-        if needs_cookies and resp.status_code in (401, 403):
-            logger.info("NSE %s → HTTP %s; refreshing cookies once", url, resp.status_code)
-            self._warm_up()
-            resp = self._send(url, params)
         if resp.status_code == 404:
             return None
         if resp.status_code >= 400:
             raise ProviderError(f"NSE {url}: HTTP {resp.status_code}")
-        return resp
+        return WebResponse(url, resp.status_code, {k.lower(): v for k, v in resp.headers.items()},
+                           resp.content, method="requests")  # fmt: skip
 
     def get_json(self, url: str, params: dict[str, str] | None = None) -> Any:
-        resp = self.get(url, params=params, needs_cookies=True)
-        if resp is None:
-            return None
-        try:
-            return resp.json()
-        except ValueError as exc:
-            raise ProviderError(f"NSE {url}: response is not JSON (blocked?)") from exc
+        """A www.nseindia.com JSON API call (browser-like session). ``None`` for 404; raises
+        :class:`SiteBlocked` (ProviderUnavailable) when NSE refuses every method."""
+        resp = self.web.fetch(url, params, expect_json=True)
+        return None if resp is None else resp.json()
 
 
 # ───────────────────────── parsers (pure) ─────────────────────────
@@ -669,7 +661,7 @@ class NseProvider:
     def corporate_actions(self, symbol: str, start: date, end: date) -> pd.DataFrame:
         self._http.begin_call()
         payload = self._http.get_json(
-            f"{self._cfg.base_url}/api/corporates-corporateActions",
+            f"{self._cfg.base_url}{CORPORATE_ACTIONS_PATH}",
             params={
                 "index": "equities",
                 "symbol": symbol.strip().upper(),
@@ -684,7 +676,7 @@ class NseProvider:
     def shareholding(self, symbol: str) -> pd.DataFrame:
         self._http.begin_call()
         payload = self._http.get_json(
-            f"{self._cfg.base_url}/api/corporate-share-holdings-master",
+            f"{self._cfg.base_url}{SHAREHOLDING_PATH}",
             params={"index": "equities", "symbol": symbol.strip().upper()},
         )
         df = parse_shareholding(payload if payload is not None else [])
@@ -886,9 +878,12 @@ def build_nse_provider(
     limiter: Limiter | None,
     raw_store: RawStore | None = None,
     session_factory: Callable[[], Session] | None = None,
+    redis: Any = None,
 ) -> NseProvider:
+    """``redis``: shares the remembered / blocked session methods between processes."""
     session = NseSession(
-        config.nse, limiter=limiter, rate_limit_timeout_s=config.retry.rate_limit_timeout_s
-    )
+        config.nse, limiter=limiter, rate_limit_timeout_s=config.retry.rate_limit_timeout_s,
+        memory=RedisMemory(redis) if redis is not None else None,
+    )  # fmt: skip
     history = BhavcopyStore(session_factory) if session_factory is not None else None
     return NseProvider(config.nse, session, raw_store, history=history, bhavcopy=config.bhavcopy)

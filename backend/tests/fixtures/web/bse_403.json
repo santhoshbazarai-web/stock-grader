@@ -1,0 +1,7 @@
+{
+  "_note": "BSE API refusing a non-browser client: HTTP 403 (placeholder body).",
+  "status": 403,
+  "headers": {"server": "Microsoft-IIS/10.0", "content-type": "text/html"},
+  "set_cookie": [],
+  "body": "<html><body>403 - Forbidden: Access is denied.</body></html>"
+}

@@ -18,7 +18,7 @@ from app.core.config import MarketLensConfig, Provider, ProvidersConfig
 from app.core.rate_limiter import Limiter
 from app.data.events import parse_date
 from app.data.providers.base import ProviderError, ProviderUnavailable
-from app.data.providers.nse import BROWSER_HEADERS
+from app.data.providers.web_session import BROWSER_HEADERS
 from app.data.raw_store import RawStore, RawStoreError
 
 REFERENCE_COLUMNS = ["period_end", "period_type", "basis", "item_code", "value_inr"]

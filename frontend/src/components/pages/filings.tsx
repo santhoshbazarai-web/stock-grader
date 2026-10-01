@@ -9,9 +9,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Empty, ErrorText } from "@/components/common";
 import { Chips } from "@/components/pages/screener";
 import { Button } from "@/components/ui/button";
+import { BlockedNotice } from "@/components/blocked-notice";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { api, ApiError } from "@/lib/api";
-import type { FilingsSummary, FilingStatus, ResultFiling, XbrlUploadSummary } from "@/lib/types";
+import type { DataSources, FilingStatus, FilingsSummary, ResultFiling, XbrlUploadSummary } from "@/lib/types";
 
 const SYMBOL_RE = /^[A-Za-z0-9&_.-]{1,32}$/;
 const STATUSES: FilingStatus[] = ["failed", "pending", "parsed"];
@@ -142,6 +143,16 @@ export function Filings() {
   const [rows, setRows] = useState<ResultFiling[] | null>(null);
   const [status, setStatus] = useState<FilingStatus[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [nseBlocked, setNseBlocked] = useState<string | null>(null);
+
+  useEffect(() => {
+    api<DataSources>("/data-sources")
+      .then((d) => {
+        const v = d.nse?.summary["results filing list"]?.verdict;
+        setNseBlocked(v && v !== "OK" && v !== "empty" ? v : null);
+      })
+      .catch(() => setNseBlocked(null));
+  }, []);
 
   const load = useCallback(() => {
     const q = status.length === 1 ? `&status=${status[0]}` : "";
@@ -162,7 +173,7 @@ export function Filings() {
   }
 
   return (
-    <Card className="gap-4">
+    <Card className="scroll-mt-20 gap-4" id="results-filings">
       <CardHeader>
         <CardTitle className="text-base">Results filings (exchange XBRL)</CardTitle>
         <CardDescription>
@@ -174,6 +185,14 @@ export function Filings() {
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
+        {nseBlocked && (
+          <div className="rounded-md border border-dashed p-3">
+            <BlockedNotice />{" "}
+            <span className="text-muted-foreground text-xs">
+              (last check: the results filing list is {nseBlocked}; see Data sources above)
+            </span>
+          </div>
+        )}
         <Summary s={summary} />
         <Upload onDone={load} />
         <div className="flex flex-col gap-2">
@@ -217,6 +236,8 @@ export function Filings() {
                           <a href={f.document} target="_blank" rel="noreferrer noopener" className="hover:underline">
                             NSE
                           </a>
+                        ) : f.exchange === "offline" ? (
+                          "offline (synthetic)"
                         ) : (
                           "upload"
                         )}

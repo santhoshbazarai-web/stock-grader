@@ -346,7 +346,7 @@ class UploadedDataset(BaseModel):
 class AnnualReportOut(BaseModel):
     id: int
     symbol: str
-    exchange: str = Field(description="nse | upload")
+    exchange: str = Field(description="nse | upload | offline (development offline exchange)")
     document: str
     fiscal_year: int | None
     disseminated_at: datetime | None

@@ -59,11 +59,19 @@ def _years_ago(day: date, years: int) -> date:
 
 
 def _fetch_corporate_actions(
-    ctx: JobContext, session: Session, symbol: str, instrument_id: int, start: date
+    ctx: JobContext,
+    session: Session,
+    symbol: str,
+    instrument_id: int,
+    start: date,
+    reasons: dict[str, str] | None = None,
 ) -> tuple[int, bool] | None:
-    """Upsert actions since ``start``; → (rows, any split/bonus) or None if unavailable."""
+    """Upsert actions since ``start``; → (rows, any split/bonus) or None if unavailable (the
+    router's reasons go into ``reasons[symbol]``)."""
     res = ctx.router.corporate_actions(symbol, start, ctx.today())
     if res.data is None or res.source is None:
+        if reasons is not None:
+            reasons[symbol] = "; ".join(res.reasons)[:500]
         return None
     df = res.data
     if df.empty:
@@ -93,11 +101,12 @@ def corporate_actions(ctx: JobContext, options: JobOptions) -> JobOutcome:
     )
     symbols = universe(ctx, options)
     written, failed, readjusted = 0, [], []
+    failed_reasons: dict[str, str] = {}
     for symbol in symbols:
         session = ctx.session_factory()
         try:
             iid = ensure_instruments(session, [symbol])[symbol]
-            got = _fetch_corporate_actions(ctx, session, symbol, iid, start)
+            got = _fetch_corporate_actions(ctx, session, symbol, iid, start, failed_reasons)
             if got is None:
                 failed.append(symbol)
                 continue
@@ -114,6 +123,7 @@ def corporate_actions(ctx: JobContext, options: JobOptions) -> JobOutcome:
         {
             "symbols": len(symbols),
             "failed": failed,
+            "failed_reasons": failed_reasons,
             "readjusted": readjusted,
             "from": start.isoformat(),
         },

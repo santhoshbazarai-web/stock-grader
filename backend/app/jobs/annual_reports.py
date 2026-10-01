@@ -77,6 +77,7 @@ def annual_reports(ctx: JobContext, options: JobOptions, *, limit: int | None = 
     symbols = universe(ctx, options)
 
     listed, index_failed, no_report = 0, [], {}
+    index_reasons: dict[str, str] = {}
     for symbol in symbols:
         session = ctx.session_factory()
         try:
@@ -92,6 +93,7 @@ def annual_reports(ctx: JobContext, options: JobOptions, *, limit: int | None = 
         res = ctx.router.annual_reports(symbol)
         if res.data is None:
             index_failed.append(symbol)
+            index_reasons[symbol] = "; ".join(res.reasons)[:500]
             continue
         n, missing = _list_reports(ctx, iid, res.data, gaps)
         listed += n
@@ -150,6 +152,7 @@ def annual_reports(ctx: JobContext, options: JobOptions, *, limit: int | None = 
         "parsed": parsed,
         "failed": dict(list(failed.items())[:50]),
         "index_failed": index_failed,
+        "index_reasons": index_reasons,
         "gap_years_without_report": no_report,
     }
     return JobOutcome(parsed, details)

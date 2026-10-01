@@ -55,6 +55,20 @@ providers:
     archives_url: "https://nsearchives.nseindia.com" # bhavcopy, F&O ban list
     niftyindices_url: "https://www.niftyindices.com" # index constituent CSVs
     cookie_ttl_s: 300          # re-visit the homepage for fresh cookies after this
+    # www.nseindia.com blocks clients that don't look like a browser (HTTP 403). Methods tried in
+    # order until one gets through; the one that worked is remembered (SPEC §3.2a). Archives
+    # (nsearchives.nseindia.com) don't need this and use plain requests.
+    session: [curl_cffi, playwright, requests]
+    browser:
+      warmup_urls:             # homepage -> a page -> API calls, like a person browsing
+        - "https://www.nseindia.com/"
+        - "https://www.nseindia.com/companies-listing/corporate-filings-financial-results"
+      api_referer: "https://www.nseindia.com/companies-listing/corporate-filings-financial-results"
+      impersonate: chrome      # curl_cffi alias for the newest Chrome profile it ships
+      remember_ttl_s: 86400    # try the method that last worked first, for a day
+      blocked_ttl_s: 3600      # skip a method NSE refused for an hour
+      playwright_timeout_s: 45
+      playwright_block_resources: [image, media, font]
     request_timeout_s: 20
     corporate_actions_from_years: 12   # history requested for corporate actions
     index_constituent_files:   # canonical index code → niftyindices CSV name
@@ -128,6 +142,16 @@ providers:
   bse:                         # BSE public data: the scrip master (symbol_master job)
     api_url: "https://api.bseindia.com"
     referer: "https://www.bseindia.com/"
+    session: [curl_cffi, playwright, requests]   # as nse.session; BSE is best-effort
+    browser:
+      warmup_urls: ["https://www.bseindia.com/"]
+      api_referer: "https://www.bseindia.com/"
+      impersonate: chrome
+      remember_ttl_s: 86400
+      blocked_ttl_s: 3600
+      playwright_timeout_s: 45
+      playwright_block_resources: [image, media, font]
+    cookie_ttl_s: 300
     request_timeout_s: 30
     scrip_master_path: "/BseIndiaAPI/api/ListofScripData/w?Group=&Scripcode=&industry=&segment=Equity&status=Active"
     # corporate announcements, all companies: ?pageno=&strCat=-1&strPrevDate=YYYYMMDD&strToDate=..
