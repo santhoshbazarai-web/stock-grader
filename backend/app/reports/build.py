@@ -8,20 +8,24 @@ Order (SPEC §7.3 circularity):
 
 from dataclasses import dataclass, field, replace
 from datetime import date
+from typing import Literal
 
 import pandas as pd
 
 from app.core.config import AppConfig, Dataset, SectorModel
 from app.data.gaps import GapRecord
-from app.fundamentals.banking import bank_summary
+from app.fundamentals.banking import PROXIES, bank_per_share, bank_summary
+from app.fundamentals.depth import DataDepth, data_depth
 from app.fundamentals.forensic import altman_z2, beneish, piotroski
 from app.fundamentals.metrics import Metric, annual_metrics, by_year, summary_metrics
 from app.fundamentals.structural import adjust_growth, crossing, yoy_growth
 from app.reports.data import StockData
 from app.reports.dto import (
     AnalystConsensusDto,
+    BankMetricDto,
     BuyZoneDto,
     ConditionDto,
+    DataDepthDto,
     DcfScenarioDto,
     DecisionDto,
     EarnedPremiumDto,
@@ -227,7 +231,20 @@ def _pillar_dto(p: PillarScore, weight: float) -> PillarDto:
         ],
         missing=p.missing,
         reasons=p.reasons,
+        confidence=p.confidence,
     )
+
+
+_BANK_UNITS: dict[str, Literal["pct", "inr", "x"]] = {"bvps": "inr", "pb": "x"}
+
+
+def _bank_metric_dtos(bank: dict[str, Metric]) -> list[BankMetricDto]:
+    """Reported (GNPA, NNPA, CAR, CASA) and proxy bank metrics, each labelled (SPEC §4)."""
+    return [
+        BankMetricDto(name=k, value=m.value, unit=_BANK_UNITS.get(k, "pct"), proxy=k in PROXIES,
+                      definition=PROXIES.get(k), reason=m.reason)
+        for k, m in bank.items()
+    ]  # fmt: skip
 
 
 def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> Built:
@@ -308,6 +325,12 @@ def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> B
     if alt is not None and alt.flag == "distress":
         red_flags.append(f"Altman Z'' {alt.value:.2f}: distress zone")
     bank = bank_summary(annual) if is_bank and not annual.empty else {}
+    if bank:
+        bank.update(bank_per_share(annual, price=cmp, shares_year_end=data.shares_year_end))
+        if data.sources.get("fundamentals") == "indianapi":
+            # NIM, GNPA, NNPA and CAR are not in the vendor's data: they stay gaps, never
+            # estimated from its lines
+            bank["nim_pct"] = Metric(None, "not reported by the Indian API (data gap)")
 
     def am_at(col: str, year: int | None) -> float | None:
         if year is None or col not in am.columns:
@@ -379,6 +402,10 @@ def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> B
         nim_pct=bank["nim_pct"].value if "nim_pct" in bank else None,
         gnpa_pct=bank["gnpa_pct"].value if "gnpa_pct" in bank else None,
         car_pct=bank["car_pct"].value if "car_pct" in bank else None,
+        credit_cost_pct=bank["credit_cost_pct"].value if "credit_cost_pct" in bank else None,
+        equity_to_assets_pct=(
+            bank["equity_to_assets_pct"].value if "equity_to_assets_pct" in bank else None
+        ),
     )
     pillars = non_valuation_pillars(pin, sc)
 
@@ -438,6 +465,17 @@ def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> B
             + (f"{val.confidence.value} → {lowered.value}" if lowered is not val.confidence
                else f"stays {lowered.value}"),
         ])  # fmt: skip
+    depth = data_depth(annual, sc.data_depth)  # SPEC §7.3
+    if not depth.full:
+        structural_notes.insert(0, f"Data depth {depth.level}: {depth.reason}")
+        if val is not None:
+            lowered = lower_confidence(val.confidence, sc.data_depth.valuation_steps_down)
+            val = replace(val, confidence=lowered, reasons=[
+                *val.reasons,
+                f"data depth {depth.level} ({depth.pl_years} years of P&L): confidence "
+                + (f"{val.confidence.value} → {lowered.value}" if lowered is not val.confidence
+                   else f"stays {lowered.value}"),
+            ])  # fmt: skip
     red_flags += [f"event: {f}" for f in data.event_red_flags]
     final = grading.final.grade
 
@@ -533,6 +571,8 @@ def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> B
         red_flags=red_flags,
         data_gaps=data_gaps,
         notes=structural_notes,
+        bank=bank,
+        depth=depth,
     )
     return Built(report, run, val, t, grading, bz, gaps)
 
@@ -556,6 +596,8 @@ def _assemble(
     red_flags: list[str],
     data_gaps: list[str],
     notes: list[str],
+    bank: dict[str, Metric],
+    depth: DataDepth,
 ) -> StockReport:
     weights = config.scoring.weights.model_dump()
     pillars = grading.pillars
@@ -668,6 +710,9 @@ def _assemble(
         provisional_grade=grading.provisional.grade.value if grading.provisional.grade else None,
         mos_grade=grading.mos_grade.value if grading.mos_grade else None,
         pillars=[_pillar_dto(p, float(weights[p.pillar.value])) for p in pillars.values()],
+        bank_metrics=_bank_metric_dtos(bank),
+        data_depth=DataDepthDto(level=depth.level, pl_years=depth.pl_years, reason=depth.reason),
+        grade_confidence="full" if depth.full else "reduced",
         knockouts=KnockoutsDto(
             cap=ko.cap.value if ko.cap else None,
             triggered=ko.triggered,

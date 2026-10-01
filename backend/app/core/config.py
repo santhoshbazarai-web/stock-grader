@@ -836,11 +836,28 @@ class DecisionConfig(_Strict):
         return self
 
 
+class DataDepthConfig(_Strict):
+    """Fiscal years of P&L for the report's data-depth levels (SPEC §7.3)."""
+
+    provisional_min_years: PositiveInt
+    full_min_years: PositiveInt
+    valuation_steps_down: Annotated[int, Field(ge=0, le=2)]  # below full
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        if self.provisional_min_years >= self.full_min_years:
+            raise ValueError("provisional_min_years must be < full_min_years")
+        return self
+
+
 class BankMaps(_Strict):
     gnpa_pct: PiecewiseLinearMap
     nim_pct: PiecewiseLinearMap
     car_pct: PiecewiseLinearMap
     roa_pct: PiecewiseLinearMap
+    # proxies, used only when the reported metric is missing (health pillar)
+    credit_cost_pct: PiecewiseLinearMap  # for GNPA
+    equity_to_assets_pct: PiecewiseLinearMap  # for CAR
 
 
 class FundamentalsConfig(_Strict):
@@ -873,6 +890,7 @@ class ScoringConfig(_Strict):
     earned_premium: EarnedPremiumConfig
     decision: DecisionConfig
     bank_maps: BankMaps
+    data_depth: DataDepthConfig
     fundamentals: FundamentalsConfig
     forensic: ForensicConfig
 

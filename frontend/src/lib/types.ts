@@ -78,6 +78,22 @@ export type Pillar = {
   subs: SubScore[];
   missing: string[];
   reasons: string[];
+  confidence?: "full" | "reduced"; // reduced: scored partly from proxies (absent before Prompt B)
+};
+
+export type DataDepth = {
+  level: "technical_only" | "provisional" | "full";
+  pl_years: number;
+  reason: string;
+};
+
+export type BankMetric = {
+  name: string;
+  value: number | null;
+  unit: "pct" | "inr" | "x";
+  proxy: boolean; // derived from the statements, not the figure the bank reports
+  definition: string | null;
+  reason: string | null;
 };
 
 export type Condition = { code: string; met: boolean | null; reason: string };
@@ -106,6 +122,9 @@ export type StockReport = {
   thesis: string | null;
   shareholding?: ShareholdingSummary | null; // absent in reports built before Prompt A
   analyst_consensus?: AnalystConsensus | null; // informational only, never scored
+  bank_metrics?: BankMetric[]; // banks only (absent before Prompt B)
+  grade_confidence?: "full" | "reduced"; // reduced below full data depth (grade provisional)
+  data_depth?: DataDepth | null; // header badge (absent before Prompt B)
   reconciliation_issues?: string[]; // SPEC v0.2 §3.9 (absent in reports built before P21)
   provisional_grade: Grade | null;
   mos_grade: Grade | null;

@@ -91,6 +91,17 @@ scoring:
     nim_pct:            [[2, 0], [3, 50], [4, 85], [5, 100]]
     car_pct:            [[11.5, 0], [14, 50], [17, 85], [20, 100]]
     roa_pct:            [[0.5, 0], [1.0, 50], [1.6, 85], [2.2, 100]]
+    # Proxies, used only when the reported metric is missing (health pillar, reduced confidence).
+    # Credit cost (provisions / avg advances) stands in for GNPA: Indian banks ran ~0.5-1%
+    # in good years and 2-3%+ in the 2016-19 NPA cycle.
+    credit_cost_pct:    [[3.0, 0], [2.0, 50], [1.0, 85], [0.5, 100]]
+    # Equity / total assets stands in for CAR (no risk weights in the statements); the RBI
+    # leverage-ratio minimum is 3.5-4%; well-capitalised private banks run 10-15%.
+    equity_to_assets_pct: [[5, 0], [8, 50], [11, 85], [14, 100]]
+  data_depth:                   # SPEC §7.3: fiscal years of P&L behind the report
+    provisional_min_years: 3    # fewer: technical_only (the technical analysis stands)
+    full_min_years: 8           # fewer: the grade is provisional, with reduced confidence
+    valuation_steps_down: 1     # below full the valuation confidence is one level lower
   fundamentals:                 # SPEC §4 metric windows
     cagr_years: [3, 5, 10]
     cumulative_years: 5         # CFO/EBITDA, CFO/PAT, FCF conversion, averages

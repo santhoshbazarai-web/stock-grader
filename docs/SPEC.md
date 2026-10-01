@@ -534,6 +534,11 @@ Implementation notes (`fundamentals/`, pure functions; windows and thresholds in
 - Beneish: PP&E = net block, securities = non-operating investments. LVGI = (current liabilities + total debt) / total assets. Coefficients are Beneish (1999). A value above `forensic.beneish_flag_above` is flagged.
 - Altman Z″ = 6.56·X1 + 3.26·X2 + 6.72·X3 + 1.05·X4, where X1 = working capital / TA, X2 = retained earnings / TA, X3 = EBIT / TA, X4 = book equity / (TA − equity). Zones come from `forensic.altman_*`. Not computed for financials.
 - Banks: NIM = NII / average(advances + investments); GNPA uses gross advances; NNPA uses net advances; PCR = (GNPA − NNPA) / GNPA; credit cost = provisions / average advances. CRAR is taken as reported.
+- Bank proxies (`banking.PROXIES`): these are derived from statement lines rather than reported by the bank, and the report labels them "proxy" with their definition (`bank_metrics`). GNPA, NNPA, CAR and CASA are the reported figures. The proxies are:
+  - NIM, credit cost, cost-to-income, RoA, RoE;
+  - loan and deposit growth, CD ratio (advances / deposits), equity / assets, payout (dividends paid / PAT);
+  - BVPS (equity / year-end shares), P/B (price / BVPS), and EPS growth per share (PAT per year-end share).
+- When the latest year comes from the Indian API, NIM is a data gap (as are GNPA, NNPA and CAR, which the vendor does not report). It is never estimated from the vendor's lines.
 
 **Structural breaks** (`fundamentals/structural.py`; `config/structural_events.yaml`): a merger, demerger or large acquisition makes the company before and after different businesses.
 - The break's fiscal year is the one containing its effective date (HDFCBANK, 1 Jul 2023 → FY2024).
@@ -718,8 +723,23 @@ A stock is capped at grade C if any of these apply:
 
 Banks use a bank-specific Quality and Health map (asset quality, NIM, CAR).
 
+- **Bank health with proxies:** GNPA and CAR are scored as reported. A missing one is replaced by its proxy, mapped by `scoring.yaml` → `bank_maps`: credit cost for GNPA, equity / assets for CAR.
+  - The pillar then scores what exists and lists the missing reported metrics in `missing`.
+  - It has `confidence: reduced`, shown as a tag in the scorecard, instead of being n/a. With neither the metric nor its proxy, the sub-metric is unavailable as before.
+
 ### 7.3 Grade
 A+ ≥ 85, A ≥ 75, B ≥ 60, C ≥ 45, D < 45, then apply knock-out caps. Note the circular dependency: the grade decides the MoS, which decides the zone, which feeds the valuation pillar. Resolve it by computing a **provisional grade that excludes the Valuation pillar** to pick the MoS, then compute the final grade.
+
+**Data depth** (`fundamentals/depth.py`; `scoring.yaml` → `data_depth`): the number of fiscal years with a P&L (revenue or PAT) behind the report.
+- **full:** at least `full_min_years` (8).
+- **provisional:** at least `provisional_min_years` (3).
+- **technical_only:** fewer than that; the technical analysis stands on its own.
+- The report's `data_depth` drives a header badge ("Full data · 12 yr", "Provisional data", "Technical only").
+- Below full:
+  - `grade_confidence` is `reduced`, and the header shows the grade as provisional;
+  - the valuation confidence drops `valuation_steps_down` levels (1);
+  - the first reason says why.
+- This is separate from the provisional grade above, which only breaks the MoS circularity.
 
 ### 7.4 Earned-premium score (`earned_premium.py`, 0–8)
 One point for each condition met:

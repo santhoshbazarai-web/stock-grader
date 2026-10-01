@@ -6,7 +6,7 @@
 import { PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart, ResponsiveContainer, Tooltip } from "recharts";
 
 import { num, titleCase } from "@/lib/format";
-import type { Pillar, StockReport } from "@/lib/types";
+import type { BankMetric, Pillar, StockReport } from "@/lib/types";
 
 const ORDER = ["quality", "growth", "valuation", "health", "governance", "technical"];
 
@@ -83,6 +83,11 @@ export function Scorecard({ report }: { report: StockReport }) {
                   <span aria-hidden className="text-muted-foreground text-xs transition group-open:rotate-90">▶</span>
                   {titleCase(p.pillar)}
                   <span className="text-muted-foreground text-xs">weight {p.weight}</span>
+                  {p.confidence === "reduced" && (
+                    <span className="rounded border px-1 text-[10px] uppercase" style={{ borderColor: "var(--viz-s4)", color: "var(--viz-s4)" }} title={p.reasons.at(-1)}>
+                      reduced confidence
+                    </span>
+                  )}
                 </span>
                 <span className="tabular-nums">
                   {p.score == null ? <span className="text-muted-foreground">n/a</span> : num(p.score, 0)}
@@ -115,7 +120,42 @@ export function Scorecard({ report }: { report: StockReport }) {
           </li>
         ))}
       </ul>
+      {report.bank_metrics && report.bank_metrics.length > 0 && <BankMetrics rows={report.bank_metrics} />}
     </div>
+  );
+}
+
+function fmtBank(m: BankMetric): string {
+  if (m.value == null) return "—";
+  if (m.unit === "inr") return `₹${num(m.value, 2)}`;
+  if (m.unit === "x") return `${num(m.value, 2)}×`;
+  return `${num(m.value, 2)}%`;
+}
+
+function BankMetrics({ rows }: { rows: BankMetric[] }) {
+  return (
+    <section aria-label="Bank metrics" className="flex flex-col gap-1 text-xs">
+      <h3 className="text-sm font-semibold">Bank metrics</h3>
+      <p className="text-muted-foreground">
+        <span className="font-medium">proxy</span> = derived from the statements, not the figure the bank reports.
+      </p>
+      <table className="w-full tabular-nums">
+        <tbody>
+          {rows.map((m) => (
+            <tr key={m.name} className="border-t align-top">
+              <td className="py-1">
+                {titleCase(m.name)}
+                {m.proxy && <span className="text-muted-foreground ml-1 rounded border px-1 text-[10px] uppercase">proxy</span>}
+                {(m.definition || (m.value == null && m.reason)) && (
+                  <p className="text-muted-foreground">{m.value == null ? m.reason : m.definition}</p>
+                )}
+              </td>
+              <td className="py-1 text-right">{fmtBank(m)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
   );
 }
 

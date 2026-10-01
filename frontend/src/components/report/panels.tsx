@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { api, ApiError } from "@/lib/api";
 import { ACTION_LABEL, crore, inr, num, pct, ZONE_LABEL } from "@/lib/format";
-import type { PipelineRun, StockReport } from "@/lib/types";
+import type { DataDepth, PipelineRun, StockReport } from "@/lib/types";
 
 const BUYS = new Set(["strong_buy", "buy", "accumulate", "buy_on_pullback", "momentum_entry"]);
 
@@ -29,8 +29,9 @@ export function ReportHeader({ report, onRun }: { report: StockReport; onRun?: (
       <div className="flex flex-col gap-1">
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="text-2xl font-semibold tracking-tight">{report.symbol}</h1>
-          <Badge variant="outline" className="text-sm" aria-label={`Grade ${report.grade_label ?? "n/a"}`}>
+          <Badge variant="outline" className="text-sm" aria-label={`Grade ${report.grade_label ?? "n/a"}${report.grade_confidence === "reduced" ? " (provisional)" : ""}`}>
             Grade {report.grade_label ?? "n/a"}
+            {report.grade_confidence === "reduced" && <span className="text-muted-foreground ml-1 text-xs font-normal">provisional</span>}
           </Badge>
           <Badge
             variant={action && BUYS.has(action) ? "default" : action === "avoid" || action === "book_profits" ? "destructive" : "secondary"}
@@ -39,6 +40,7 @@ export function ReportHeader({ report, onRun }: { report: StockReport; onRun?: (
             {action ? ACTION_LABEL[action] ?? action : "No action"}
           </Badge>
           {report.zone && <Badge variant="secondary">{ZONE_LABEL[report.zone]}</Badge>}
+          {report.data_depth && <DepthBadge depth={report.data_depth} />}
         </div>
         <p className="text-muted-foreground text-sm">{report.name}</p>
       </div>
@@ -60,6 +62,21 @@ export function ReportHeader({ report, onRun }: { report: StockReport; onRun?: (
         </div>
       </div>
     </header>
+  );
+}
+
+const DEPTH_LABEL: Record<DataDepth["level"], string> = {
+  full: "Full data",
+  provisional: "Provisional data",
+  technical_only: "Technical only",
+};
+
+function DepthBadge({ depth }: { depth: DataDepth }) {
+  const color = depth.level === "full" ? "var(--viz-good)" : depth.level === "provisional" ? "var(--viz-s4)" : "var(--viz-critical)";
+  return (
+    <Badge variant="outline" className="text-xs" style={{ borderColor: color, color }} title={depth.reason} aria-label={`Data depth: ${DEPTH_LABEL[depth.level]}, ${depth.pl_years} years of P&L`}>
+      {DEPTH_LABEL[depth.level]} · {depth.pl_years} yr
+    </Badge>
   );
 }
 

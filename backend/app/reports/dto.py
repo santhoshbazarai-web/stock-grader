@@ -102,6 +102,21 @@ class PillarDto(_Dto):
     subs: list[SubScoreDto]
     missing: list[str]
     reasons: list[str]
+    confidence: Literal["full", "reduced"] = Field(
+        default="full", description="reduced: scored partly from proxies for missing metrics"
+    )
+
+
+class BankMetricDto(_Dto):
+    """A bank metric for the latest fiscal year. ``proxy``: derived from the statements, not
+    the figure the bank reports (``definition`` says how)."""
+
+    name: str
+    value: float | None
+    unit: Literal["pct", "inr", "x"]
+    proxy: bool
+    definition: str | None
+    reason: str | None = Field(description="Why the value is missing, or a caveat")
 
 
 class ConditionDto(_Dto):
@@ -185,6 +200,14 @@ class AnalystConsensusDto(_Dto):
     ratings: dict[str, int] = Field(description="Analysts per rating")
 
 
+class DataDepthDto(_Dto):
+    """How many fiscal years of P&L the report stands on (SPEC §7.3): the header badge."""
+
+    level: Literal["technical_only", "provisional", "full"]
+    pl_years: int
+    reason: str
+
+
 class StockReport(_Dto):
     symbol: str
     name: str | None
@@ -201,6 +224,10 @@ class StockReport(_Dto):
     scores: Scores
     grade: str | None = Field(description="A_plus | A | B | C | D (config keys)")
     grade_label: str | None = Field(description="Display form, e.g. A+")
+    grade_confidence: Literal["full", "reduced"] = Field(
+        default="full", description="reduced below full data depth: the grade is provisional"
+    )
+    data_depth: DataDepthDto | None = None
     earned_premium: int | None
     action: str | None
     reasons: list[str]
@@ -208,6 +235,9 @@ class StockReport(_Dto):
     data_gaps: list[str]
     thesis: str | None = None
     shareholding: ShareholdingDto | None = None
+    bank_metrics: list[BankMetricDto] = Field(
+        default_factory=list, description="Banks only: reported metrics and labelled proxies"
+    )
     analyst_consensus: AnalystConsensusDto | None = Field(
         default=None, description="Informational only: never part of a score, zone or action"
     )
