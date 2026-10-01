@@ -33,6 +33,13 @@ _WEEKLY = "W-FRI"
 # ───────────────────────── cost of capital ─────────────────────────
 
 
+@dataclass(frozen=True)
+class BetaEstimate:
+    value: float  # Blume-adjusted (if configured) and clamped to [floor, cap]
+    unclamped: float  # before the clamp
+    clamped: str | None  # "floor" | "cap" | None
+
+
 def blume_beta(
     stock_close: pd.Series,
     index_close: pd.Series,
@@ -42,6 +49,18 @@ def blume_beta(
 ) -> float | None:
     """Weekly-return regression slope over ``beta.lookback_years``, Blume-adjusted and clamped.
     ``None`` when fewer than half the expected weeks overlap."""
+    est = beta_estimate(stock_close, index_close, config, as_of=as_of)
+    return est.value if est is not None else None
+
+
+def beta_estimate(
+    stock_close: pd.Series,
+    index_close: pd.Series,
+    config: ValuationConfig,
+    *,
+    as_of: pd.Timestamp | None = None,
+) -> BetaEstimate | None:
+    """:func:`blume_beta` with whether the clamp bound (a clamped beta is a data gap)."""
     cfg = config.beta
     end = as_of or min(stock_close.index.max(), index_close.index.max())
     start = end - pd.DateOffset(years=cfg.lookback_years)
@@ -60,7 +79,8 @@ def blume_beta(
         return None
     raw = float(returns.iloc[:, 0].cov(returns.iloc[:, 1])) / var
     beta = BLUME_WEIGHT * raw + (1 - BLUME_WEIGHT) if cfg.blume_adjust else raw
-    return float(min(max(beta, cfg.floor), cfg.cap))
+    clamped = "floor" if beta < cfg.floor else "cap" if beta > cfg.cap else None
+    return BetaEstimate(float(min(max(beta, cfg.floor), cfg.cap)), float(beta), clamped)
 
 
 def size_premium(market_cap_cr: float, config: ValuationConfig) -> float:
@@ -68,6 +88,16 @@ def size_premium(market_cap_cr: float, config: ValuationConfig) -> float:
         if tier.max_mcap is None or market_cap_cr <= tier.max_mcap:
             return tier.premium
     return config.size_premium[-1].premium  # pragma: no cover - last tier is open-ended
+
+
+def cost_of_equity_explained(
+    beta: float, market_cap_cr: float, config: ValuationConfig
+) -> tuple[float, str]:
+    """Ke and its build-up: ``Ke r% = Rf r% + beta b x ERP e% + size s%``."""
+    sp = size_premium(market_cap_cr, config)
+    ke = config.risk_free_rate + beta * config.equity_risk_premium + sp
+    return ke, (f"Ke {ke:.2%} = Rf {config.risk_free_rate:.2%} + beta {beta:.2f} x ERP "
+                f"{config.equity_risk_premium:.2%} + size premium {sp:.2%}")  # fmt: skip
 
 
 def cost_of_equity(beta: float, market_cap_cr: float, config: ValuationConfig) -> float:

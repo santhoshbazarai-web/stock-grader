@@ -59,6 +59,7 @@ _GAP_DATASET: dict[str, Dataset] = {
     "rs_percentile": Dataset.INDEX_OHLCV,
     "delivery_ratio": Dataset.DELIVERY,
     "pledge": Dataset.SHAREHOLDING,
+    "beta": Dataset.INDEX_OHLCV,
     "asm_gsm": Dataset.SURVEILLANCE,
     "liquidity": Dataset.DELIVERY,
 }
@@ -372,6 +373,8 @@ def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> B
     run = run_valuation(data, metrics, sector_key, sector, vc, sensitivity=not lite)
     for name in run.assumed_nil:
         gap(Dataset.FIN_ANNUAL, name, "not reported: taken as nil in the valuation")
+    for name, why in run.gaps:
+        gap(_GAP_DATASET.get(name, Dataset.FIN_ANNUAL), name, why)
     if run.announcement_dates_assumed:
         gap(Dataset.FIN_QUARTERLY, "announcement_date", "unknown: filing lag assumed for bands")
 

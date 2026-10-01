@@ -20,6 +20,7 @@ Choices made here (documented in SPEC §5 implementation notes):
 
 import statistics
 from dataclasses import dataclass, field
+from datetime import date
 from itertools import pairwise
 
 import numpy as np
@@ -36,8 +37,8 @@ from app.valuation.dcf import (
     DcfResult,
     SensitivityGrid,
     base_inputs,
-    blume_beta,
-    cost_of_equity,
+    beta_estimate,
+    cost_of_equity_explained,
     default_g1,
     run_scenarios,
     sensitivity_grid,
@@ -83,6 +84,7 @@ class ValuationRun:
     market_cap_cr: float | None
     peer: PeerStats
     assumed_nil: list[str] = field(default_factory=list)
+    gaps: list[tuple[str, str]] = field(default_factory=list)
     announcement_dates_assumed: bool = False
     reasons: list[str] = field(default_factory=list)
 
@@ -115,6 +117,35 @@ def _num(v: object) -> float | None:
     except (TypeError, ValueError):
         return None
     return None if np.isnan(f) else f
+
+
+def _latest_shares(annual: pd.DataFrame, quarterly: pd.DataFrame) -> tuple[float | None, str]:
+    """The most recent diluted share count on file and its period. Both frames are indexed
+    by period end; a balance-sheet-only year row has no count, so the latest row alone is not
+    enough. The later period wins (a quarter after the last fiscal year)."""
+    best: tuple[pd.Timestamp, float, str] | None = None
+    for frame, label in ((annual, "year"), (quarterly, "quarter")):
+        if frame.empty or "shares_diluted_cr" not in frame.columns:
+            continue
+        s = pd.to_numeric(frame["shares_diluted_cr"], errors="coerce").dropna()
+        s = s[s > 0].sort_index()
+        if s.empty:
+            continue
+        end = pd.Timestamp(s.index[-1])
+        if best is None or end > best[0]:
+            best = (end, float(s.iloc[-1]), f"{label} ended {end.date()}")
+    return (best[1], best[2]) if best else (None, "")
+
+
+def _risk_free_gap(vc: ValuationConfig, today: date) -> str | None:
+    if vc.risk_free_as_of is None:
+        return (f"risk-free rate {vc.risk_free_rate:.2%} has no date: set "
+                "valuation.risk_free_as_of after checking the 10-year G-sec yield")  # fmt: skip
+    age = (today - vc.risk_free_as_of).days
+    if age > vc.risk_free_max_age_days:
+        return (f"risk-free rate {vc.risk_free_rate:.2%} is {age} days old "
+                f"(as of {vc.risk_free_as_of}); update valuation.yaml")  # fmt: skip
+    return None
 
 
 def effective_dates(frame: pd.DataFrame, lag_days: int) -> tuple[pd.DatetimeIndex, bool]:
@@ -214,6 +245,7 @@ def run_valuation(
     mv: dict[str, float | None] = {}
     extra: dict[str, float | None] = {}
     assumed_nil: list[str] = []
+    gaps: list[tuple[str, str]] = []  # (field, reason): inputs the report lists as data gaps
 
     def mval(key: str) -> float | None:
         m = metrics.get(key)
@@ -313,22 +345,54 @@ def run_valuation(
 
     # ── cost of capital ──
     latest = df.iloc[-1] if len(df) else pd.Series(dtype=float)
-    shares_now = _num(latest.get("shares_diluted_cr"))
+    shares_now, shares_label = _latest_shares(data.annual, data.quarterly)
     mcap = cmp * shares_now if shares_now else None
-    beta = (
-        blume_beta(close, data.benchmark_close, vc, as_of=as_of)
+    if mcap is not None:
+        reasons.append(f"market cap ₹{mcap:,.0f} Cr = {shares_now:,.2f} Cr shares "
+                       f"({shares_label}) x price ₹{cmp:,.2f}")  # fmt: skip
+    else:
+        why = "no diluted share count (PAT / diluted EPS) in any annual or quarterly row"
+        reasons.append(f"market cap unavailable: {why}")
+        gaps.append(("market_cap", why))
+    est = (
+        beta_estimate(close, data.benchmark_close, vc, as_of=as_of)
         if data.benchmark_close is not None
         else None
     )
-    if beta is None:
-        reasons.append("beta unavailable (benchmark history missing or too short)")
-    ke = cost_of_equity(beta, mcap, vc) if beta is not None and mcap else None
+    beta = est.value if est is not None else None
+    if est is None:
+        why = (f"benchmark {vc.beta.benchmark} history missing or shorter than "
+               f"{vc.beta.lookback_years} years")  # fmt: skip
+        reasons.append(f"beta unavailable: {why}")
+        gaps.append(("beta", why))
+    elif est.clamped is not None:
+        bound = vc.beta.floor if est.clamped == "floor" else vc.beta.cap
+        why = (f"beta {est.unclamped:.2f} clamped at the {est.clamped} {bound:.2f} "
+               "(valuation.yaml beta); cost of equity uses the clamped value")  # fmt: skip
+        reasons.append(why)
+        gaps.append(("beta", why))
+    rf_gap = _risk_free_gap(vc, as_of.date())
+    if rf_gap is not None:
+        gaps.append(("risk_free_rate", rf_gap))
+    ke: float | None = None
+    if beta is not None and mcap:
+        ke, ke_text = cost_of_equity_explained(beta, mcap, vc)
+        reasons.append(f"{ke_text} (Rf: {vc.risk_free_source}, as of "
+                       f"{vc.risk_free_as_of or 'not dated'})")  # fmt: skip
+    else:
+        missing = [n for n, v in (("beta", beta), ("market cap", mcap)) if not v]
+        reasons.append(f"cost of equity unavailable: no {' / '.join(missing)}")
+        gaps.append(("cost_of_equity", f"needs {' and '.join(missing)}"))
     pbt, tax = _num(latest.get("pbt")), _num(latest.get("tax"))
     tax_rate = tax / pbt if pbt and pbt > 0 and tax is not None and 0 <= tax / pbt <= 1 else None
     if tax_rate is None:
         tax_rate = vc.tax_rate_default
     wacc_rate: float | None = data.overrides.wacc
-    if wacc_rate is not None:
+    if sector.model not in DCF_MODELS:
+        wacc_rate = None  # banks / insurers / NAV / SOTP: equity models only (rule 10)
+        reasons.append(f"{sector.model.value} model: valued on the cost of equity; "
+                       "no WACC or FCFF")  # fmt: skip
+    elif wacc_rate is not None:
         reasons.append(f"WACC {wacc_rate:.2%} (user override)")
     elif ke is not None and mcap:
         debt = _num(latest.get("total_debt"))
@@ -535,6 +599,7 @@ def run_valuation(
         market_cap_cr=mcap,
         peer=peer,
         assumed_nil=sorted(set(assumed_nil)),
+        gaps=gaps,
         announcement_dates_assumed=announcement_assumed,
         reasons=reasons,
     )

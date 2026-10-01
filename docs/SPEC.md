@@ -546,7 +546,9 @@ Implementation notes (`valuation/`, pure functions; parameters in `valuation.yam
 - DCF projection is revenue-driven: revenue grows at g_t, FCFF_t = revenue_t × EBIT margin × (1 − t) + revenue_t × (D&A% − capex%) − NWC% × Δrevenue. The base margin, D&A% and capex% are averages over `dcf.margin_years` (every year required); NWC% is from the latest year. A scenario's `margin_delta` shifts the EBIT margin. Cash flows are discounted at year end.
 - Where filings omit working capital, minority interest or non-operating investments, the DCF takes them as nil so a value is possible. Each one is returned in `assumed_nil` for the caller to record as a data gap and show in the report.
 - WACC uses market-value weights with book debt as the proxy for debt's market value. If there is debt but no interest cost, the cost of debt is unknown and there is no WACC.
-- Beta = weekly-return slope over `beta.lookback_years`, Blume-adjusted (0.67β + 0.33), clamped to [floor, cap]. It needs at least half the expected weeks.
+- Beta = weekly-return slope over `beta.lookback_years`, Blume-adjusted (0.67β + 0.33), clamped to [floor, cap]. It needs at least half the expected weeks. A beta clamped at the floor or cap is a `beta` data gap (with the unclamped value); a missing beta (benchmark history) is one too.
+- Ke = `risk_free_rate` + β × `equity_risk_premium` + size premium (by market cap), and the report shows the build-up ("Ke 13.45% = Rf 6.50% + beta 1.00 x ERP 7.00% + size premium 0.00%"). The risk-free rate is configured in valuation.yaml with `risk_free_source` and `risk_free_as_of`; an undated rate, or one older than `risk_free_max_age_days`, is a `risk_free_rate` data gap. No cost of equity lists what it lacks (beta / market cap).
+- Banks, NBFCs and insurers (and NAV / SOTP models) use no WACC and no FCFF: their valuation runs on Ke (justified P/B, residual income); the report shows Ke and "WACC not used".
 - Sector g1 cap: `sectors.<name>.g1_cap`, else `dcf.g1_cap_by_default`.
 - Reverse DCF searches `dcf.reverse_growth_bracket` with brentq. If the price lies outside the values at the ends, there is no implied growth.
 - Bands use the median and sample σ of daily multiples whose denominator is positive, over the lookback. Fundamentals are carried forward from their announcement date. A band needs `bands.min_observations` valid days. EV/EBITDA per share = price + net debt per share.
@@ -780,7 +782,7 @@ Valuation wiring (§5)
 - The PE band uses TTM EPS from four consecutive quarters, or annual EPS if there are not four. EV/EBITDA and P/B use annual figures.
 - Band denominators are keyed by announcement date. When that date is unknown (Screener uploads), the live report assumes `bands.assumed_announcement_lag_days` (quarterly 45 / annual 60) and records a gap. Backtests must not use this assumption.
 - Each band uses the first lookback in `bands.lookback_years` with enough observations. Its method value is the band median as a price. The primary band is the sector's highest-weighted band method.
-- Market cap = CMP × latest diluted shares. The cost of equity uses the Blume beta against `jobs.universe_index`.
+- Market cap = CMP × the latest diluted share count on file (annual or quarterly, whichever period is later; a balance-sheet-only year row has none), shown with its period. No count is a `market_cap` data gap. The cost of equity uses the Blume beta against `jobs.universe_index`.
 - DCF, reverse DCF and EPV run only for the FCFF and cyclical models (rule 10).
 - Relative valuation needs `relative.min_peers` sector peers with a positive multiple. Peer figures come from this run (`valuation_scores` job, two passes) or from peers' latest stored reports (on-demand builds).
 - Institutional holding = FII + DII, because DII already includes mutual funds.

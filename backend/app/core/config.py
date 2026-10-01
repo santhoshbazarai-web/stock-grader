@@ -11,7 +11,7 @@ Load with :func:`load_config` (explicit directory) or :func:`get_config` (cached
 
 import math
 import re
-from datetime import time
+from datetime import date, time
 from enum import StrEnum
 from functools import lru_cache
 from itertools import pairwise
@@ -529,6 +529,11 @@ class ConfidenceConfig(_Strict):
 
 class ValuationConfig(_Strict):
     risk_free_rate: Fraction
+    # Where / when the risk-free rate was read (10-year G-sec yield). A rate older than
+    # risk_free_max_age_days (or with no date) is a data gap on every report.
+    risk_free_source: str
+    risk_free_as_of: date | None
+    risk_free_max_age_days: PositiveInt
     equity_risk_premium: Fraction
     size_premium: list[SizePremiumTier] = Field(min_length=1)
     beta: BetaConfig

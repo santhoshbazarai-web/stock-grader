@@ -79,7 +79,9 @@ export function ValuationPanel({
         <dl className="text-muted-foreground grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-4">
           <div>
             <dt>WACC</dt>
-            <dd className="text-foreground">{pct(v.wacc, 2)}</dd>
+            <dd className="text-foreground">
+              {v.model === "bank" || v.model === "insurance" ? "not used (equity model)" : pct(v.wacc, 2)}
+            </dd>
           </div>
           <div>
             <dt>Cost of equity</dt>

@@ -2,7 +2,10 @@
 # All values are starting points — tune after backtests.
 
 valuation:
-  risk_free_rate: 0.065          # update weekly from 10-yr G-sec
+  risk_free_rate: 0.065          # 10-yr G-sec yield; update it (Settings → Config) and its date
+  risk_free_source: "10-year G-sec yield (entered by hand)"
+  risk_free_as_of: null          # e.g. 2026-10-01; null or older than the limit → a data gap
+  risk_free_max_age_days: 30
   equity_risk_premium: 0.07
   size_premium:                  # by market cap (₹ Cr)
     - {max_mcap: 5000,   premium: 0.02}

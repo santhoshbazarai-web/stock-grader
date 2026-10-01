@@ -18,8 +18,10 @@ from app.valuation.blend import Confidence, Zone, blend, classify_zone, fair_val
 from app.valuation.dcf import (
     DcfInputs,
     base_inputs,
+    beta_estimate,
     blume_beta,
     cost_of_equity,
+    cost_of_equity_explained,
     default_g1,
     growth_path,
     run_dcf,
@@ -202,6 +204,27 @@ def test_blume_beta() -> None:
     # raw 3.0 → 2.34, clamped to the configured cap 1.8
     stock, index = _weekly_pair(3.0)
     assert blume_beta(stock, index, V) == pytest.approx(V.beta.cap)
+
+
+def test_beta_estimate_reports_the_clamp() -> None:
+    # raw 0.3 → Blume 0.67 x 0.3 + 0.33 = 0.531, below the floor 0.6: clamped, and said so
+    est = beta_estimate(*_weekly_pair(0.3), V)
+    assert est is not None and est.clamped == "floor"
+    assert est.value == V.beta.floor and est.unclamped == pytest.approx(0.531, rel=1e-6)
+    top = beta_estimate(*_weekly_pair(3.0), V)
+    assert top is not None and top.clamped == "cap" and top.unclamped == pytest.approx(2.34)
+    mid = beta_estimate(*_weekly_pair(1.5), V)
+    assert mid is not None and mid.clamped is None
+
+
+def test_cost_of_equity_build_up() -> None:
+    # Rf 6.5% + 0.8 x 7% + size premium (mcap 3,000 Cr ≤ 5,000 → 2%) = 14.1%
+    ke, text = cost_of_equity_explained(0.8, 3000, V)
+    assert ke == pytest.approx(0.141)
+    assert text == "Ke 14.10% = Rf 6.50% + beta 0.80 x ERP 7.00% + size premium 2.00%"
+    assert cost_of_equity(0.8, 3000, V) == pytest.approx(ke)
+    big, _ = cost_of_equity_explained(1.0, 1_000_000, V)
+    assert big == pytest.approx(0.135)  # 6.5% + 7%, no size premium
 
 
 def test_blume_beta_needs_enough_history() -> None:
@@ -620,3 +643,16 @@ def test_fixture_company_end_to_end() -> None:
     )
     # DCF alone carries 40% < 50% coverage → no fair value, but baseline/top still computed
     assert v.fair_value is None and v.baseline is not None and v.top_band == values["bull"]
+
+
+def test_market_cap_uses_the_latest_share_count_on_file() -> None:
+    from app.reports.valuation_run import _latest_shares
+
+    idx = pd.DatetimeIndex(["2024-03-31", "2025-03-31"])
+    # the FY2025 row is a balance sheet only (no P&L, so no diluted share count)
+    annual = pd.DataFrame({"shares_diluted_cr": [10.0, np.nan]}, index=idx)
+    quarterly = pd.DataFrame({"shares_diluted_cr": [10.2, 20.4]},
+                             index=pd.DatetimeIndex(["2024-06-30", "2025-09-30"]))  # fmt: skip
+    assert _latest_shares(annual, quarterly) == (20.4, "quarter ended 2025-09-30")
+    assert _latest_shares(annual, pd.DataFrame()) == (10.0, "year ended 2024-03-31")
+    assert _latest_shares(pd.DataFrame(), pd.DataFrame()) == (None, "")
