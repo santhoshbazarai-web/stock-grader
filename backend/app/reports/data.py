@@ -12,19 +12,21 @@ import pandas as pd
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core.config import AppConfig
+from app.core.config import AppConfig, StructuralEvent
 from app.data import prices
 from app.data.adjust import restate_per_share
 from app.data.canonical import fields_for
 from app.data.indianapi_checks import analyst_consensus
+from app.data.indianapi_parse import SHARES_PER_CRORE
 from app.data.indianapi_store import cached_answers
 from app.data.reconcile_store import issue_text, open_issues
-from app.db.enums import EventKind, StatementType, SurveillanceList, Timeframe
+from app.db.enums import EventKind, PeriodType, StatementType, SurveillanceList, Timeframe
 from app.db.models import (
     CorporateAction,
     DeliveryDaily,
     Event,
     FinAnnual,
+    FinLineItem,
     FinQuarterly,
     Instrument,
     PriceDaily,
@@ -70,6 +72,10 @@ class StockData:
     industry_source: str | None = None  # "nse" | "yfinance" | None (not classified yet)
     # Indian API recosBar (informational only, never scored): analyst_consensus() + as_of
     analyst_consensus: dict[str, Any] | None = None
+    # SPEC §4 structural breaks: the stock's events (structural_events.yaml) and its reported
+    # year-end share count (crore) by fiscal year, for per-share growth across them
+    structural_events: list[StructuralEvent] = field(default_factory=list)
+    shares_year_end: dict[int, float] = field(default_factory=dict)
 
 
 def load_analyst_consensus(session: Session, iid: int) -> dict[str, Any] | None:
@@ -79,6 +85,22 @@ def load_analyst_consensus(session: Session, iid: int) -> dict[str, Any] | None:
     if row is None or got is None:
         return None
     return {**got, "as_of": row.fetched_at.date()}
+
+
+def load_shares_year_end(session: Session, iid: int, annual: pd.DataFrame) -> dict[int, float]:
+    """Reported shares outstanding at each fiscal-year end (crore), keyed like ``annual``'s
+    fiscal years. Only the Indian API reports them today; on today's share basis."""
+    if annual.empty or "fiscal_year" not in annual.columns:
+        return {}
+    fy_by_end = {pd.Timestamp(e).date(): int(fy) for e, fy in zip(annual.index,
+                                                                  annual["fiscal_year"],
+                                                                  strict=True)
+                 if pd.notna(fy)}  # fmt: skip
+    rows = session.execute(select(FinLineItem.period_end, FinLineItem.value_inr).where(
+        FinLineItem.instrument_id == iid, FinLineItem.item_code == "shares_outstanding",
+        FinLineItem.period_type == PeriodType.INSTANT,
+        FinLineItem.period_end.in_(list(fy_by_end)))).all()  # fmt: skip
+    return {fy_by_end[end]: float(v) / SHARES_PER_CRORE for end, v in rows if v and v > 0}
 
 
 def load_financials(
@@ -283,6 +305,7 @@ def load_stock_data(
 
     overrides = load_overrides(session, inst.id)
     consensus = load_analyst_consensus(session, inst.id)
+    shares_ye = load_shares_year_end(session, inst.id, annual)
     resignations, flags = load_events(session, inst.id, last_day, config)
     issues = [issue_text(i) for i in open_issues(session, inst.id)]
     sector_key = overrides.sector or inst.sector or "default"
@@ -319,4 +342,6 @@ def load_stock_data(
         event_red_flags=flags,
         auditor_resignations=resignations,
         analyst_consensus=consensus,
+        structural_events=config.structural_events.for_symbol(sym),
+        shares_year_end=shares_ye,
     )

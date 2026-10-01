@@ -406,7 +406,7 @@ export type UploadedDataset = {
   uploaded_at: string;
 };
 
-export type ConfigFileName = "providers" | "valuation" | "sectors" | "scoring" | "technical" | "jobs" | "industries";
+export type ConfigFileName = "providers" | "valuation" | "sectors" | "scoring" | "technical" | "jobs" | "industries" | "structural_events";
 
 export type ConfigView = {
   files: { name: ConfigFileName; yaml: string }[];

@@ -16,6 +16,7 @@ from app.data.gaps import GapRecord
 from app.fundamentals.banking import bank_summary
 from app.fundamentals.forensic import altman_z2, beneish, piotroski
 from app.fundamentals.metrics import Metric, annual_metrics, by_year, summary_metrics
+from app.fundamentals.structural import adjust_growth, crossing, yoy_growth
 from app.reports.data import StockData
 from app.reports.dto import (
     AnalystConsensusDto,
@@ -287,6 +288,11 @@ def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> B
         am = annual_metrics(
             annual, tax_rate_fallback=vc.tax_rate_default, days=sc.fundamentals.days_in_year
         )
+    # SPEC §4: growth windows across a merger / demerger are measured per share
+    metrics, structural_notes = adjust_growth(
+        metrics, annual, data.structural_events, cagr_years=sc.fundamentals.cagr_years,
+        shares_year_end=data.shares_year_end,
+    )  # fmt: skip
     df = by_year(annual) if not annual.empty else pd.DataFrame()
     y = int(df.index.max()) if len(df) else None
 
@@ -318,6 +324,11 @@ def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> B
     sales_growth_yoy = (
         rev_now / rev_prev - 1 if rev_now is not None and rev_prev and rev_prev > 0 else None
     )
+    if y is not None and crossing(data.structural_events, y - 1, y) is not None:
+        sales_growth_yoy, why = yoy_growth(annual, "revenue", y, data.structural_events,
+                                           shares_year_end=data.shares_year_end)  # fmt: skip
+        if why:
+            structural_notes.append(why)
     eps_q_latest, eps_q_prev = _last_two(quarterly_yoy(quarterly, "eps_diluted"))
     shp = _shp_changes(data.shareholding)
     if data.shareholding.empty:
@@ -521,6 +532,7 @@ def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> B
         },
         red_flags=red_flags,
         data_gaps=data_gaps,
+        notes=structural_notes,
     )
     return Built(report, run, val, t, grading, bz, gaps)
 
@@ -543,6 +555,7 @@ def _assemble(
     extras: dict[str, float | None],
     red_flags: list[str],
     data_gaps: list[str],
+    notes: list[str],
 ) -> StockReport:
     weights = config.scoring.weights.model_dump()
     pillars = grading.pillars
@@ -561,6 +574,7 @@ def _assemble(
     ]
     rev = run.reverse
     reasons = [
+        *notes,
         *(val.reasons[-2:] if val else ["no valuation: no provisional grade"]),
         *grading.reasons,
         *decision.reasons,

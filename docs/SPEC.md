@@ -535,6 +535,17 @@ Implementation notes (`fundamentals/`, pure functions; windows and thresholds in
 - Altman Z″ = 6.56·X1 + 3.26·X2 + 6.72·X3 + 1.05·X4, where X1 = working capital / TA, X2 = retained earnings / TA, X3 = EBIT / TA, X4 = book equity / (TA − equity). Zones come from `forensic.altman_*`. Not computed for financials.
 - Banks: NIM = NII / average(advances + investments); GNPA uses gross advances; NNPA uses net advances; PCR = (GNPA − NNPA) / GNPA; credit cost = provisions / average advances. CRAR is taken as reported.
 
+**Structural breaks** (`fundamentals/structural.py`; `config/structural_events.yaml`): a merger, demerger or large acquisition makes the company before and after different businesses.
+- The break's fiscal year is the one containing its effective date (HDFCBANK, 1 Jul 2023 → FY2024).
+- A growth window whose base year is before that year and whose end year is at or after it is measured **per share**:
+  - the sales / EBITDA / EPS CAGRs use sales, EBITDA and PAT per year-end share;
+  - year-on-year growth in the break year uses the same measures (book value: equity per year-end share).
+- Year-end shares are the reported share count at the fiscal-year end (today the Indian API's `shares_outstanding`).
+  - Without it, the weighted-average diluted count (PAT / EPS) is used, and the note says so.
+  - Without either, the metric is None with its reason.
+- Example (fixture-checked): HDFCBANK FY24 net profit rose 42% (46,149 → 65,446 cr, the vendor's history) and owners' PAT 39%. Profit per year-end share rose 2.3% (41.22 → 42.16).
+- Every switch is listed first in the report's `reasons`, e.g. "Structural break FY2024 (merger): … Growth across it is per share (year-end shares): sales_cagr_3y, …".
+
 ---
 
 ## 5. Valuation (`valuation/`)

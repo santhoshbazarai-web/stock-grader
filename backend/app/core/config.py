@@ -1303,6 +1303,24 @@ class IndustriesConfig(_Strict):
         return {normalise_label(k): v for k, v in raw.items()}
 
 
+class StructuralEvent(_Strict):
+    """A merger, demerger or large acquisition: the company before and after differ, so growth
+    across it is measured per share (SPEC §4)."""
+
+    date: date
+    kind: Literal["merger", "demerger", "acquisition", "other"]
+    description: str = Field(min_length=1)
+
+
+class StructuralEventsConfig(_Strict):
+    """``structural_events.yaml``: NSE symbol → its structural breaks."""
+
+    events: dict[str, list[StructuralEvent]] = Field(default_factory=dict)
+
+    def for_symbol(self, symbol: str) -> list[StructuralEvent]:
+        return sorted(self.events.get(symbol.upper(), []), key=lambda e: e.date)
+
+
 class AppConfig(_Strict):
     providers: ProvidersConfig
     valuation: ValuationConfig
@@ -1311,6 +1329,7 @@ class AppConfig(_Strict):
     technical: TechnicalConfig
     jobs: JobsConfig
     industries: IndustriesConfig
+    structural_events: StructuralEventsConfig
 
     @model_validator(mode="after")
     def _industries_map_to_sectors(self) -> Self:
