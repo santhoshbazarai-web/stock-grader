@@ -111,9 +111,13 @@ def test_job_reads_the_report_for_gap_years(env: Env) -> None:
     assert d.period_type is PeriodType.INSTANT and d.tag.startswith("pdf p.3: ")
     cfo23 = items(env, StatementType.CONSOLIDATED, FY23, "cfo")
     assert [(r.value_inr, r.period_type) for r in cfo23] == [(880 * CR, PeriodType.YEAR)]
-    # no P&L for these years: the wide row is not created from a balance sheet alone
+    # no P&L for these years: the fiscal-year balance sheets still make year rows (book value
+    # for valuation), with the P&L left empty (never 0)
     with env.session() as s:
-        assert s.scalars(select(FinAnnual)).all() == []
+        rows = s.scalars(select(FinAnnual)).all()
+    assert len(rows) == 4 and {r.source for r in rows} == {PDF_SOURCE}
+    assert all(r.revenue is None and r.pat is None for r in rows)
+    assert all(r.period_end.month == 3 for r in rows)
     # gap years with no report listed are reported, not guessed
     assert outcome.outcome is not None
     assert 2020 in outcome.outcome.details["gap_years_without_report"]["ACME"]

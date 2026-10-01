@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import NseResultsConfig, Provider
 from app.data.canonical import Table, fields_for, fiscal_year
-from app.data.xbrl import ItemValue, ResultsFiling, assemble_wide, has_pl
+from app.data.xbrl import ItemValue, ResultsFiling, assemble_wide, has_bs, has_pl
 from app.db.enums import LineStatement, PeriodType, StatementType
 from app.db.models import FinAnnual, FinLineItem, FinQuarterly, PdfLineCandidate, ResultFiling
 from app.db.upsert import upsert
@@ -272,11 +272,14 @@ def rebuild_wide(
     fetched_at: datetime,
     source: str | None = EXCHANGE_SOURCE,
     clear: frozenset[str] = frozenset(),
+    fy_end_month: int | None = None,
 ) -> list[str]:
     """Rewrite fin_quarterly / fin_annual rows from the latest line-item versions for every
     period the filing touched (analysis uses the latest version). A quarter needs its P&L; a
-    year row is written when the year's P&L is known, or updated (e.g. a restated balance
-    sheet) when it already exists. ``source=None`` keeps an existing row's source (annual-report
+    year row is written when the year's P&L is known, or its fiscal-year-end balance sheet
+    (period ending in ``fy_end_month``: a bank's FY balance sheet with no full-year P&L parsed
+    still gives book value), or updated (e.g. a restated balance sheet) when it exists.
+    ``source=None`` keeps an existing row's source (annual-report
     values fill a row; they don't make it exchange-filed). ``clear``: columns set to NULL when
     the line items no longer give them (a rejected PDF value). Returns the periods written."""
     targets: set[tuple[date, Table]] = set()
@@ -288,7 +291,9 @@ def rebuild_wide(
         rec, first = _wide_from_items(latest_items(session, instrument_id, basis, end), table,
                                       xmap)  # fmt: skip
         old = _existing(session, model, instrument_id, basis, end)
-        if not has_pl(rec) and old is None:
+        year_end_bs = (table == "fin_annual" and fy_end_month is not None
+                       and end.month == fy_end_month and has_bs(rec))  # fmt: skip
+        if not has_pl(rec) and not year_end_bs and old is None:
             continue
         row: dict[str, Any] = {
             "instrument_id": instrument_id,
@@ -426,8 +431,8 @@ def store_filing(
                             quarters=quarters, cfg=cfg, xmap=xmap)  # fmt: skip
     source = OFFLINE_SOURCE if filing_row.exchange == OFFLINE_SOURCE else EXCHANGE_SOURCE
     written = rebuild_wide(session, instrument_id=instrument_id, basis=statement_type,
-                           touched=touched, xmap=xmap, fetched_at=fetched_at,
-                           source=source)  # fmt: skip
+                           touched=touched, xmap=xmap, fetched_at=fetched_at, source=source,
+                           fy_end_month=_fy_end_month(session, instrument_id, cfg))  # fmt: skip
     own = {f"quarter {filing.period_end}", f"year {filing.period_end}"}
     return [p for p in written if p in own]
 

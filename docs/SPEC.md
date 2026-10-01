@@ -212,7 +212,7 @@ Implementation notes (results XBRL, `data/xbrl.py`, `data/results_store.py`, `da
   - A figure for a period that differs from the previous one by more than both `restatement_tolerance_rel` and `restatement_tolerance_inr` (rounding noise) is a restatement and becomes the next version; an equal one adds nothing.
   - Versions are ordered by `usable_from`, not by download order: a backfill runs newest first.
   - Re-parsing a filing replaces its own figures in place.
-- **Wide rows:** `fin_quarterly` / `fin_annual` are rebuilt from the latest versions of every period a filing touched (analysis uses the latest version). A quarter needs its P&L; a year row is written when its P&L is known, or updated when it exists.
+- **Wide rows:** `fin_quarterly` / `fin_annual` are rebuilt from the latest versions of every period a filing touched (analysis uses the latest version). A quarter needs its P&L. A year row is written when its P&L is known, or when its fiscal-year-end balance sheet is (a period ending in the company's fiscal-year-end month; a half-year balance sheet never makes a year row). The P&L is then left NULL, so a bank whose full-year P&L isn't parsed still has book value. An existing row is updated.
   - `announcement_date` is the earliest date any figure of the period was usable. It is also never later than one already stored, so a quarter first seen via yfinance keeps the real, earlier filing date once the filing arrives.
   - Precedence: filed values overwrite what they cover and never blank other columns. A Screener upload fills only the empty columns of periods a filing stored, and leaves their source and date alone.
 - **FY derived from quarters (§3.6 step 5):** after each filing, every fiscal year containing a quarter it touched is checked. If all four quarters are stored and the year has no filed P&L (e.g. the Q4 filing had no year context, or the annual filing failed), each P&L amount reported in all four quarters is summed from their latest versions.
@@ -271,8 +271,12 @@ Implementation notes (annual-report PDFs, §3.6 steps 3-4: `data/annual_report.p
   - A key (period, period type, statement, item) with an exchange-filed figure is never written; the candidate notes why.
   - An exchange figure arriving later removes the key's PDF versions, and the candidate is marked as superseded.
   - Across reports, versions follow the XBRL rules: ordered by `usable_from`, and a figure differing beyond the restatement tolerance is a new version.
-  - The wide fin_annual row is updated when it exists (a year row still needs its P&L) and keeps its `source`.
-- **Coverage grid (§3.6 step 4):** `GET /api/stocks/{symbol}/coverage` returns the last `history_years` completed fiscal years × P&L (year), BS (instant) and CF (year) per basis.
+  - The wide fin_annual row is updated when it exists, or created from a fiscal-year-end balance sheet. It keeps its `source`.
+- **Coverage grid (§3.6 step 4):** `GET /api/stocks/{symbol}/coverage` returns the last `history_years` completed fiscal years × P&L (year), BS (instant) and CF (year) per basis. The `xbrl-coverage` CLI counts years the same way, so they agree:
+  - a P&L year is a full-year figure, filed or summed from four quarters (`+n derived`); quarters are reported apart (`n quarter(s)`) and never make a year on their own;
+  - a BS year is the balance sheet at the fiscal-year end.
+
+  Labels are Indian fiscal years named by the year they end in (FY24 = April 2023 to March 2024) in the grid, the fundamentals charts and the CLI.
   - Each cell lists its line-item sources, best first: XBRL, then PDF, then summed quarters. A cell with no line items shows its wide row's source (Screener, yfinance) when the statement's marker column (revenue / total assets / CFO) is filled.
   - Each cell also counts the values pending review. The stock page shows it as the "Data coverage" grid.
 - **Tools:** `python -m app.jobs pdf-inspect <report.pdf> [--fy YEAR]` prints the pages found, each value with its confidence, and the warnings, without a database. `python -m app.jobs pdf-reparse [--symbols …]` re-reads cached reports. Scanned reports (no text layer) are refused; OCR is not supported.

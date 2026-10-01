@@ -202,10 +202,19 @@ def test_rounding_noise_and_reparsing_add_no_versions(acme: Env) -> None:
 # ───────────── FY derived from quarters (SPEC §3.6 step 5) ─────────────
 
 
-def results_doc(start: str, end: str, periods: dict[tuple[str, str], dict[str, float]]) -> bytes:
+def results_doc(start: str, end: str, periods: dict[tuple[str, str], dict[str, float]],
+                instants: dict[str, dict[str, float]] | None = None) -> bytes:  # fmt: skip
     """A consolidated results filing for the reporting period start..end with the given
-    duration contexts ((start, end) → element → ₹ crore)."""
+    duration contexts ((start, end) → element → ₹ crore) and balance-sheet instants
+    (date → element → ₹ crore)."""
     ctxs, facts = [], []
+    for j, (day, values) in enumerate((instants or {}).items()):
+        cid = f"I{j}"
+        ctxs.append(f'<xbrli:context id="{cid}"><xbrli:entity><xbrli:identifier scheme="x">'
+                    f"500999</xbrli:identifier></xbrli:entity><xbrli:period><xbrli:instant>"
+                    f"{day}</xbrli:instant></xbrli:period></xbrli:context>")  # fmt: skip
+        facts += [f'<f:{n} contextRef="{cid}" unitRef="INR" decimals="-5">{round(v * CR)}</f:{n}>'
+                  for n, v in values.items()]  # fmt: skip
     for i, ((s_, e_), values) in enumerate(periods.items()):
         cid = f"C{i}"
         ctxs.append(f'<xbrli:context id="{cid}"><xbrli:entity><xbrli:identifier scheme="x">'
@@ -330,10 +339,48 @@ def test_coverage_reports_years_per_statement(
     assert main(["xbrl-coverage", "--symbols", "ACME,NOPE"], context_factory=lambda: acme.ctx) == 0
     lines = capsys.readouterr().out.splitlines()
     table = {tuple(line.split()[:3]): line for line in lines[1:]}
-    # P&L: filed FY2023-FY2024 (quarters and years), FY2025 from quarters (+ its derived year)
-    assert "FY2023-FY2025" in table[("ACME", "consolidated", "P&L")]
-    assert table[("ACME", "consolidated", "P&L")].rstrip().endswith("3 yr")
+    # P&L years as on the stock page grid: FY2023-FY2024 filed, FY2025 summed from its four
+    # quarters (derived); quarters are counted apart and never make a year on their own
+    pl = table[("ACME", "consolidated", "P&L")]
+    assert "FY2023-FY2025" in pl and "2 yr (+1 derived)" in pl and "quarter(s)" in pl
     assert "FY2023-FY2024" in table[("ACME", "consolidated", "BS")]  # 31 Mar 2024 and comparative
     assert "FY2023-FY2024" in table[("ACME", "consolidated", "CF")]
     assert ("ACME", "standalone", "P&L") not in table  # no standalone line items: left out
     assert table[("NOPE", "consolidated", "P&L")].split()[3] == "—"
+
+
+def test_a_year_end_balance_sheet_makes_a_year_row_without_its_pl(env: Env) -> None:
+    """A Q4 filing with only the quarter's P&L (no full-year context parsed) and the 31 March
+    balance sheet: the year row still exists (book value for valuation), its P&L left empty."""
+    env.nse.filings["ACME"] = [listing(f"{ARCH}/ACME_Q4FY24.xml", "2024-01-01", "2024-03-31",
+                                       datetime(2024, 5, 6, 18, 0, tzinfo=IST))]  # fmt: skip
+    env.nse.documents[f"{ARCH}/ACME_Q4FY24.xml"] = results_doc(
+        "2024-01-01",
+        "2024-03-31",
+        {("2024-01-01", "2024-03-31"): {"RevenueFromOperations": 1300.0, "ProfitBeforeTax": 260.0}},
+        instants={"2024-03-31": {"Assets": 9000.0, "EquityAttributableToOwnersOfParent": 2500.0}},
+    )
+    run(env)
+    with env.session() as s:
+        year = s.scalars(select(FinAnnual).where(FinAnnual.period_end == date(2024, 3, 31))).one()
+        quarter = s.scalars(select(FinQuarterly)).one()
+        iid = s.scalar(select(Instrument.id).where(Instrument.symbol == "ACME"))
+        annual, basis, source = load_financials(s, FinAnnual, iid, "fin_annual")
+    # wide tables are in ₹ crore (line items in ₹)
+    assert year.total_equity == pytest.approx(2500) and year.total_assets == pytest.approx(9000)
+    assert year.revenue is None and year.pat is None and year.fiscal_year == 2024
+    assert quarter.revenue == pytest.approx(1300)
+    assert len(annual) == 1 and basis == "consolidated" and source == "nse"
+    # a half-year balance sheet (30 September) is not a fiscal year: no year row from it alone
+    env.nse.filings["ACME"] = [listing(f"{ARCH}/ACME_Q2FY25.xml", "2024-07-01", "2024-09-30",
+                                       datetime(2024, 10, 20, 18, 0, tzinfo=IST))]  # fmt: skip
+    env.nse.documents[f"{ARCH}/ACME_Q2FY25.xml"] = results_doc(
+        "2024-07-01",
+        "2024-09-30",
+        {("2024-07-01", "2024-09-30"): {"RevenueFromOperations": 1400.0, "ProfitBeforeTax": 280.0}},
+        instants={"2024-09-30": {"Assets": 9500.0, "EquityAttributableToOwnersOfParent": 2600.0}},
+    )
+    run(env)
+    with env.session() as s:
+        ends = sorted(s.scalars(select(FinAnnual.period_end)))
+    assert ends == [date(2024, 3, 31)]

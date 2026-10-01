@@ -14,11 +14,12 @@ from app.data.results_store import PDF_SOURCE
 from app.db.enums import LineStatement, PeriodType, ReviewStatus, StatementType
 from app.db.models import FinAnnual, FinLineItem, Instrument, PdfLineCandidate
 
-# statement → the line items that count for it (P&L: quarter or year flows; balance sheet:
-# period-end balances; cash flow: year flows)
+# statement → the line items that make a fiscal year of it, the same for the CLI and the stock
+# page grid (P&L: full-year flows, filed or summed from four quarters; balance sheet:
+# balances; cash flow: year flows). Quarters alone don't make a year: they are counted apart.
 StatementName = Literal["P&L", "BS", "CF"]
 STATEMENTS: dict[StatementName, tuple[LineStatement, tuple[PeriodType, ...]]] = {
-    "P&L": (LineStatement.PL, (PeriodType.QUARTER, PeriodType.YEAR)),
+    "P&L": (LineStatement.PL, (PeriodType.YEAR,)),
     "BS": (LineStatement.BS, (PeriodType.INSTANT,)),
     "CF": (LineStatement.CF, (PeriodType.YEAR,)),
 }
@@ -33,12 +34,14 @@ class Coverage:
     latest_fy: int | None
     years: int  # distinct fiscal years with at least one filed (not derived) value
     derived_years: int  # fiscal years whose figures exist only as derived (summed quarters)
+    quarters: int = 0  # P&L only: quarters stored (they make a year only when all four are)
 
     def row(self) -> str:
         span = f"FY{self.earliest_fy}-FY{self.latest_fy}" if self.earliest_fy else "—"
         extra = f" (+{self.derived_years} derived)" if self.derived_years else ""
+        q = f"; {self.quarters} quarter(s)" if self.statement == "P&L" else ""
         return f"{self.symbol:<14} {self.basis.value:<13} {self.statement:<4} {span:<14} " \
-               f"{self.years:>3} yr{extra}"  # fmt: skip
+               f"{self.years:>3} yr{extra}{q}"  # fmt: skip
 
 
 def _fy(period_end: date, fy_end_month: int) -> int:
@@ -66,15 +69,25 @@ def coverage(session: Session, symbols: list[str], fy_end_month: int = 3) -> lis
                     )
                     .group_by(FinLineItem.period_end)
                 ).all()  # fmt: skip
-                filed = {_fy(pe, fy_end_month) for pe, only_derived in rows if not only_derived}
-                derived = {_fy(pe, fy_end_month) for pe, only_derived in rows if only_derived}
+                pairs: list[tuple[date, bool]] = [(pe, bool(d)) for pe, d in rows]
+                if name == "BS":  # a fiscal year's balance sheet is the one at its end
+                    pairs = [(pe, d) for pe, d in pairs if pe.month == fy_end_month]
+                filed = {_fy(pe, fy_end_month) for pe, only_derived in pairs if not only_derived}
+                derived = {_fy(pe, fy_end_month) for pe, only_derived in pairs if only_derived}
                 years = filed | derived
+                quarters = 0 if iid is None or name != "P&L" else session.scalar(
+                    select(func.count(func.distinct(FinLineItem.period_end)))
+                    .where(FinLineItem.instrument_id == iid, FinLineItem.basis == basis,
+                           FinLineItem.statement == statement,
+                           FinLineItem.period_type == PeriodType.QUARTER)
+                ) or 0  # fmt: skip
                 rows_out.append(Coverage(
                     symbol, basis, name, min(years, default=None), max(years, default=None),
-                    len(filed), len(derived - filed),
+                    len(filed), len(derived - filed), quarters,
                 ))  # fmt: skip
             per_basis[basis] = rows_out
-        found = [b for b, rows in per_basis.items() if any(r.earliest_fy for r in rows)]
+        found = [b for b, rows in per_basis.items()
+                 if any(r.earliest_fy or r.quarters for r in rows)]  # fmt: skip
         for basis in found or [StatementType.CONSOLIDATED]:
             out += per_basis[basis]
     return out

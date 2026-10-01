@@ -220,6 +220,7 @@ def sync_report(
         written += rebuild_wide(
             session, instrument_id=report.instrument_id, basis=basis, touched=touched,
             xmap=xmap, fetched_at=now, source=None, clear=clear,
+            fy_end_month=_fy_end_month(session, report.instrument_id, results_cfg),
         )  # fmt: skip
     return written
 

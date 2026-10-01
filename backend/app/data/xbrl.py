@@ -354,6 +354,10 @@ def has_pl(rec: Mapping[str, Any]) -> bool:
     return any(rec.get(k) is not None for k in ("revenue", "pbt", "pat"))
 
 
+def has_bs(rec: Mapping[str, Any]) -> bool:
+    return any(rec.get(k) is not None for k in ("total_assets", "total_equity"))
+
+
 def statement_type_from_text(text: str | None) -> StatementType | None:
     t = (text or "").strip().lower()
     if t.startswith("consolidated"):
