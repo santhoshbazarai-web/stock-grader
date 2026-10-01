@@ -43,6 +43,17 @@ jobs:
     hysteresis_pct: 0.002     # a level counts as crossed only once price clears it by 0.2%
     cooldown_minutes: 60      # the same alert does not fire again within this window
     telegram_timeout_s: 10
+  doctor:                     # make doctor (§3.10)
+    disk_warn_gb: 20
+    disk_fail_gb: 5
+    backup_max_age_hours: 26    # nightly pg_dump: older than a day and a bit → warning
+    worker_max_idle_hours: 26
+    bot_max_idle_minutes: 5     # the bot long-polls every 30 s
+    nse_timeout_s: 10
+  catch_up:                   # on worker start: run jobs missed while the machine was off (§3.10)
+    enabled: true
+    lookback_hours: 72          # a weekend away: Friday evening's jobs still run on Monday
+    skip: [refresh_queue, backtests, alerts_intraday]   # queues / intraday: next trigger is enough
   telegram_bot:               # read-only bot: /grade SYMBOL, /buyzone, /status (P23)
     enabled: true               # runs in the worker once TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID are set
     poll_timeout_s: 30          # long polling: one outbound request open at a time, no webhook

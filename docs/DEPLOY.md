@@ -1,5 +1,9 @@
 # Deploying Stock Grader
 
+> For a home PC (Docker Desktop on Windows/WSL2, phone access over Tailscale, nothing public),
+> use the home stack instead: README → "Home deployment" (`docker-compose.home.yml`,
+> `make home-up`, `make doctor`).
+
 This guide runs the production stack (`docker-compose.prod.yml`) on one Linux server.
 Caddy terminates HTTPS with an automatic Let's Encrypt certificate. Postgres is backed up
 every night, and all settings come from `.env.production`.

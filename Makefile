@@ -1,6 +1,7 @@
 .DEFAULT_GOAL := help
 .PHONY: help install up down logs migrate revision test check fmt demo e2e \
-	prod-config prod-up prod-down prod-logs prod-ps prod-backup prod-restore
+	prod-config prod-up prod-down prod-logs prod-ps prod-backup prod-restore \
+	home-config home-up home-down home-logs home-ps home-backup home-restore doctor doctor-local
 
 COMPOSE := docker compose
 BACKEND := cd backend &&
@@ -73,3 +74,34 @@ prod-backup: ## Take a Postgres backup now (into BACKUP_PATH, default ./backups)
 
 prod-restore: ## Restore a backup: make prod-restore file=backups/daily/stockgrader-....dump
 	ENV_FILE=.env.production deploy/restore.sh "$(file)"
+
+# ───────────── home (docker-compose.home.yml + .env.home, SPEC §3.10, README "Home deployment") ─────────────
+HOME_STACK := docker compose -f docker-compose.home.yml --env-file .env.home
+
+home-config: ## Validate the home compose file and .env.home
+	@test -f .env.home || { echo ".env.home missing: cp .env.home.example .env.home"; exit 1; }
+	$(HOME_STACK) config --quiet && echo "compose config OK"
+
+home-up: home-config ## Build and start (or update) the home stack on 127.0.0.1; migrations run first
+	$(HOME_STACK) up -d --build --wait
+
+home-down: ## Stop the home stack (data and backups are kept)
+	$(HOME_STACK) down
+
+home-logs: ## Tail home logs: make home-logs s=worker
+	$(HOME_STACK) logs -f --tail=200 $(s)
+
+home-ps: ## Home service status and health
+	$(HOME_STACK) ps
+
+home-backup: ## Take a Postgres backup now (into BACKUP_PATH)
+	$(HOME_STACK) exec -T backup /backup/backup.sh
+
+home-restore: ## Restore a backup: make home-restore file=/mnt/d/stock-grader-backups/daily/stockgrader-....dump
+	COMPOSE_FILE=docker-compose.home.yml ENV_FILE=.env.home deploy/restore.sh "$(file)"
+
+doctor: home-config ## Check the home stack: env, config, DB, Redis, broker tokens, NSE, disk, backups, worker
+	$(HOME_STACK) --profile tools run --rm --no-deps doctor
+
+doctor-local: ## The same checks against a local (non-Docker) setup, using backend/.env or the shell env
+	$(BACKEND) uv run python -m app.doctor

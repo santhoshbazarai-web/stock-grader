@@ -26,6 +26,85 @@ make migrate   # alembic upgrade head
 
 Health check: `curl localhost:8000/api/health`.
 
+## Home deployment (Windows / WSL2)
+
+The intended set-up (SPEC §3.10) is one home PC running Docker Desktop. The app is opened on
+that PC and reached from your phone over Tailscale. Nothing is exposed to the internet.
+
+```
+PC: http://127.0.0.1:3000 ─▶ web ─▶ api (127.0.0.1:8000, broker callbacks) ─┬─▶ db ◀── backup ─▶ D:\stock-grader-backups
+phone ──Tailscale (tailscale serve, HTTPS)──▶ 127.0.0.1:3000          worker ─┴─▶ redis
+```
+
+**1. Prerequisites (Windows 10/11)**
+- Install WSL2 with Ubuntu (`wsl --install`), and Docker Desktop with *Use the WSL 2 based
+  engine* and *WSL integration → Ubuntu* on.
+- In Docker Desktop, turn on *Start Docker Desktop when you sign in*. Every service has
+  `restart: unless-stopped`, so the stack comes back on its own after a reboot.
+- Clone the repo inside WSL (`~/stock-grader`), not under `/mnt/c`: builds and the database
+  are much faster on the Linux file system. Run the `make` commands from the WSL shell.
+- Set Windows not to sleep while the evening jobs run (18:00–23:30 IST), or accept the
+  catch-up below.
+
+**2. Configure.** Run `cp .env.home.example .env.home` and fill in:
+- `APP_PASSWORD` (12 or more characters), `FERNET_KEY` and `POSTGRES_PASSWORD`;
+- `BACKUP_PATH`: a folder on another drive, e.g. `/mnt/d/stock-grader-backups` (create it
+  first);
+- broker and Telegram credentials, all optional.
+
+`APP_ENV=home` refuses a public address, a weak password, the development database password
+and wrong redirect URIs at start-up.
+
+**3. Start and check.**
+```bash
+make home-up        # build, migrate, start: web on http://127.0.0.1:3000
+make doctor         # env, config, database + migrations, Redis, broker tokens, NSE, disk, backups, worker
+make demo           # optional synthetic stocks to explore (dev DB only; skip on real data)
+```
+`make doctor` prints ✓ / ! / ✗ per check and exits 1 on a failure. Warnings name the fix,
+e.g. "fyers: token expired — reconnect in Settings → Brokers". `make doctor-local` runs the
+same checks without Docker.
+
+**4. Missed jobs and backups.**
+- When the worker starts, it runs once each scheduled job missed while the PC was off or
+  asleep (within `jobs.yaml` → `catch_up.lookback_hours`, 72 h), in the order they were due.
+  It skips `alerts_intraday` and the queues.
+- `backup` takes a `pg_dump` every night at `BACKUP_AT` (02:00 IST) into
+  `BACKUP_PATH/daily`, with monthly copies. If the PC was off at 02:00, it takes one at
+  start-up instead.
+- Restore: `make home-restore file=/mnt/d/stock-grader-backups/daily/stockgrader-….dump`.
+  It takes a safety backup first. `make home-backup` takes one now.
+- Postgres data lives in the named volume `stock-grader-home_pgdata`, inside Docker's WSL2
+  disk.
+
+**5. Phone access with Tailscale.**
+- Never port-forward on your router. Install Tailscale on the PC (Windows app) and on your
+  phone, signed in to the same tailnet.
+- On the PC: `tailscale serve --bg 3000`. The app is then at
+  `https://<pc-name>.<tailnet>.ts.net` from your devices only. Leave Funnel off: Funnel would
+  publish it to the internet.
+- If you also connect brokers from the phone, set `WEB_URL=https://<pc-name>.<tailnet>.ts.net`
+  and `SESSION_COOKIE_SECURE=true` in `.env.home`, then `make home-up`. Logging in from the PC
+  then also goes through that address.
+
+**6. Broker redirect URIs.** Register exactly these in the developer consoles. They are the
+defaults in `.env.home`:
+- Fyers (myapi.fyers.in → your app → Redirect URL): `http://127.0.0.1:8000/api/brokers/fyers/callback`
+- Kite (developers.kite.trade → your app → Redirect URL): `http://127.0.0.1:8000/api/brokers/kite/callback`
+  (Kite is disabled in `providers.yaml` until you enable it.)
+
+If a console refuses a plain-http or 127.0.0.1 URL, use the Tailscale address. Register
+`https://<pc-name>.<tailnet>.ts.net/api/brokers/<broker>/callback` in the console, then set
+`FYERS_REDIRECT_URI` / `KITE_REDIRECT_URI` and `WEB_URL` to match in `.env.home`. The login
+then has to run from a device on your tailnet. Tokens expire daily, and the worker reminds
+you at 08:45 (Telegram, if set up).
+
+**7. Telegram** uses outbound calls only, so it needs no open port or public IP. See
+"Notifications and the Telegram bot" below.
+
+**Day to day:** `make home-ps` (health), `make home-logs s=worker`, `make home-down` (data
+and backups are kept). After `git pull`, run `make home-up` to rebuild, migrate and restart.
+
 ## Production
 
 `docker-compose.prod.yml` runs the production stack:
@@ -337,6 +416,7 @@ python -m app.jobs run events                            # announcements, pledge
 python -m app.jobs run reconcile --symbols TCS           # cross-source checks for one stock
 python -m app.jobs run bhavcopy_history [--full]         # build the NSE bhavcopy price history
 python -m app.jobs run broker_token_check                # remind if a broker token expired
+python -m app.doctor                                     # deployment checks (make doctor in Docker)
 python -m app.jobs pipeline-worker                       # only the on-demand pipeline loop (dev)
 python -m app.jobs run annual_reports --symbols TCS      # annual-report PDFs for BS/CF gap years
 python -m app.jobs pdf-inspect report.pdf --fy 2014      # what the PDF reader finds (no DB)

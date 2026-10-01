@@ -363,6 +363,33 @@ Implementation notes (`fundamentals/reconcile.py` (pure), `data/reconcile_store.
 - Broker redirect URIs are `http://127.0.0.1:8000/api/brokers/{fyers|kite}/callback`, registered in each developer console. Check that the broker accepts localhost redirects; if not, use the Tailscale HTTPS hostname.
 - Telegram uses outbound-only calls to the Bot API, so no public IP or webhook is needed. The bot token and chat ID live in `.env`. The bot also answers `/grade SYMBOL` and `/buyzone` read-only queries via long-polling.
 
+Implementation notes for the home deployment (P24; `docker-compose.home.yml`, `.env.home.example`, `jobs/catch_up.py`, `doctor.py`; README "Home deployment"):
+- **Stack:** db, redis, migrate (one-shot), api, worker, web and backup, plus a `doctor` service under the `tools` profile.
+  - Every long-running service has `restart: unless-stopped` and a healthcheck.
+  - Only `web` (127.0.0.1:3000) and `api` (127.0.0.1:8000, the broker callbacks) are published, bound to loopback; Postgres and Redis publish nothing.
+  - Postgres data is in a named volume.
+- **`APP_ENV=home`** refuses at start-up:
+  - a `WEB_URL` that is neither loopback nor Tailscale (`*.ts.net`, 100.64.0.0/10);
+  - a cookie `Secure` flag that doesn't match the scheme;
+  - an `APP_PASSWORD` under 12 characters, or the development database password;
+  - redirect URIs other than `http://127.0.0.1:8000/api/brokers/<broker>/callback` or `<WEB_URL>/api/brokers/<broker>/callback`.
+- **Backups:** `pg_dump` (custom format, verified with `pg_restore --list`) at `BACKUP_AT` (02:00 IST) into `BACKUP_PATH`. That path is required, meant for another drive.
+  - The 14 newest daily dumps and 12 monthly ones are kept.
+  - A backup is taken at start-up when the last is older than a day.
+  - `make home-restore` restores, taking a safety backup first.
+- **Catch-up on worker start:** for each implemented, scheduled job not in `catch_up.skip`, the latest cron fire time within `lookback_hours` (72) is compared with the job's latest `job_runs` start.
+  - A job with no run since that time is missed. Missed jobs run once each, in due order, through `run_job` (Redis lock, `job_runs` row), in a background thread, so the scheduler starts at once.
+  - Seasonal jobs skip themselves off-season.
+  - The default skip list is `refresh_queue`, `backtests` and `alerts_intraday`.
+- **`make doctor`** (`python -m app.doctor`; `--json`) checks the following, each independently (a crashing check is reported as its own failure). It prints ✓ / ! / ✗ and exits 1 on any failure:
+  - env (settings load, password length, database password, credentials for enabled brokers and Telegram) and config validity;
+  - Postgres connection and migration head, and Redis;
+  - each enabled broker's token;
+  - NSE site / archives reachability (a warning only);
+  - free disk at the raw-data and backup paths (`jobs.yaml` → `doctor` thresholds);
+  - the last backup's age, the last job run (is the worker alive?) and the Telegram bot heartbeat.
+  - The compose `doctor` service runs it with the backup folder mounted read-only.
+
 Implementation notes for notifications and the Telegram bot (P23; `alerts/notify.py`, `alerts/bot.py`, `api/notifications.py`; `jobs.yaml` → `telegram_bot`):
 - **Both channels:** every notification is created by `notify()`. This covers price alerts (P14), results changes (§3.8), broker-token reminders (§3.3) and tests.
   - It is stored in `notifications`. When the token and chat ID are set, it is also sent to Telegram, and the delivery outcome (`sent` / `failed` / `disabled`) is recorded.
@@ -800,8 +827,8 @@ Auth: a single user with a password login (NextAuth credentials or FastAPI sessi
 | `reconcile` | After each pipeline (a pipeline step) + nightly 23:00 for stocks with new filings | Cross-source checks (§3.9) |
 | `broker_token_check` | 08:45 weekdays | In-app + Telegram reminder if an enabled broker's token is expired (§3.3) |
 | `bhavcopy_history` | Nightly 01:30 (implementation addition) | Backfill the NSE bhavcopy OHLCV history, the price fallback after the brokers (§3.2) |
-| `backup` | Daily 02:00 | pg_dump |
-| `catch_up` | On worker start | Run jobs missed while the machine was off |
+| `backup` | Daily 02:00 (`BACKUP_AT`; at start-up if the last is over a day old) | pg_dump to `BACKUP_PATH` (home: another drive) |
+| `catch_up` | On worker start | Run jobs missed while the machine was off: once each, in due order, within `catch_up.lookback_hours` (§3.10 notes) |
 
 Every job writes to `job_runs`, uses a Redis lock so it doesn't run twice, and is idempotent (upserts).
 

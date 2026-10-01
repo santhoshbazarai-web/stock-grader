@@ -26,8 +26,9 @@ class Settings(BaseSettings):
         hide_input_in_errors=True,
     )
 
-    # "production" turns on the deployment checks in ``_production_checks`` (fail fast).
-    app_env: Literal["development", "production"] = "development"
+    # "production" (a public server behind Caddy) and "home" (SPEC §3.10: localhost plus
+    # Tailscale) turn on the deployment checks below (fail fast).
+    app_env: Literal["development", "production", "home"] = "development"
 
     database_url: str = "postgresql+psycopg://stockgrader:stockgrader@localhost:5432/stockgrader"
     redis_url: str = "redis://localhost:6379/0"
@@ -112,8 +113,58 @@ class Settings(BaseSettings):
             raise ValueError("APP_ENV=production: " + "; ".join(problems))
         return self
 
+    @model_validator(mode="after")
+    def _home_checks(self) -> "Settings":
+        """SPEC §3.10 home deployment: reachable only on this machine or the tailnet (never
+        port-forwarded), with real secrets and the broker redirect URIs the consoles expect."""
+        if self.app_env != "home":
+            return self
+        problems: list[str] = []
+        web = urlsplit(self.web_url)
+        if not web.hostname or not _private_host(web.hostname):
+            problems.append(
+                "WEB_URL must be http://127.0.0.1:3000 or your Tailscale address "
+                "(https://<machine>.<tailnet>.ts.net); never a public one"
+            )
+        elif web.scheme == "https" and not self.session_cookie_secure:
+            problems.append("SESSION_COOKIE_SECURE must be true when WEB_URL is https")
+        elif web.scheme == "http" and self.session_cookie_secure:
+            problems.append(
+                "SESSION_COOKIE_SECURE must be false when WEB_URL is plain http "
+                "(the browser would drop the session cookie)"
+            )
+        if len(self.app_password.get_secret_value()) < MIN_PROD_PASSWORD:
+            problems.append(f"APP_PASSWORD must be at least {MIN_PROD_PASSWORD} characters")
+        if urlsplit(self.database_url).password in (None, "", "stockgrader"):
+            problems.append("DATABASE_URL must use a real password (not the development default)")
+        for broker, uri in (("fyers", self.fyers_redirect_uri), ("kite", self.kite_redirect_uri)):
+            allowed = {HOME_REDIRECT.format(broker=broker),
+                       f"{self.web_url.rstrip('/')}/api/brokers/{broker}/callback"}  # fmt: skip
+            if uri is not None and uri not in allowed:
+                problems.append(
+                    f"{broker.upper()}_REDIRECT_URI must be one of "
+                    f"{sorted(allowed)} (registered exactly so in the console)"
+                )
+        if problems:
+            raise ValueError("APP_ENV=home: " + "; ".join(problems))
+        return self
+
 
 MIN_PROD_PASSWORD = 12
+HOME_REDIRECT = "http://127.0.0.1:8000/api/brokers/{broker}/callback"  # SPEC §3.10
+
+
+def _private_host(host: str) -> bool:
+    """Loopback, or a Tailscale name / address: what a home deployment may be reached at."""
+    import ipaddress
+
+    if host in ("localhost",) or host.endswith(".ts.net"):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return ip.is_loopback or ip in ipaddress.ip_network("100.64.0.0/10")  # Tailscale CGNAT
 
 
 def config_dir_from_env() -> Path:
