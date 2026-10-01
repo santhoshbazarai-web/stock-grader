@@ -207,6 +207,9 @@ class IndianApiClient:
     def configured(self) -> bool:
         return bool(self._key) and self._cfg.enabled
 
+    def used_this_month(self) -> int | None:
+        return self._quota.used() if self._quota is not None else None
+
     def _fail(self, exc_type: type[ProviderError], msg: str) -> ProviderError:
         return exc_type(scrub(msg, self._key))
 

@@ -349,10 +349,11 @@ def wide_record(items: Mapping[str, ItemValue], table: Table, xmap: XbrlMap) -> 
         shares, equity = rec.get("shares_diluted_cr"), rec.get("total_equity")
         if shares and equity is not None and shares > 0:
             rec["book_value_per_share"] = equity / shares
+    # codes outside xbrl_map.yaml (vendor-only line items) never reach the wide row
     extra = {
         code: v.value / CRORE if xmap.items[code].unit == "amount" else v.value
         for code, v in items.items()
-        if xmap.items[code].target == "extra"
+        if code in xmap.items and xmap.items[code].target == "extra"
     }
     rec["extra"] = extra or None
     return rec
@@ -370,7 +371,7 @@ def assemble_wide(
     else:
         chosen = {**by_type.get("year", {}), **by_type.get("instant", {})}
         for code, v in by_type.get("quarter", {}).items():
-            if xmap.items[code].carry_to_year:
+            if code in xmap.items and xmap.items[code].carry_to_year:
                 chosen.setdefault(code, v)
     return wide_record(chosen, table, xmap)
 

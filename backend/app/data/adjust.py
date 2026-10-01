@@ -20,6 +20,7 @@ are still correct, because later actions do not depend on it.
 """
 
 from dataclasses import dataclass, field
+from datetime import date
 
 import numpy as np
 import pandas as pd
@@ -200,7 +201,11 @@ def share_multipliers(
 
 
 def restate_per_share(
-    fin: pd.DataFrame, actions: pd.DataFrame, config: AdjustmentConfig | None = None
+    fin: pd.DataFrame,
+    actions: pd.DataFrame,
+    config: AdjustmentConfig | None = None,
+    *,
+    current: set[date] | None = None,
 ) -> tuple[pd.DataFrame, list[str]]:
     """Per-share figures and share counts on today's share basis, like adjusted prices.
 
@@ -220,6 +225,9 @@ def restate_per_share(
     factor = pd.Series(1.0, index=out.index)
     for ex, mult, _ in mults:
         factor[(known < ex).to_numpy()] *= mult
+    if current:  # rows whose source already reports today's share basis
+        keep = [pd.Timestamp(i).date() in current for i in out.index]
+        factor[keep] = 1.0
     changed = factor != 1.0
     if not changed.any():
         return out, []

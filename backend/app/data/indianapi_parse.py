@@ -433,6 +433,20 @@ def map_statements(stock: Any | None, hists: Mapping[str, Any], amap: IndianApiM
                         out.differences.append(Difference(code, end, "quarter", have.value, q, r,
                                                           "quarter_results"))  # fmt: skip
 
+    # 4. labelled fallbacks (e.g. pat ← profit after tax incl. minority interest)
+    for code, alt in amap.fallbacks.items():
+        used = []
+        for (c, end, kind), v in list(chosen.items()):
+            if c == alt and (code, end, kind) not in chosen:
+                tag = f"{v.origin} (as {code}: {alt})"
+                chosen[(code, end, kind)] = VendorValue(end, kind, v.statement, code, v.value,
+                                                        v.unit, tag)  # fmt: skip
+                if kind == "year":
+                    used.append(fiscal_year_of(end))
+        if used:
+            out.notes.append(f"{code} for FY{min(used)}-FY{max(used)} is {alt} (the vendor's "
+                             f"history gives no separate {code})")  # fmt: skip
+
     out.values = sorted(chosen.values(), key=lambda v: (v.period_end, v.item_code, v.period_type))
     return out
 

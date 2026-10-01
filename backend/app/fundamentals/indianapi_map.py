@@ -95,6 +95,7 @@ class IndianApiMap(_Strict):
     zero_means_missing: list[str] = Field(default_factory=list)
     models: dict[Model, dict[str, VendorItem]]
     key_metrics: dict[str, KeyMetric] = Field(default_factory=dict)
+    fallbacks: dict[str, str] = Field(default_factory=dict)  # item → item used when missing
 
     @model_validator(mode="after")
     def _check(self) -> "IndianApiMap":

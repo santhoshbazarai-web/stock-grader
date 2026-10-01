@@ -192,6 +192,13 @@ models:
                      stock: {section: CAS, keys: [TotalCashDividendsPaid], magnitude: true}}
     free_cash_flow: {statement: cf, unit: amount, hist: {stats: cashflow, labels: [Free Cash Flow]}}
 
+# A year with no figure for the key item uses the value item instead, labelled in the stored
+# tag. /historical_stats gives only profit after tax including minority interest ("Net
+# Profit"); before /stock's years that is the PAT used (minority shares are small for most
+# companies; the tag and a report note say so).
+fallbacks:
+  pat: profit_after_tax
+
 # keyMetrics read for cross-checks against our own derived values (never stored).
 key_metrics:
   book_value_per_share: {group: persharedata, key: bookValuePerShareMostRecentFiscalYear}

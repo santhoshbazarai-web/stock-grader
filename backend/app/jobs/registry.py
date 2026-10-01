@@ -7,6 +7,7 @@ from app.jobs.backtests import backtests
 from app.jobs.brokers import bhavcopy_history, broker_token_check
 from app.jobs.events import events, results_watch
 from app.jobs.fundamentals import results_backfill, shareholding
+from app.jobs.indianapi import fundamentals_indianapi
 from app.jobs.industry import industry_classification
 from app.jobs.market import corporate_actions, eod_prices, index_constituents, nse_bhavcopy
 from app.jobs.reconcile import reconcile_job
@@ -71,6 +72,11 @@ REGISTRY: dict[JobName, JobSpec] = {
             JobName.INDUSTRY_CLASSIFICATION,
             "Industry classification → sector model (industries.yaml)",
             industry_classification,
+        ),
+        JobSpec(
+            JobName.FUNDAMENTALS_INDIANAPI,
+            "Indian API statements, 10+ years (paid key, monthly budget)",
+            fundamentals_indianapi,
         ),
         JobSpec(JobName.THESIS, "LLM thesis for watchlist reports (local model, §8a)", thesis),
     )

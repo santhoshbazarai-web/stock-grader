@@ -59,6 +59,9 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--full", action="store_true", help="full-history backfill")
     run.add_argument("--date", type=date.fromisoformat, default=None, help="YYYY-MM-DD")
     run.add_argument("--force", action="store_true", help="ignore filing-season windows")
+    run.add_argument("--all-universe", action="store_true",
+                     help="metered jobs (fundamentals_indianapi): every universe stock, until "
+                          "the monthly budget stops it")  # fmt: skip
     verify = sub.add_parser(
         "verify-adjustment", help="check stored prices of a symbol around its splits/bonuses"
     )
@@ -314,6 +317,7 @@ def _run(ctx: JobContext, args: argparse.Namespace) -> int:
         full=args.full,
         day=args.date,
         force=args.force,
+        all_universe=args.all_universe,
     )
     try:
         record = run_job(REGISTRY[name], ctx, options)

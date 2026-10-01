@@ -41,6 +41,9 @@ PDF_SOURCE = "annual_report_pdf"
 # Source of figures from the development offline exchange (app.devtools.offline_exchange): XBRL
 # like an exchange filing, but synthetic, so it is labelled as such everywhere.
 OFFLINE_SOURCE = Provider.OFFLINE.value
+# Indian API (vendor-reclassified statements): a gap filler below exchange-filed and
+# annual-report figures; an exchange or PDF figure for the same key removes it.
+VENDOR_SOURCE = Provider.INDIANAPI.value
 
 FinModel = type[FinAnnual] | type[FinQuarterly]
 
@@ -122,6 +125,7 @@ def record_line_items(
                 "map_version": filing.map_version,
                 "annual_report_id": None,
                 "confidence": None,
+                "vendor_reclassified": False,
             }
     return _apply_versions(session, instrument_id, basis, observations, cfg)
 
@@ -157,6 +161,8 @@ def _apply_versions(
     for key, obs in observations.items():
         old = existing.get(key, [])
         timeline = [_as_dict(r) for r in old if not _replaced_by(r, obs)]
+        if obs["source"] != VENDOR_SOURCE:  # filed or PDF figures replace vendor ones
+            timeline = [r for r in timeline if r["source"] != VENDOR_SOURCE]
         if obs["source"] != PDF_SOURCE and not obs["derived"]:
             if any(r["source"] == PDF_SOURCE for r in timeline):
                 superseded.append(key)
@@ -221,7 +227,7 @@ def _as_dict(r: FinLineItem) -> dict[str, Any]:
     cols = ("instrument_id", "isin", "period_end", "period_type", "statement", "basis",
             "item_code", "value_inr", "unit", "source", "filing_id", "announced_at",
             "usable_from", "derived", "tag", "map_version", "annual_report_id",
-            "confidence")  # fmt: skip
+            "confidence", "vendor_reclassified")  # fmt: skip
     return {c: getattr(r, c) for c in cols}
 
 
@@ -273,6 +279,7 @@ def rebuild_wide(
     source: str | None = EXCHANGE_SOURCE,
     clear: frozenset[str] = frozenset(),
     fy_end_month: int | None = None,
+    keep_sources: frozenset[str] = frozenset(),
 ) -> list[str]:
     """Rewrite fin_quarterly / fin_annual rows from the latest line-item versions for every
     period the filing touched (analysis uses the latest version). A quarter needs its P&L; a
@@ -288,8 +295,8 @@ def rebuild_wide(
     written = []
     for end, table in sorted(targets, key=lambda t: (t[0], t[1] != "fin_quarterly")):
         model: FinModel = FinQuarterly if table == "fin_quarterly" else FinAnnual
-        rec, first = _wide_from_items(latest_items(session, instrument_id, basis, end), table,
-                                      xmap)  # fmt: skip
+        latest = latest_items(session, instrument_id, basis, end)
+        rec, first = _wide_from_items(latest, table, xmap)
         old = _existing(session, model, instrument_id, basis, end)
         year_end_bs = (table == "fin_annual" and fy_end_month is not None
                        and end.month == fy_end_month and has_bs(rec))  # fmt: skip
@@ -299,7 +306,15 @@ def rebuild_wide(
             "instrument_id": instrument_id,
             "statement_type": basis,
             "period_end": end,
-            "source": source or (old.source if old is not None else PDF_SOURCE),
+            # a row of a better source (keep_sources) keeps its source label
+            "source": (
+                old.source
+                if old is not None and (source is None or old.source in keep_sources)
+                else source or PDF_SOURCE
+            ),
+            "vendor_reclassified": any(
+                r.vendor_reclassified for per in latest.values() for r, _ in per.values()
+            ),
             "fetched_at": fetched_at,
             "announcement_date": _earliest(first, old.announcement_date if old else None),
             **{c: rec[c] for c in fields_for(table) if rec.get(c) is not None},
@@ -402,6 +417,7 @@ def derive_years(
                 "map_version": max((r.map_version or 0) for r in rows) or None,
                 "annual_report_id": None,
                 "confidence": None,
+                "vendor_reclassified": False,
             }
     return _apply_versions(session, instrument_id, basis, observations, cfg)
 

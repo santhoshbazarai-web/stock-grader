@@ -960,6 +960,7 @@ class JobName(StrEnum):
     BROKER_TOKEN_CHECK = "broker_token_check"
     THESIS = "thesis"
     INDUSTRY_CLASSIFICATION = "industry_classification"
+    FUNDAMENTALS_INDIANAPI = "fundamentals_indianapi"
 
 
 class Season(_Strict):
@@ -1016,6 +1017,13 @@ class CatchUpConfig(_Strict):
         if unknown:
             raise ValueError(f"catch_up.skip: unknown jobs {sorted(unknown)}")
         return self
+
+
+class FundamentalsIndianApiConfig(_Strict):
+    """fundamentals_indianapi job: bulk statements from the Indian API (paid, metered)."""
+
+    max_stocks_per_run: PositiveInt  # scheduled runs; --symbols / --all-universe ignore it
+    max_name_attempts: PositiveInt  # vendor names tried per stock (each costs a call)
 
 
 class IndustryClassificationConfig(_Strict):
@@ -1238,6 +1246,7 @@ class JobsConfig(_Strict):
     telegram_bot: TelegramBotConfig
     thesis: ThesisConfig
     industry_classification: IndustryClassificationConfig
+    fundamentals_indianapi: FundamentalsIndianApiConfig
     catch_up: CatchUpConfig
     doctor: DoctorConfig
     backtest: BacktestConfig

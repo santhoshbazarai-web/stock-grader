@@ -618,7 +618,14 @@ export type PdfCandidate = {
 
 export type ReviewSummary = { pending: number; reports_parsed: number; reports_failed: number };
 
-export type CoverageSource = "xbrl" | "pdf" | "derived" | "screener" | "yfinance" | "nse";
+export type CoverageSource =
+  | "xbrl"
+  | "pdf"
+  | "derived"
+  | "indianapi"
+  | "screener"
+  | "yfinance"
+  | "nse";
 
 export type CoverageCell = {
   fiscal_year: number;

@@ -149,9 +149,14 @@ def test_hdfcbank_bank_model_twelve_years(hdfc: Any) -> None:
     assert crore(hdfc, "deposits", FY[2015], "instant") == pytest.approx(450284)
     assert crore(hdfc, "total_equity", FY[2015], "instant") == pytest.approx(501 + 62653)
     assert crore(hdfc, "cfo", FY[2015]) == pytest.approx(-21281)
+    # before /stock's years, pat is the vendor's Net Profit (incl. minority), labelled
+    assert crore(hdfc, "pat", FY[2015]) == pytest.approx(10703)
+    tag = next(v.origin for v in hdfc.values if (v.item_code, v.period_end) == ("pat", FY[2015]))
+    assert tag == "hist:yoy_results:Net Profit (as pat: profit_after_tax)"
+    assert "pat for FY2015-FY2019 is profit_after_tax" in " ".join(hdfc.notes)
     # not in /historical_stats and before /stock's years: missing, never 0 (rule 1)
-    assert hdfc.get("pat", FY[2015], "year") is None
     assert hdfc.get("advances", FY[2015], "instant") is None
+    assert hdfc.get("loan_loss_provisions", FY[2015], "year") is None
     # the vendor's 0 depreciation in bank quarters means "not given"
     assert hdfc.get("depreciation", date(2025, 6, 30), "quarter") is None
     assert all(v.value != 0 or v.item_code not in AMAP.zero_means_missing for v in hdfc.values)

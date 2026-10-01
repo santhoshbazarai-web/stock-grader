@@ -27,6 +27,7 @@ jobs:
     broker_token_check: "45 8 * * mon-fri"   # morning reminder when a broker token expired
     thesis: "15 0 * * *"                     # LLM thesis for watchlist reports (after valuation_scores)
     industry_classification: "40 7 * * 6"    # industry → sector model (industries.yaml), Saturdays
+    fundamentals_indianapi: "50 6 * * *"     # Indian API statements, a few stocks a night (budget)
   universe_index: NIFTY500    # symbols = current members of this index + watchlist
   constituent_indices: [NIFTY500, NIFTY50, NIFTYBANK, NIFTYIT, NIFTYPHARMA, NIFTYFMCG,
                         NIFTYAUTO, NIFTYMETAL, NIFTYREALTY]
@@ -67,6 +68,9 @@ jobs:
     status_jobs: [eod_prices, nse_bhavcopy, technicals, valuation_scores, results_watch, events,
                   alerts_intraday]
     max_reply_chars: 3900
+  fundamentals_indianapi:     # bulk statements from the Indian API (needs INDIANAPI_KEY)
+    max_stocks_per_run: 10    # 5 calls each: ~50 calls a night stays inside a 500/month budget
+    max_name_attempts: 3      # vendor names tried per stock (cached name, master name, symbol)
   industry_classification:    # basic industry → sectors.yaml model (banks, NBFCs, insurers...)
     refresh_days: 90          # classifications rarely change; unclassified stocks go first
     max_per_run: 200          # ~200 s at NSE's 1 request/s

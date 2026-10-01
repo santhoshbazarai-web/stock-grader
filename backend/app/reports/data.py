@@ -95,6 +95,13 @@ def load_financials(
     return empty, None, None
 
 
+def vendor_rows(session: Session, model: type[FinAnnual] | type[FinQuarterly],
+                iid: int) -> set[date]:  # fmt: skip
+    """Period ends whose wide row comes from the Indian API (per-share figures current)."""
+    return set(session.scalars(select(model.period_end).where(
+        model.instrument_id == iid, model.source == "indianapi")))  # fmt: skip
+
+
 def load_share_actions(session: Session, iid: int) -> pd.DataFrame:
     rows = session.execute(
         select(CorporateAction.ex_date, CorporateAction.action_type, CorporateAction.ratio_old,
@@ -204,8 +211,13 @@ def load_stock_data(
     quarterly, _, _ = load_financials(session, FinQuarterly, inst.id, "fin_quarterly")
     # per-share figures on today's share basis, like the adjusted prices (rule 6)
     actions = load_share_actions(session, inst.id)
-    annual, restated = restate_per_share(annual, actions, config.providers.adjustment)
-    quarterly, _ = restate_per_share(quarterly, actions, config.providers.adjustment)
+    # the Indian API's per-share figures are already on today's share basis (its FY2015 EPS
+    # for HDFCBANK implies today's share count): never restated again
+    adj = config.providers.adjustment
+    current_a = vendor_rows(session, FinAnnual, inst.id)
+    current_q = vendor_rows(session, FinQuarterly, inst.id)
+    annual, restated = restate_per_share(annual, actions, adj, current=current_a)
+    quarterly, _ = restate_per_share(quarterly, actions, adj, current=current_q)
     shp, shp_source = load_shareholding(session, inst.id)
     price_source = session.scalar(
         select(PriceDaily.source)

@@ -35,13 +35,15 @@ class Coverage:
     years: int  # distinct fiscal years with at least one filed (not derived) value
     derived_years: int  # fiscal years whose figures exist only as derived (summed quarters)
     quarters: int = 0  # P&L only: quarters stored (they make a year only when all four are)
+    sources: tuple[str, ...] = ()  # where the years' figures come from, best first (as the grid)
 
     def row(self) -> str:
         span = f"FY{self.earliest_fy}-FY{self.latest_fy}" if self.earliest_fy else "—"
         extra = f" (+{self.derived_years} derived)" if self.derived_years else ""
         q = f"; {self.quarters} quarter(s)" if self.statement == "P&L" else ""
+        src = f"  [{', '.join(self.sources)}]" if self.sources else ""
         return f"{self.symbol:<14} {self.basis.value:<13} {self.statement:<4} {span:<14} " \
-               f"{self.years:>3} yr{extra}{q}"  # fmt: skip
+               f"{self.years:>3} yr{extra}{q}{src}"  # fmt: skip
 
 
 def _fy(period_end: date, fy_end_month: int) -> int:
@@ -60,7 +62,8 @@ def coverage(session: Session, symbols: list[str], fy_end_month: int = 3) -> lis
             rows_out = []
             for name, (statement, types) in STATEMENTS.items():
                 rows = [] if iid is None else session.execute(
-                    select(FinLineItem.period_end, func.bool_and(FinLineItem.derived))
+                    select(FinLineItem.period_end, func.bool_and(FinLineItem.derived),
+                           func.array_agg(func.distinct(FinLineItem.source)))
                     .where(
                         FinLineItem.instrument_id == iid,
                         FinLineItem.basis == basis,
@@ -69,9 +72,11 @@ def coverage(session: Session, symbols: list[str], fy_end_month: int = 3) -> lis
                     )
                     .group_by(FinLineItem.period_end)
                 ).all()  # fmt: skip
-                pairs: list[tuple[date, bool]] = [(pe, bool(d)) for pe, d in rows]
+                pairs: list[tuple[date, bool]] = [(pe, bool(d)) for pe, d, _ in rows]
+                srcs = {pe: set(s or []) for pe, _, s in rows}
                 if name == "BS":  # a fiscal year's balance sheet is the one at its end
                     pairs = [(pe, d) for pe, d in pairs if pe.month == fy_end_month]
+                used = {_LINE_SOURCES.get(x, x) for pe, _ in pairs for x in srcs.get(pe, ())}
                 filed = {_fy(pe, fy_end_month) for pe, only_derived in pairs if not only_derived}
                 derived = {_fy(pe, fy_end_month) for pe, only_derived in pairs if only_derived}
                 years = filed | derived
@@ -83,7 +88,7 @@ def coverage(session: Session, symbols: list[str], fy_end_month: int = 3) -> lis
                 ) or 0  # fmt: skip
                 rows_out.append(Coverage(
                     symbol, basis, name, min(years, default=None), max(years, default=None),
-                    len(filed), len(derived - filed), quarters,
+                    len(filed), len(derived - filed), quarters, _ordered(used),
                 ))  # fmt: skip
             per_basis[basis] = rows_out
         found = [b for b, rows in per_basis.items()
@@ -104,7 +109,13 @@ _LINE_SOURCES = {
     PDF_SOURCE: "pdf",
     "derived": "derived",
 }
-SOURCE_ORDER = ("xbrl", "pdf", "derived", "screener", "yfinance", "nse", "offline")
+SOURCE_ORDER = ("xbrl", "pdf", "derived", "indianapi", "screener", "yfinance", "nse", "offline")
+
+
+def _ordered(sources: set[str]) -> tuple[str, ...]:
+    return tuple(sorted(sources, key=lambda s: SOURCE_ORDER.index(s) if s in SOURCE_ORDER else 99))
+
+
 # a wide fin_annual column that shows the statement is present
 _WIDE_MARKER: dict[StatementName, str] = {"P&L": "revenue", "BS": "total_assets", "CF": "cfo"}
 _NAMES: dict[LineStatement, StatementName] = {
@@ -221,10 +232,12 @@ def coverage_grid(
 
 
 def years_summary(session: Session, symbol: str, fy_end_month: int) -> str:
-    """``P&L 3 yr, BS 3 yr, CF 0 yr (consolidated)`` for the pipeline panel: fiscal years per
-    statement (filed + summed from quarters) of the basis the report uses (consolidated when
-    it has anything, rule 5)."""
+    """``P&L 12 yr [indianapi], BS 3 yr [xbrl, indianapi], CF 0 yr (consolidated)`` for the
+    pipeline panel: fiscal years per statement (filed + summed from quarters) and their
+    sources, for the basis the report uses (consolidated when it has anything, rule 5)."""
     rows = coverage(session, [symbol], fy_end_month)
     basis = rows[0].basis if rows else StatementType.CONSOLIDATED
-    parts = [f"{r.statement} {r.years + r.derived_years} yr" for r in rows if r.basis == basis]
+    parts = [f"{r.statement} {r.years + r.derived_years} yr"
+             + (f" [{', '.join(r.sources)}]" if r.sources else "")
+             for r in rows if r.basis == basis]  # fmt: skip
     return f"{', '.join(parts)} ({basis.value})" if parts else "no statements stored"
