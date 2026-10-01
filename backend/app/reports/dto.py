@@ -158,6 +158,23 @@ class PeerStats(_Dto):
     eps_growth: float | None
 
 
+class ShareholdingDto(_Dto):
+    """The latest shareholding pattern on file, with where and when it was filed."""
+
+    source: str | None
+    period_end: date = Field(description="Quarter the pattern is for")
+    filing_date: date | None = Field(description="When it was filed (point in time)")
+    promoter_pct: float | None
+    promoter_pledge_pct: float | None = Field(description="% of the promoter holding pledged")
+    fii_pct: float | None
+    dii_pct: float | None
+    mf_pct: float | None
+    public_pct: float | None
+    promoter_change_pp: float | None = Field(description="vs the previous quarter, in pp")
+    pledge_prev_pct: float | None
+    quarters: int = Field(description="Patterns on file")
+
+
 class StockReport(_Dto):
     symbol: str
     name: str | None
@@ -180,6 +197,7 @@ class StockReport(_Dto):
     red_flags: list[str]
     data_gaps: list[str]
     thesis: str | None = None
+    shareholding: ShareholdingDto | None = None
     reconciliation_issues: list[str] = Field(
         default_factory=list,
         description="Open cross-source differences (SPEC §3.9); they lower the confidence",

@@ -20,9 +20,10 @@ from app.api.schemas import (
     ReviewRequest,
     ReviewSummary,
 )
+from app.core.config import SectorModel
 from app.data.annual_report import AnnualReportError, unpack
 from app.data.annual_report_store import CR, ingest_report, review
-from app.data.coverage import coverage_grid
+from app.data.coverage import coverage_grid, files_as_bank
 from app.data.raw_store import RawStore, RawStoreError
 from app.data.results_ingest import cache_raw, upload_document_id
 from app.data.results_store import _fy_end_month
@@ -310,13 +311,18 @@ def stock_coverage(session: SessionDep, config: ConfigDep, symbol: str) -> Cover
     today = datetime.now(UTC).date()
     last = today.year if today.month > month else today.year - 1
     years = list(range(last - config.providers.history_years + 1, last + 1))
-    grids = coverage_grid(session, iid, years, month)
+    sector = session.scalar(select(Instrument.sector).where(Instrument.id == iid))
+    model = config.sectors.for_sector(sector).model if sector in config.sectors.root else None
+    bank = model in (SectorModel.BANK, SectorModel.INSURANCE) or files_as_bank(session, iid)
+    cf_from = config.providers.nse.results.cash_flow_from_fy
+    grids = coverage_grid(session, iid, years, month, bank=bank, cash_flow_from_fy=cf_from)
     return CoverageGridOut(
         symbol=sym, years=years, fy_end_month=month,
         bases=[CoverageBasis(
             basis=g.basis.value,
             cells=[CoverageCellOut(fiscal_year=c.fiscal_year, statement=c.statement,
                                    sources=c.sources, items=c.items,
-                                   pending_review=c.pending_review) for c in g.cells],
+                                   pending_review=c.pending_review, note=c.note)
+                   for c in g.cells],
         ) for g in grids],
     )  # fmt: skip

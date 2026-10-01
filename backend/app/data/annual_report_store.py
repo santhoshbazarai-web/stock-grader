@@ -52,6 +52,21 @@ DECIDED = (ReviewStatus.ACCEPTED, ReviewStatus.CORRECTED, ReviewStatus.REJECTED)
 Key = tuple[Any, ...]  # (period_end, period_type, statement, item_code)
 
 
+def best_per_key(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One candidate per conflict key (basis, statement, period end, item): a report can show
+    the same line twice (e.g. the balance sheet and a schedule), and Postgres refuses an
+    INSERT ... ON CONFLICT that touches one row twice (CardinalityViolation). The highest
+    confidence wins; at equal confidence, a value beats none, then the first one read."""
+    best: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for r in rows:
+        key = (r["basis"], r["statement"], r["period_end"], r["item_code"])
+        cur = best.get(key)
+        rank = (r["confidence"], r["value_inr"] is not None)
+        if cur is None or rank > (cur["confidence"], cur["value_inr"] is not None):
+            best[key] = r
+    return list(best.values())
+
+
 def save_candidates(
     session: Session,
     report: AnnualReport,
@@ -85,6 +100,7 @@ def save_candidates(
             "status": ReviewStatus.AUTO_ACCEPTED if auto else ReviewStatus.PENDING,
             "corrected_value_inr": None, "stored": False, "note": None, "reviewed_at": None,
         })  # fmt: skip
+    rows = best_per_key(rows)
     keep = {(r["basis"], r["statement"], r["period_end"], r["item_code"]) for r in rows}
     for c in session.scalars(
         select(PdfLineCandidate).where(
@@ -220,6 +236,7 @@ def sync_report(
         written += rebuild_wide(
             session, instrument_id=report.instrument_id, basis=basis, touched=touched,
             xmap=xmap, fetched_at=now, source=None, clear=clear,
+            fy_end_month=_fy_end_month(session, report.instrument_id, results_cfg),
         )  # fmt: skip
     return written
 

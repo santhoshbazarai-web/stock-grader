@@ -11,6 +11,7 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.core.config import AdjustmentConfig
 from app.data.adjust import AdjustmentResult, adjust_prices
 from app.db.models import CorporateAction, IndexMembership, Instrument, PriceDaily, WatchlistItem
 from app.jobs.runner import JobContext, JobOptions
@@ -109,7 +110,9 @@ def non_empty_columns(df: pd.DataFrame, candidates: Iterable[str]) -> list[str]:
     return [c for c in candidates if c in df.columns and df[c].notna().any()]
 
 
-def readjust(session: Session, instrument_id: int) -> AdjustmentResult:
+def readjust(
+    session: Session, instrument_id: int, config: AdjustmentConfig | None = None
+) -> AdjustmentResult:
     """Recompute ``adj_*`` for one instrument from its raw prices and corporate actions;
     writes only rows whose adjustment changed. Does not commit."""
     raw = pd.DataFrame(
@@ -144,7 +147,7 @@ def readjust(session: Session, instrument_id: int) -> AdjustmentResult:
         return AdjustmentResult(raw, True)
     raw["date"] = pd.to_datetime(raw["date"])
     raw = raw.set_index("date")
-    result = adjust_prices(raw[["open", "high", "low", "close", "volume"]], actions)
+    result = adjust_prices(raw[["open", "high", "low", "close", "volume"]], actions, config)
     adj = result.prices
     new_factor = adj["adj_factor"].astype(float)
     old_factor = raw["old_factor"].astype(float)

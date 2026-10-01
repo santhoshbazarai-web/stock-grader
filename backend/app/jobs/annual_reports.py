@@ -143,6 +143,16 @@ def annual_reports(ctx: JobContext, options: JobOptions, *, limit: int | None = 
             else:
                 failed[row.document] = row.error or "failed"
             session.commit()
+        except Exception as exc:  # one report's failure must not cost the others
+            logger.exception("annual report %s (%s) could not be stored", report_id, symbol)
+            session.rollback()
+            why = f"{type(exc).__name__}: {exc}"[:2000]
+            row = session.get(AnnualReport, report_id)
+            if row is not None:
+                row.attempts += 1
+                row.status, row.error = FilingStatus.FAILED, why
+                failed[row.document] = why
+                session.commit()
         finally:
             session.close()
 

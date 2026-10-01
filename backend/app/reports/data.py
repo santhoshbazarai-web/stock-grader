@@ -14,10 +14,12 @@ from sqlalchemy.orm import Session
 
 from app.core.config import AppConfig
 from app.data import prices
+from app.data.adjust import restate_per_share
 from app.data.canonical import fields_for
 from app.data.reconcile_store import issue_text, open_issues
 from app.db.enums import EventKind, StatementType, SurveillanceList, Timeframe
 from app.db.models import (
+    CorporateAction,
     DeliveryDaily,
     Event,
     FinAnnual,
@@ -62,6 +64,8 @@ class StockData:
     reconciliation_issues: list[str] = field(default_factory=list)
     event_red_flags: list[str] = field(default_factory=list)
     auditor_resignations: list[date] | None = None
+    industry_label: str | None = None  # the classification label the sector came from
+    industry_source: str | None = None  # "nse" | "yfinance" | None (not classified yet)
 
 
 def load_financials(
@@ -91,6 +95,14 @@ def load_financials(
     return empty, None, None
 
 
+def load_share_actions(session: Session, iid: int) -> pd.DataFrame:
+    rows = session.execute(
+        select(CorporateAction.ex_date, CorporateAction.action_type, CorporateAction.ratio_old,
+               CorporateAction.ratio_new).where(CorporateAction.instrument_id == iid)
+    ).all()  # fmt: skip
+    return pd.DataFrame(rows, columns=["ex_date", "action_type", "ratio_old", "ratio_new"])
+
+
 def load_shareholding(session: Session, iid: int) -> tuple[pd.DataFrame, str | None]:
     rows = list(
         session.scalars(
@@ -99,10 +111,11 @@ def load_shareholding(session: Session, iid: int) -> tuple[pd.DataFrame, str | N
             .order_by(Shareholding.period_end)
         )
     )
+    cols = [*SHP_COLUMNS, "filing_date", "source"]
     df = pd.DataFrame(
-        [{c: getattr(r, c) for c in SHP_COLUMNS} for r in rows],
+        [{c: getattr(r, c) for c in cols} for r in rows],
         index=pd.DatetimeIndex([pd.Timestamp(r.period_end) for r in rows], name="period_end"),
-        columns=list(SHP_COLUMNS),
+        columns=cols,
     )
     return df, (rows[-1].source if rows else None)
 
@@ -189,6 +202,10 @@ def load_stock_data(
     daily = prices.adjusted_daily(session, sym)
     annual, basis, fin_source = load_financials(session, FinAnnual, inst.id, "fin_annual")
     quarterly, _, _ = load_financials(session, FinQuarterly, inst.id, "fin_quarterly")
+    # per-share figures on today's share basis, like the adjusted prices (rule 6)
+    actions = load_share_actions(session, inst.id)
+    annual, restated = restate_per_share(annual, actions, config.providers.adjustment)
+    quarterly, _ = restate_per_share(quarterly, actions, config.providers.adjustment)
     shp, shp_source = load_shareholding(session, inst.id)
     price_source = session.scalar(
         select(PriceDaily.source)
@@ -220,7 +237,7 @@ def load_stock_data(
             or 0
         ) > 0
 
-    notes: list[str] = []
+    notes: list[str] = list(restated)
     snap = session.execute(
         select(TechnicalSnapshot.as_of, TechnicalSnapshot.rs_percentile)
         .where(
@@ -251,6 +268,8 @@ def load_stock_data(
         symbol=sym,
         name=inst.name,
         sector=overrides.sector or inst.sector,
+        industry_label=inst.basic_industry,
+        industry_source=inst.industry_source,
         daily=daily,
         annual=annual,
         quarterly=quarterly,

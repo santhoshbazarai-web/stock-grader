@@ -29,13 +29,14 @@ from app.reports.dto import (
     PillarDto,
     ReverseDcfDto,
     Scores,
+    ShareholdingDto,
     StockReport,
     SubScoreDto,
     TechnicalDto,
     ValuationDto,
 )
 from app.reports.overrides import DCF_KEYS
-from app.reports.valuation_run import ValuationRun, run_valuation, ttm_by_quarter
+from app.reports.valuation_run import DCF_MODELS, ValuationRun, run_valuation, ttm_by_quarter
 from app.scoring.common import Grade, Pillar
 from app.scoring.decision import Decision, DecisionInputs, decide
 from app.scoring.earned_premium import EarnedPremium, EarnedPremiumInputs, earned_premium
@@ -58,6 +59,7 @@ _GAP_DATASET: dict[str, Dataset] = {
     "rs_percentile": Dataset.INDEX_OHLCV,
     "delivery_ratio": Dataset.DELIVERY,
     "pledge": Dataset.SHAREHOLDING,
+    "beta": Dataset.INDEX_OHLCV,
     "asm_gsm": Dataset.SURVEILLANCE,
     "liquidity": Dataset.DELIVERY,
 }
@@ -182,6 +184,30 @@ def _shp_changes(shp: pd.DataFrame) -> dict[str, float | None]:
     return out
 
 
+def _shareholding_dto(shp: pd.DataFrame) -> ShareholdingDto | None:
+    if shp.empty:
+        return None
+    s = shp.sort_index()
+    last = s.iloc[-1]
+    ch = _shp_changes(s)
+    filed = last.get("filing_date")
+    source = last.get("source")
+    return ShareholdingDto(
+        source=source if isinstance(source, str) else None,
+        period_end=pd.Timestamp(s.index[-1]).date(),
+        filing_date=None if filed is None or pd.isna(filed) else pd.Timestamp(filed).date(),
+        promoter_pct=_v(last.get("promoter_pct")),
+        promoter_pledge_pct=_v(last.get("promoter_pledge_pct")),
+        fii_pct=_v(last.get("fii_pct")),
+        dii_pct=_v(last.get("dii_pct")),
+        mf_pct=_v(last.get("mf_pct")),
+        public_pct=_v(last.get("public_pct")),
+        promoter_change_pp=ch["promoter_change"],
+        pledge_prev_pct=ch["pledge_prev"],
+        quarters=len(s),
+    )
+
+
 def _avg_traded_value(tv: pd.Series | None, days: int) -> float | None:
     if tv is None:
         return None
@@ -222,6 +248,14 @@ def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> B
 
     if data.sector is not None and data.sector not in config.sectors.root:
         data_gaps.append(f"sector {data.sector!r} not in sectors.yaml: using default")
+    elif data.sector is None:
+        if data.industry_label:
+            data_gaps.append(f"sector unmapped: {data.industry_source} industry "
+                             f"'{data.industry_label}' has no entry in industries.yaml; "
+                             "using the default model")  # fmt: skip
+        else:
+            data_gaps.append("sector unmapped: industry not classified yet "
+                             "(industry_classification job); using the default model")  # fmt: skip
     if data.statement_type == "standalone":
         red_flags.append("standalone statements (no consolidated figures on file)")
 
@@ -285,6 +319,9 @@ def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> B
     )
     eps_q_latest, eps_q_prev = _last_two(quarterly_yoy(quarterly, "eps_diluted"))
     shp = _shp_changes(data.shareholding)
+    if data.shareholding.empty:
+        why = "no shareholding pattern on file (promoter, FII/DII, pledge): run shareholding"
+        gap(Dataset.SHAREHOLDING, None, why)
 
     # ── technicals ──
     t = analyze(
@@ -336,6 +373,8 @@ def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> B
     run = run_valuation(data, metrics, sector_key, sector, vc, sensitivity=not lite)
     for name in run.assumed_nil:
         gap(Dataset.FIN_ANNUAL, name, "not reported: taken as nil in the valuation")
+    for name, why in run.gaps:
+        gap(_GAP_DATASET.get(name, Dataset.FIN_ANNUAL), name, why)
     if run.announcement_dates_assumed:
         gap(Dataset.FIN_QUARTERLY, "announcement_date", "unknown: filing lag assumed for bands")
 
@@ -347,6 +386,7 @@ def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> B
             as_of=as_of,
             pledge_pct=shp["pledge"],
             cfo_history=[_v(v) for v in cfo.tolist()] if len(cfo) else None,
+            cfo_applies=not is_financial,
             auditor_resignations=data.overrides.auditor_resignations
             if data.overrides.auditor_resignations is not None
             else data.auditor_resignations,
@@ -372,6 +412,7 @@ def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> B
             implied_growth=run.reverse.implied_growth if run.reverse else None,
             hist_growth=mv("sales_cagr_5y"),
             cfg=sc,
+            reverse_dcf_applies=run.sector.model in DCF_MODELS,
         )
 
     grading = resolve_grade(pillars, ko, valuation_for, sc)
@@ -529,6 +570,7 @@ def _assemble(
         else None
     )
     return StockReport(
+        shareholding=_shareholding_dto(data.shareholding),
         symbol=data.symbol,
         name=data.name,
         cmp=cmp,

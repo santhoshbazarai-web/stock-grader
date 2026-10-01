@@ -100,6 +100,15 @@ class FundamentalsProvider(Protocol):
 | Risk-free rate | config, weekly | — | — | — | Manual update |
 | Screener Excel | **Retired as primary.** Kept as an optional manual import for gap-filling and testing only | | | | |
 
+**Split / bonus adjustment (`data/adjust.py`, providers.yaml `adjustment`).** Prices are adjusted backwards: every bar before an ex-date is multiplied by shares-before / shares-after (bonus 1:1 halves earlier prices). Each event is applied once:
+- the same split/bonus from two sources with ex-dates up to `duplicate_window_days` apart (yfinance reports a bonus as a split, sometimes a day off NSE) counts once, on the ex-date the raw closes confirm;
+- with `detect_preadjusted`, an event whose ex-date shows no matching move in the raw closes (the price source already adjusted its history) is not applied again;
+- after adjustment, a close-to-close move above `abnormal_gap` is reported as a possible missing or doubled event (a `corporate_actions` data gap on `adj_close`).
+
+The corporate-actions job reads `lookback_days` incrementally, but a stock with no actions on file gets its full history (`nse.corporate_actions_from_years`). Every provider answering "no actions" is an answer, not a failure (no data gap).
+
+Per-share fundamentals are put on today's share basis too (`restate_per_share`): a row known (announcement date, else period end) before a split/bonus ex-date has EPS and book value per share divided, and diluted shares multiplied, by shares-after / shares-before. A row announced after the ex-date is left alone: the company already restated it (Ind AS 33). The report notes each restatement.
+
 NSE endpoints need a browser-like session (cookies from the homepage + headers) and polite rate limiting. Use archive CSVs where possible and cache aggressively. Respect each source's terms of use. The Screener import is for personal use only.
 
 ### 3.2a NSE/BSE fetching rules
@@ -195,6 +204,9 @@ Implementation notes (results XBRL, `data/xbrl.py`, `data/results_store.py`, `da
   - A duration context ending on the reporting date whose length is in `quarter_days` is the quarter; one in `year_days` is the fiscal year (Q4 / annual filings).
   - The instant context on that date is the balance sheet. 6/9-month year-to-date contexts are skipped.
   - Comparatives (quarter / year / instant contexts ending on other dates) are stored as line items too; they are where restatements appear.
+  - **Basis-only dimensions (`xbrl_map.yaml` v4, `basis_axes`):** a filing with no usable plain context, whose contexts carry a single dimension on a listed axis with a consolidated / standalone member, is read from the contexts of the basis it states (or the only one present), with a warning. It is never read from the other basis or from any other dimension. Descriptive facts (period, basis) are read from any context when no plain one has them.
+  - A filing with no quarter or year results fails with the contexts ending on its date (plain, and the dimension members of the others), the mapped P&L elements and where they sit, and the unmapped numeric elements. `xbrl-inspect` prints `NOT PARSED: …` plus every context and numeric fact instead of stopping.
+- **Listing depth:** NSE's list returns only the latest ~50 filings per `period`. A list of `list_truncated_at` or more is requested again in `from_date`/`to_date` windows of `list_window_years` back `list_history_years` (deduplicated by URL). A window that is itself full is reported as possibly cut off.
 - **Mapping (§3.6 step 1):** element names live only in the versioned `fundamentals/xbrl_map.yaml`, with tag groups `ind_as`, `bank` and `pre_ind_as` (Indian GAAP / Clause 41). The pre-Ind-AS names are unverified until checked against a real filing with `xbrl-inspect`. The namespace year is ignored.
   - Each item has a statement (P&L / BS / CF / ratio): BS items are read from instant contexts, P&L and CF from duration contexts.
   - Every value records the tag that matched (`group:Element`, or `sum:group:A+B`) and the map `version`.
@@ -212,7 +224,7 @@ Implementation notes (results XBRL, `data/xbrl.py`, `data/results_store.py`, `da
   - A figure for a period that differs from the previous one by more than both `restatement_tolerance_rel` and `restatement_tolerance_inr` (rounding noise) is a restatement and becomes the next version; an equal one adds nothing.
   - Versions are ordered by `usable_from`, not by download order: a backfill runs newest first.
   - Re-parsing a filing replaces its own figures in place.
-- **Wide rows:** `fin_quarterly` / `fin_annual` are rebuilt from the latest versions of every period a filing touched (analysis uses the latest version). A quarter needs its P&L; a year row is written when its P&L is known, or updated when it exists.
+- **Wide rows:** `fin_quarterly` / `fin_annual` are rebuilt from the latest versions of every period a filing touched (analysis uses the latest version). A quarter needs its P&L. A year row is written when its P&L is known, or when its fiscal-year-end balance sheet is (a period ending in the company's fiscal-year-end month; a half-year balance sheet never makes a year row). The P&L is then left NULL, so a bank whose full-year P&L isn't parsed still has book value. An existing row is updated.
   - `announcement_date` is the earliest date any figure of the period was usable. It is also never later than one already stored, so a quarter first seen via yfinance keeps the real, earlier filing date once the filing arrives.
   - Precedence: filed values overwrite what they cover and never blank other columns. A Screener upload fills only the empty columns of periods a filing stored, and leaves their source and date alone.
 - **FY derived from quarters (§3.6 step 5):** after each filing, every fiscal year containing a quarter it touched is checked. If all four quarters are stored and the year has no filed P&L (e.g. the Q4 filing had no year context, or the annual filing failed), each P&L amount reported in all four quarters is summed from their latest versions.
@@ -225,7 +237,7 @@ Implementation notes (results XBRL, `data/xbrl.py`, `data/results_store.py`, `da
 - **Announcement date (rule 4):** the exchange's dissemination time; at or after `available_after_ist` (the close) it counts from the next day. An uploaded document has no dissemination time, so its date is the board-meeting date + 1 day.
 - **Ingestion:** `result_filings` is the ledger (one row per document, pending → parsed / failed).
   - `results_backfill` re-reads every symbol's list in results season, or weekly (`index_recheck_days`) outside it.
-  - It downloads at most `max_downloads_per_run` documents per run, newest period first, back to `providers.history_years`, and retries failures up to `max_attempts`.
+  - It downloads at most `max_downloads_per_run` documents per run, newest period first, back to `providers.history_years`, and retries download failures up to `max_attempts`. A document that downloaded but did not parse is recorded with the parser version (`result_filings.parse_failed_version`, `map<xbrl_map version>.r<PARSER_REVISION>`): it is not downloaded or parsed again until that version changes, then it is re-parsed from the raw cache (downloaded only if the cache is missing).
   - Documents are fetched only over https from `xbrl_hosts`, capped at `max_xbrl_bytes`, and parsed with `defusedxml`.
   - A document naming another symbol, or with no stated basis, is refused (rule 5).
   - If a symbol's list can't be read in season, new quarters come from yfinance with their first-seen date and a `results_filing` data gap, which is resolved when the filing is stored.
@@ -271,10 +283,15 @@ Implementation notes (annual-report PDFs, §3.6 steps 3-4: `data/annual_report.p
   - A key (period, period type, statement, item) with an exchange-filed figure is never written; the candidate notes why.
   - An exchange figure arriving later removes the key's PDF versions, and the candidate is marked as superseded.
   - Across reports, versions follow the XBRL rules: ordered by `usable_from`, and a figure differing beyond the restatement tolerance is a new version.
-  - The wide fin_annual row is updated when it exists (a year row still needs its P&L) and keeps its `source`.
-- **Coverage grid (§3.6 step 4):** `GET /api/stocks/{symbol}/coverage` returns the last `history_years` completed fiscal years × P&L (year), BS (instant) and CF (year) per basis.
+  - The wide fin_annual row is updated when it exists, or created from a fiscal-year-end balance sheet. It keeps its `source`.
+- **Coverage grid (§3.6 step 4):** `GET /api/stocks/{symbol}/coverage` returns the last `history_years` completed fiscal years × P&L (year), BS (instant) and CF (year) per basis. The `xbrl-coverage` CLI counts years the same way, so they agree:
+  - a P&L year is a full-year figure, filed or summed from four quarters (`+n derived`); quarters are reported apart (`n quarter(s)`) and never make a year on their own;
+  - a BS year is the balance sheet at the fiscal-year end.
+
+  Labels are Indian fiscal years named by the year they end in (FY24 = April 2023 to March 2024) in the grid, the fundamentals charts and the CLI.
   - Each cell lists its line-item sources, best first: XBRL, then PDF, then summed quarters. A cell with no line items shows its wide row's source (Screener, yfinance) when the statement's marker column (revenue / total assets / CFO) is filled.
   - Each cell also counts the values pending review. The stock page shows it as the "Data coverage" grid.
+  - An empty CF cell that results XBRL cannot fill is marked "not in XBRL: use the annual report" (`AR`), not shown as a failure: every year for a bank, NBFC or insurer (sector model, or results filed in the banking format), and years before `nse.results.cash_flow_from_fy` (2020) for everyone.
 - **Tools:** `python -m app.jobs pdf-inspect <report.pdf> [--fy YEAR]` prints the pages found, each value with its confidence, and the warnings, without a database. `python -m app.jobs pdf-reparse [--symbols …]` re-reads cached reports. Scanned reports (no text layer) are refused; OCR is not supported.
 
 ### 3.7 On-demand pipeline (when you type a stock)
@@ -295,7 +312,9 @@ Implementation notes (`pipeline/runner.py`, `api/pipeline.py`, `pipeline_runs`; 
   - Shareholding & events stores the shareholding pattern. It reports the stock's events on file, which come from the market-wide feeds (§3.8), not a per-stock fetch.
   - Reconciliation runs §3.9 for the stock. Open differences make it a warning.
   - Required steps: symbol (in the symbol master, once that is built), prices (stored bars suffice when the refresh fails), metrics, valuation, scoring, report.
-- **Optional-step failures:** a failed optional step is a warning. Its message is added to the report's `data_gaps` as "pipeline <step>: <message>", and the report is still built. A failed required step fails the run, and the steps after it are skipped.
+- **Optional-step failures:** a failed optional step shows as failed (or a warning) and the run goes on. Its message is added to the report's `data_gaps` as "pipeline <step>: <message>", and the report is still built.
+  - The Results XBRL step ends with the years found per statement ("Years found: P&L 3 yr, BS 3 yr, CF 0 yr (consolidated)") and the known parse failures it skipped.
+  - Fundamental metrics is optional but fails loudly: no fiscal year with a P&L fails it with the years stored per statement and where to get the rest (Results XBRL step, XBRL / Screener upload); otherwise it lists the metrics it could not compute. A failed required step fails the run, and the steps after it are skipped.
 - **Resumable:** the worker claims a queued run with `FOR UPDATE SKIP LOCKED`.
   - A heartbeat thread keeps long steps owned. A running run whose heartbeat is older than `stale_after_s` is taken over and resumed from its first unfinished step; the data steps are upserts, so repeating one is harmless.
   - After `max_attempts` claims the run fails.
@@ -506,7 +525,13 @@ Use the sector median multiple, adjusted for ROCE and growth relative to peers:
 - Graham number = √(22.5 × EPS × BVPS).
 
 ### 5.6 Sector models (`sector_models.py`)
-Driven by `config/sectors.yaml`:
+Driven by `config/sectors.yaml`. A stock's sector key comes from its industry classification, mapped by `config/industries.yaml`:
+- **Sources:** NSE's basic industry (quote API `industryInfo.basicIndustry`), else Yahoo's `industry`, in the order of `providers.yaml` `priority.industry`.
+- **When:** the weekly `industry_classification` job, and the pipeline's symbol step for a stock not classified yet.
+- **Routing:** banks, NBFCs and insurers map to their own models (rule 10).
+- **Unmapped labels:** the default model is used, with a "sector unmapped" data gap naming the label. A per-stock sector override still wins.
+
+The sector models:
 - **Banks/NBFC:** justified P/B = (ROE − g)/(Ke − g) × BVPS; residual income model.
 - **Insurance:** P/EV band; EV plus a VNB multiple (manual EV input allowed).
 - **Cyclicals:** normalised mid-cycle EBITDA (7–10 yr median margin × current sales) × EV/EBITDA band median.
@@ -532,7 +557,9 @@ Implementation notes (`valuation/`, pure functions; parameters in `valuation.yam
 - DCF projection is revenue-driven: revenue grows at g_t, FCFF_t = revenue_t × EBIT margin × (1 − t) + revenue_t × (D&A% − capex%) − NWC% × Δrevenue. The base margin, D&A% and capex% are averages over `dcf.margin_years` (every year required); NWC% is from the latest year. A scenario's `margin_delta` shifts the EBIT margin. Cash flows are discounted at year end.
 - Where filings omit working capital, minority interest or non-operating investments, the DCF takes them as nil so a value is possible. Each one is returned in `assumed_nil` for the caller to record as a data gap and show in the report.
 - WACC uses market-value weights with book debt as the proxy for debt's market value. If there is debt but no interest cost, the cost of debt is unknown and there is no WACC.
-- Beta = weekly-return slope over `beta.lookback_years`, Blume-adjusted (0.67β + 0.33), clamped to [floor, cap]. It needs at least half the expected weeks.
+- Beta = weekly-return slope over `beta.lookback_years`, Blume-adjusted (0.67β + 0.33), clamped to [floor, cap]. It needs at least half the expected weeks. A beta clamped at the floor or cap is a `beta` data gap (with the unclamped value); a missing beta (benchmark history) is one too.
+- Ke = `risk_free_rate` + β × `equity_risk_premium` + size premium (by market cap), and the report shows the build-up ("Ke 13.45% = Rf 6.50% + beta 1.00 x ERP 7.00% + size premium 0.00%"). The risk-free rate is configured in valuation.yaml with `risk_free_source` and `risk_free_as_of`; an undated rate, or one older than `risk_free_max_age_days`, is a `risk_free_rate` data gap. No cost of equity lists what it lacks (beta / market cap).
+- Banks, NBFCs and insurers (and NAV / SOTP models) use no WACC and no FCFF: their valuation runs on Ke (justified P/B, residual income); the report shows Ke and "WACC not used".
 - Sector g1 cap: `sectors.<name>.g1_cap`, else `dcf.g1_cap_by_default`.
 - Reverse DCF searches `dcf.reverse_growth_bracket` with brentq. If the price lies outside the values at the ends, there is no implied growth.
 - Bands use the median and sample σ of daily multiples whose denominator is positive, over the lookback. Fundamentals are carried forward from their announcement date. A band needs `bands.min_observations` valid days. EV/EBITDA per share = price + net debt per share.
@@ -663,6 +690,7 @@ Implementation notes (`scoring/`, pure functions; every threshold, map and the m
 
 Knock-outs
 - A check with missing input is reported as *unknown* (a data gap). It never passes or fails silently.
+- The CFO check does not apply to banks, NBFCs and insurers (their operating cash flow moves with deposits and loans; their results carry no cash-flow statement). Their valuation (justified P/B, P/B band, relative P/B) and pillars use no cash flow either.
 - The CFO check looks at the last `negative_cfo_window_years` years. It is decided from partial data only when the known years settle it: enough negatives already, or too few even if every missing year were negative.
 - An auditor resignation counts if it falls on or after `as_of` minus `auditor_resignation_years`.
 
@@ -765,7 +793,7 @@ Valuation wiring (§5)
 - The PE band uses TTM EPS from four consecutive quarters, or annual EPS if there are not four. EV/EBITDA and P/B use annual figures.
 - Band denominators are keyed by announcement date. When that date is unknown (Screener uploads), the live report assumes `bands.assumed_announcement_lag_days` (quarterly 45 / annual 60) and records a gap. Backtests must not use this assumption.
 - Each band uses the first lookback in `bands.lookback_years` with enough observations. Its method value is the band median as a price. The primary band is the sector's highest-weighted band method.
-- Market cap = CMP × latest diluted shares. The cost of equity uses the Blume beta against `jobs.universe_index`.
+- Market cap = CMP × the latest diluted share count on file (annual or quarterly, whichever period is later; a balance-sheet-only year row has none), shown with its period. No count is a `market_cap` data gap. The cost of equity uses the Blume beta against `jobs.universe_index`.
 - DCF, reverse DCF and EPV run only for the FCFF and cyclical models (rule 10).
 - Relative valuation needs `relative.min_peers` sector peers with a positive multiple. Peer figures come from this run (`valuation_scores` job, two passes) or from peers' latest stored reports (on-demand builds).
 - Institutional holding = FII + DII, because DII already includes mutual funds.
@@ -832,7 +860,7 @@ An optional paragraph explaining the report, written by a local model from the r
    - **Chart:** lightweight-charts weekly candles with overlays for demand/supply zones, AVWAPs, 30-wk SMA, POC, and valuation-level lines (Baseline, FV, Top band). Includes a daily/weekly toggle.
    - **Valuation panel:** a method table, a DCF sensitivity heatmap, reverse-DCF readout, and editable assumptions that save as an override and recompute live.
    - **Scorecards:** a six-pillar radar chart plus expandable sub-metrics, each with its reason.
-   - **Fundamentals:** 10-yr charts for sales, EBITDA, PAT, CFO, FCF, ROCE and CCC, plus a shareholding trend.
+   - **Fundamentals:** 10-yr charts for sales, EBITDA, PAT, CFO, FCF, ROCE and CCC, plus a shareholding trend (promoter, FII, DII, public, pledge per quarter) captioned with its source, quarter and filing date. The report also carries `shareholding` (latest pattern: source, quarter, filing date, holdings, promoter change and previous pledge); with no pattern on file it lists a `shareholding` data gap.
    - **Red flags and data gaps.**
 4. **Watchlist & alerts.**
 5. **Backtest:** choose rules (grade set × zone set × holding period) and see the equity curve against Nifty 500, CAGR, max drawdown and hit rate.

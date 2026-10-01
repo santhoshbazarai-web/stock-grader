@@ -222,8 +222,14 @@ def test_new_bonus_readjusts_stored_history(env: Env) -> None:
 
     assert record.outcome.details["readjusted"] == ["SAMPLE"]
     assert list(prices(env, "SAMPLE")["adj_close"]) == [500, 500, 500, 505, 510]
+    # nothing on file yet: the full history is requested, not the incremental window
+    years = env.ctx.config.providers.nse.corporate_actions_from_years
+    assert env.nse.action_requests[-1][1] == TODAY.replace(year=TODAY.year - years)
+    assert record.outcome.details["full_history_for"] == ["SAMPLE"]
+    record = run(env, JobName.CORPORATE_ACTIONS, symbols=("SAMPLE",))  # now incremental
     lookback = env.ctx.config.jobs.corporate_actions.lookback_days
     assert env.nse.action_requests[-1][1] == TODAY - timedelta(days=lookback)
+    assert record.outcome.details["full_history_for"] == []
 
 
 def test_unparseable_bonus_leaves_history_unadjusted_and_flags_gap(env: Env) -> None:

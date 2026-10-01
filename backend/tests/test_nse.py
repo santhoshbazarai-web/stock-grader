@@ -33,6 +33,7 @@ from app.data.providers.nse import (
     parse_annual_reports_index,
     parse_ca_subject,
     parse_results_index,
+    results_list_windows,
 )
 from app.data.raw_store import RawStore
 from app.db.enums import CorporateActionType
@@ -317,6 +318,19 @@ def test_unrecognised_asm_shape(http: responses.RequestsMock) -> None:
         ("Rights 1:5 @ Premium Rs 90/-", (CorporateActionType.RIGHTS, None, None, None)),
         ("Annual General Meeting", (CorporateActionType.OTHER, None, None, None)),
         ("Bonus Issue (ratio to be announced)", (CorporateActionType.BONUS, None, None, None)),
+        (  # HDFC Bank, 2019
+            "Face Value Split (Sub-Division) - From Rs 2/- Per Share To Re 1/- Per Share",
+            (CorporateActionType.SPLIT, 1.0, 2.0, None),
+        ),
+        (
+            "Sub Division Of Equity Shares From Rs.10/- To Rs.2/-",
+            (CorporateActionType.SPLIT, 1.0, 5.0, None),
+        ),
+        (
+            "Consolidation Of Shares From Re 1/- To Rs 10/-",
+            (CorporateActionType.SPLIT, 1.0, 0.1, None),
+        ),
+        ("Bonus 1 : 1", (CorporateActionType.BONUS, 1.0, 2.0, None)),
     ],
 )
 def test_parse_ca_subject(subject: str, expected: tuple[Any, ...]) -> None:
@@ -409,6 +423,48 @@ def test_results_filings_caches_each_list_before_parsing(
         f"results_ACME_{period}.json" for period in sorted(CFG.results.periods)
     ]
     assert json.loads((day / "results_ACME_Quarterly.json").read_text())[0]["symbol"] == "ACME"
+
+
+def test_results_list_windows_cover_the_history_without_overlap() -> None:
+    w = results_list_windows(date(2026, 10, 1), 5, 2)
+    assert w == [(date(2024, 10, 2), date(2026, 10, 1)), (date(2022, 10, 2), date(2024, 10, 1)),
+                 (date(2021, 10, 1), date(2022, 10, 1))]  # fmt: skip
+    assert results_list_windows(date(2024, 2, 29), 1, 1) == [(date(2023, 3, 1),
+                                                             date(2024, 2, 29))]  # fmt: skip
+
+
+def test_a_full_results_list_is_requested_again_in_date_windows(
+    http: responses.RequestsMock,
+) -> None:
+    rec = json.loads(text("financial_results_acme.json"))[0]
+    full = [rec | {"xbrl": rec["xbrl"].replace(".xml", f"_{i}.xml")}
+            for i in range(CFG.results.list_truncated_at)]  # fmt: skip
+    old = [rec | {"xbrl": rec["xbrl"].replace(".xml", "_old.xml"), "toDate": "31-Mar-2015"}]
+    http.add(responses.GET, HOME, body="<html/>")
+    http.add(responses.GET, PAGE, body="<html/>")
+    seen: list[dict[str, str]] = []
+
+    def cb(request: PreparedRequest) -> tuple[int, dict[str, str], str]:
+        from urllib.parse import parse_qsl, urlsplit
+
+        q = dict(parse_qsl(urlsplit(request.url or "").query))
+        seen.append(q)
+        if "from_date" not in q:
+            rows = full if q["period"] == "Quarterly" else []
+        else:
+            rows = old if q["from_date"].endswith("2014") else []
+        return 200, {"Content-Type": "application/json"}, json.dumps(rows)
+
+    http.add_callback(responses.GET, RESULTS, callback=cb)
+    p = NseProvider(CFG, NseSession(CFG, clock=Clock()), today=lambda: date(2026, 10, 1))
+    df = p.results_filings("acme")
+    windows = results_list_windows(date(2026, 10, 1), CFG.results.list_history_years,
+                                   CFG.results.list_window_years)  # fmt: skip
+    # Quarterly: the plain list (50 = full) and then every window; Annual: the plain list only
+    assert len(seen) == 1 + len(windows) + 1
+    assert [q.get("from_date") for q in seen[1:-1]] == [f"{a:%d-%m-%Y}" for a, _ in windows]
+    assert len(df) == CFG.results.list_truncated_at + 1  # the 2015 filing is listed too
+    assert str(df["period_end"].min()) == "2015-03-31"
 
 
 def test_results_document_guards(http: responses.RequestsMock) -> None:

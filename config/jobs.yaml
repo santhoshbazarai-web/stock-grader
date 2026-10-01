@@ -26,6 +26,7 @@ jobs:
     bhavcopy_history: "30 1 * * *"           # backfill NSE bhavcopy OHLCV history (budgeted)
     broker_token_check: "45 8 * * mon-fri"   # morning reminder when a broker token expired
     thesis: "15 0 * * *"                     # LLM thesis for watchlist reports (after valuation_scores)
+    industry_classification: "40 7 * * 6"    # industry → sector model (industries.yaml), Saturdays
   universe_index: NIFTY500    # symbols = current members of this index + watchlist
   constituent_indices: [NIFTY500, NIFTY50, NIFTYBANK, NIFTYIT, NIFTYPHARMA, NIFTYFMCG,
                         NIFTYAUTO, NIFTYMETAL, NIFTYREALTY]
@@ -66,6 +67,9 @@ jobs:
     status_jobs: [eod_prices, nse_bhavcopy, technicals, valuation_scores, results_watch, events,
                   alerts_intraday]
     max_reply_chars: 3900
+  industry_classification:    # basic industry → sectors.yaml model (banks, NBFCs, insurers...)
+    refresh_days: 90          # classifications rarely change; unclassified stocks go first
+    max_per_run: 200          # ~200 s at NSE's 1 request/s
   thesis:                     # optional LLM thesis (SPEC §8a): numbers in → text out, no new facts
     enabled: false            # needs THESIS_LLM_URL (a local Ollama); free, nothing leaves the box
     model: "llama3.1:8b"      # any model the local server has pulled

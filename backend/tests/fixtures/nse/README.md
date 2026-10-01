@@ -10,3 +10,11 @@ document, `-`, and one on a foreign host are included on purpose). The XBRL docu
 themselves are in `../xbrl`.
 `SAMPLEIND` and the ASM/GSM companies are fictional. Replace with real downloads when
 convenient; the parsers raise `ProviderError` naming any shape they don't recognise.
+
+## corporate_actions_hdfcbank.json
+
+Hand-built in the shape of NSE's `corporates-corporateActions` answer (not a recorded
+response). The two events are HDFC Bank's publicly announced ones: the face-value split from
+₹2 to ₹1 (ex-date 19 Sep 2019) and the 1:1 bonus (ex/record date 27 Aug 2025). Check the
+dates against NSE's corporate-actions page before relying on them. The prices the tests
+adjust are synthetic, not HDFC Bank's.

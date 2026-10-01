@@ -10,7 +10,7 @@ DataFrame conventions (so the router can judge freshness):
 
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 import pandas as pd
 
@@ -107,6 +107,15 @@ class CorporateActionsProvider(Protocol):
     name: Provider
 
     def corporate_actions(self, symbol: str, start: date, end: date) -> pd.DataFrame: ...
+
+
+@runtime_checkable
+class IndustryProvider(Protocol):
+    """A stock's industry classification (``app.data.industry.IndustryInfo``)."""
+
+    name: Provider
+
+    def industry_info(self, symbol: str) -> Any: ...
 
 
 @runtime_checkable

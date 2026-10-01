@@ -17,6 +17,7 @@ providers:
     index_constituents: [nse]
     surveillance:       [nse]
     events:             [nse, bse]  # every feed in jobs.events / results_watch is read (not a fallback)
+    industry:           [nse, yfinance]  # basic industry → sector model (industries.yaml)
     reference_financials: [market_lens]  # reconciliation-only sources (off unless market_lens.enabled)
   rate_limits:            # requests per second / per minute (verify against current broker docs)
     fyers:    {per_sec: 8,  per_min: 180}
@@ -52,6 +53,7 @@ providers:
     NIFTYREALTY: "^CNXREALTY"
   nse:
     base_url: "https://www.nseindia.com"            # homepage (cookie warm-up) + JSON APIs
+    quote_path: "/api/quote-equity"                 # ?symbol=..: industryInfo (classification)
     archives_url: "https://nsearchives.nseindia.com" # bhavcopy, F&O ban list
     niftyindices_url: "https://www.niftyindices.com" # index constituent CSVs
     cookie_ttl_s: 300          # re-visit the homepage for fresh cookies after this
@@ -88,6 +90,15 @@ providers:
       max_xbrl_bytes: 20000000
       quarter_days: {min: 80, max: 100}    # context spans (days) classified as a quarter
       year_days: {min: 350, max: 380}      # ... and as a fiscal year
+      # The list returns only the latest ~50 filings. A list that long is requested again in
+      # date windows (&from_date=dd-mm-yyyy&to_date=..., as NSE's other corporate lists take)
+      # back list_history_years, deduplicated by document URL.
+      list_truncated_at: 50
+      list_window_years: 2
+      list_history_years: 12
+      # results XBRL has a cash-flow statement from FY2020 (banks: never); the coverage grid
+      # marks earlier (and bank) cash-flow gaps "not in XBRL: use the annual report"
+      cash_flow_from_fy: 2020
       available_after_ist: "15:30"  # disseminated at/after the close → usable from the next day
       # XBRL amounts should be absolute rupees. A filing that states a rounding level and keyed
       # its amounts in that unit (decimals >= 0, or PAT/EPS implying < min_plausible_shares
@@ -194,3 +205,7 @@ providers:
     holiday_after_days: 3      # no file 3+ days later = market holiday (not "not yet out")
   oauth_state_ttl_s: 600  # broker login must complete within this many seconds
   history_years: 10
+  adjustment:                  # split / bonus adjustment of raw prices (data/adjust.py)
+    duplicate_window_days: 5   # same split/bonus from 2 sources ≤ 5 days apart → applied once
+    detect_preadjusted: true   # raw closes show no move at the ex-date → source already adjusted
+    abnormal_gap: 0.35         # adjusted close moving > 35% in a day is reported

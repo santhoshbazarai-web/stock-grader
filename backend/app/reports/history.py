@@ -36,8 +36,11 @@ class ShareholdingPoint(BaseModel):
     promoter_pct: float | None
     fii_pct: float | None
     dii_pct: float | None
+    mf_pct: float | None = None
     public_pct: float | None
     promoter_pledge_pct: float | None
+    filing_date: date | None = None  # when the pattern was filed (point in time, rule 4)
+    source: str | None = None  # where it came from: nse, bse, screener...
 
 
 class FundamentalsHistory(BaseModel):
@@ -54,6 +57,12 @@ def _num(v: object) -> float | None:
         return None
     f = float(v)  # type: ignore[arg-type]
     return None if pd.isna(f) else f
+
+
+def _date(v: object) -> date | None:
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return None
+    return pd.Timestamp(v).date()  # type: ignore[arg-type]
 
 
 def fundamentals_history(
@@ -93,9 +102,18 @@ def fundamentals_history(
     shp = [
         ShareholdingPoint(
             period_end=idx.date(),
+            filing_date=_date(r.get("filing_date")),
+            source=str(r["source"]) if isinstance(r.get("source"), str) else None,
             **{
                 c: _num(r.get(c))
-                for c in ("promoter_pct", "fii_pct", "dii_pct", "public_pct", "promoter_pledge_pct")
+                for c in (
+                    "promoter_pct",
+                    "fii_pct",
+                    "dii_pct",
+                    "mf_pct",
+                    "public_pct",
+                    "promoter_pledge_pct",
+                )
             },
         )
         for idx, (_, r) in zip(

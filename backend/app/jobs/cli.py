@@ -182,11 +182,12 @@ def xbrl_inspect(path: Path) -> int:
 
     try:
         cfg = load_config(config_dir_from_env()).providers.nse.results
-        print(describe(path.read_bytes(), cfg))
+        text = describe(path.read_bytes(), cfg)
     except (OSError, XbrlFormatError) as exc:
         print(f"{path}: {exc}", file=sys.stderr)
         return 1
-    return 0
+    print(text)
+    return 1 if text.startswith("NOT PARSED") else 0
 
 
 def pdf_inspect(path: Path, fy: int | None) -> int:

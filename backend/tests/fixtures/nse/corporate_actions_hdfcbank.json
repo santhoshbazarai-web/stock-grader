@@ -1,0 +1,5 @@
+[
+ {"symbol": "HDFCBANK", "series": "EQ", "ind": "-", "faceVal": "1", "subject": "Bonus 1:1", "exDate": "27-Aug-2025", "recDate": "27-Aug-2025", "bcStartDate": "-", "bcEndDate": "-", "ndStartDate": "-", "comp": "HDFC Bank Limited", "isin": "INE040A01034", "ndEndDate": "-", "caBroadcastDate": null},
+ {"symbol": "HDFCBANK", "series": "EQ", "ind": "-", "faceVal": "2", "subject": "Face Value Split (Sub-Division) - From Rs 2/- Per Share To Re 1/- Per Share", "exDate": "19-Sep-2019", "recDate": "20-Sep-2019", "bcStartDate": "-", "bcEndDate": "-", "ndStartDate": "-", "comp": "HDFC Bank Limited", "isin": "INE040A01026", "ndEndDate": "-", "caBroadcastDate": null},
+ {"symbol": "HDFCBANK", "series": "EQ", "ind": "-", "faceVal": "1", "subject": "Annual General Meeting", "exDate": "-", "recDate": "-", "bcStartDate": "-", "bcEndDate": "-", "ndStartDate": "-", "comp": "HDFC Bank Limited", "isin": "INE040A01034", "ndEndDate": "-", "caBroadcastDate": null}
+]

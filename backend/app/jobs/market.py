@@ -6,7 +6,7 @@ from datetime import date, timedelta
 from typing import Any
 
 import pandas as pd
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Dataset
@@ -100,13 +100,22 @@ def corporate_actions(ctx: JobContext, options: JobOptions) -> JobOutcome:
         else today - timedelta(days=ctx.config.jobs.corporate_actions.lookback_days)
     )
     symbols = universe(ctx, options)
-    written, failed, readjusted = 0, [], []
+    written, failed, readjusted, first_time = 0, [], [], []
     failed_reasons: dict[str, str] = {}
     for symbol in symbols:
         session = ctx.session_factory()
         try:
             iid = ensure_instruments(session, [symbol])[symbol]
-            got = _fetch_corporate_actions(ctx, session, symbol, iid, start, failed_reasons)
+            # a stock with no actions on file gets its full history, not just the last
+            # lookback_days (else a split before the window is never loaded)
+            known = session.scalar(
+                select(func.count()).select_from(CorporateAction)
+                .where(CorporateAction.instrument_id == iid)
+            )  # fmt: skip
+            since = start if known else full_start
+            if not known and not options.full:
+                first_time.append(symbol)
+            got = _fetch_corporate_actions(ctx, session, symbol, iid, since, failed_reasons)
             if got is None:
                 failed.append(symbol)
                 continue
@@ -126,12 +135,19 @@ def corporate_actions(ctx: JobContext, options: JobOptions) -> JobOutcome:
             "failed_reasons": failed_reasons,
             "readjusted": readjusted,
             "from": start.isoformat(),
+            "full_history_for": first_time,
         },
     )
 
 
 def _readjust_and_flag(ctx: JobContext, session: Session, symbol: str, iid: int) -> None:
-    result = readjust(session, iid)
+    result = readjust(session, iid, ctx.config.providers.adjustment)
+    for w in result.warnings:
+        logger.info("%s adjustment: %s", symbol, w)
+    abnormal = [w for w in result.warnings if "may be missing or doubled" in w]
+    if abnormal:
+        ctx.gaps.record(GapRecord(Dataset.CORPORATE_ACTIONS, symbol, "; ".join(abnormal), [],
+                                  field="adj_close"))  # fmt: skip
     if not result.complete:
         ctx.gaps.record(
             GapRecord(

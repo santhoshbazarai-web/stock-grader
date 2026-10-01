@@ -13,6 +13,7 @@ from app.core.config import load_config
 from app.data.xbrl import (
     XbrlFormatError,
     announcement_date,
+    describe,
     parse_instance,
     parse_results,
 )
@@ -232,3 +233,66 @@ def test_announcement_date_is_point_in_time(
     disseminated: datetime | None, board: date | None, expected: date | None
 ) -> None:
     assert announcement_date(disseminated, board, time(15, 30)) == expected
+
+
+# ───────── older bank filings: basis-dimension contexts, failure diagnostics ─────────
+# Synthetic variants of the BANKX fixture (not real filings): the same facts, with every
+# context carrying a dimension. The real failing BANKING_*.xml files belong under
+# tests/fixtures/golden_xbrl (see its README); these pin the parser behaviour meanwhile.
+
+BASIS_AXIS = "in-bse-fin:ConsolidatedAndSeparateFinancialStatementsAxis"
+
+
+def _with_scenario(member: str, axis: str = BASIS_AXIS) -> bytes:
+    text = (FIX / "bankx_q4fy24_standalone.xml").read_text()
+    scenario = (f'<xbrli:scenario><xbrldi:explicitMember dimension="{axis}">'
+                f"in-bse-fin:{member}</xbrldi:explicitMember></xbrli:scenario>")  # fmt: skip
+    return text.replace("</xbrli:period></xbrli:context>",
+                        f"</xbrli:period>{scenario}</xbrli:context>").encode()  # fmt: skip
+
+
+def test_contexts_with_only_the_basis_dimension_are_read_as_plain() -> None:
+    plain = parse_results((FIX / "bankx_q4fy24_standalone.xml").read_bytes(), CFG)
+    content = _with_scenario("SeparateMember")
+    inst = parse_instance(content)
+    assert inst.contexts["OneD"].dimensional
+    assert inst.contexts["OneD"].members == (
+        "ConsolidatedAndSeparateFinancialStatementsAxis=SeparateMember",
+    )
+    f = parse_results(content, CFG)
+    assert f.quarter == plain.quarter and f.annual == plain.annual
+    assert f.statement_type == StatementType.STANDALONE  # read from the dimensional context
+    assert any("standalone (ConsolidatedAndSeparate" in w for w in f.warnings)
+    assert f.period_items == plain.period_items
+
+
+def test_the_other_basis_is_never_read() -> None:
+    # a "Standalone" filing whose contexts say consolidated: contradictory, not read
+    with pytest.raises(XbrlFormatError, match="ConsolidatedMember"):
+        parse_results(_with_scenario("ConsolidatedMember"), CFG)
+
+
+def test_a_segment_dimension_is_never_read_and_the_error_says_why() -> None:
+    content = _with_scenario("RetailBankingMember", axis="in-bse-fin:SegmentsAxis")
+    with pytest.raises(XbrlFormatError) as info:
+        parse_results(content, CFG)
+    msg = str(info.value)
+    assert msg.startswith("no quarter or fiscal-year results for the period ending 2024-03-31")
+    assert "plain contexts ending then: none" in msg
+    assert "SegmentsAxis=RetailBankingMember" in msg
+    assert "InterestEarned@OneD[INR]" in msg
+
+
+def test_error_lists_unmapped_elements_of_the_period() -> None:
+    doc = _doc(_ctx("a", "2024-04-01", "2024-06-30") + _fact("EmployeeBenefitExpense", "a", 1)
+               + _fact("SomeUnknownIncome", "a", 5))  # fmt: skip
+    with pytest.raises(XbrlFormatError, match=r"plain contexts ending then: a\(91d\).*"
+                       r"unmapped numeric elements then: SomeUnknownIncome"):  # fmt: skip
+        parse_results(doc, CFG)
+
+
+def test_inspect_describes_a_filing_that_does_not_parse() -> None:
+    text = describe(_with_scenario("RetailBankingMember", axis="in-bse-fin:SegmentsAxis"), CFG)
+    assert text.startswith("NOT PARSED: no quarter or fiscal-year results")
+    assert "SegmentsAxis=RetailBankingMember" in text
+    assert "InterestEarned  [OneD]  INR  100000000000" in text

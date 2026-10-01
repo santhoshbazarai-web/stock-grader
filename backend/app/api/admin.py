@@ -32,7 +32,7 @@ from app.api.schemas import (
     XbrlFileResult,
     XbrlUploadSummary,
 )
-from app.core.config import ConfigError, get_config, load_config
+from app.core.config import CONFIG_FILES, ConfigError, get_config, load_config
 from app.data.gaps import SessionGapRecorder
 from app.data.providers.screener_import import ScreenerFormatError, import_screener
 from app.data.raw_store import RawStore, RawStoreError
@@ -58,8 +58,6 @@ from app.pipeline.runner import active_symbols
 router = APIRouter()
 
 XBRL_UPLOAD_MAX_FILES = 80  # 20 years of quarterly filings in one request
-
-CONFIG_FILES = ("providers", "valuation", "sectors", "scoring", "technical", "jobs")
 
 
 # ───────────────────────── uploads ─────────────────────────

@@ -121,6 +121,11 @@ class Instrument(SourcedMixin, Base):
     series: Mapped[str | None] = mapped_column(String(8))
     industry: Mapped[str | None] = mapped_column(String(200))  # NSE industry
     sector: Mapped[str | None] = mapped_column(String(64))  # key into config/sectors.yaml
+    # the classification the sector was derived from (industries.yaml): NSE basic industry or
+    # Yahoo industry, which source, and when it was read
+    basic_industry: Mapped[str | None] = mapped_column(String(200))
+    industry_source: Mapped[str | None] = mapped_column(String(16))
+    classified_at: Mapped[datetime | None]
     is_index: Mapped[bool] = mapped_column(Boolean, server_default="false")
     listing_date: Mapped[date | None]
     face_value: Mapped[float | None]
@@ -385,6 +390,9 @@ class ResultFiling(TimestampMixin, Base):
     periods: Mapped[list[str] | None]  # e.g. ["quarter 2024-03-31", "year 2024-03-31"]
     warnings: Mapped[list[str] | None]
     parsed_at: Mapped[datetime | None]
+    # The document downloaded but did not parse (status failed) with this parser version
+    # (xbrl.parser_version()): it is not downloaded or parsed again until the version changes.
+    parse_failed_version: Mapped[str | None] = mapped_column(String(32))
 
 
 class FinLineItem(Base):

@@ -70,7 +70,8 @@ def test_steps_follow_the_spec_order() -> None:
         "report",
     ]  # fmt: skip
     required = {s.name for s in STEPS if not s.optional}
-    assert required == {"symbol", "prices", "metrics", "valuation", "scoring", "report"}
+    # metrics fails loudly but optionally: the report (prices, technicals) is still built
+    assert required == {"symbol", "prices", "valuation", "scoring", "report"}
 
 
 def test_run_with_failing_optional_steps_still_stores_a_report(seeded: Env) -> None:
@@ -90,6 +91,28 @@ def test_run_with_failing_optional_steps_still_stores_a_report(seeded: Env) -> N
         report = latest_report(s, "SYNTH")
     assert report is not None and run.report_as_of == report.as_of
     assert "pipeline filings index: NSE results list unavailable" in report.data_gaps
+    # the XBRL step says which years it found per statement
+    assert st["xbrl_parse"][1] and "Years found: " in st["xbrl_parse"][1]
+    assert st["metrics"][1] and "fiscal year(s) with a P&L" in st["metrics"][1]
+
+
+def test_metrics_fails_loudly_without_a_pl_but_the_report_is_built(seeded: Env) -> None:
+    from sqlalchemy import delete
+
+    from app.db.models import FinAnnual, FinQuarterly
+
+    with seeded.session() as s:
+        s.execute(delete(FinAnnual))
+        s.execute(delete(FinQuarterly))
+        s.commit()
+    run_id = queue(seeded, "SYNTH")
+    assert run_pending(seeded.ctx) == [(run_id, PipelineStatus.DONE)]
+    st = steps(load(seeded, run_id))
+    status, msg = st["metrics"]
+    assert status == "failed" and msg
+    assert msg.startswith("no fundamental metrics: no fiscal year with a P&L (revenue / PAT)")
+    assert "[P&L 0 yr, BS 0 yr, CF 0 yr (consolidated)]" in msg and "Settings → Uploads" in msg
+    assert st["report"][0] == "ok"  # still built from prices and technicals
 
 
 def test_required_step_failure_fails_the_run(seeded: Env) -> None:

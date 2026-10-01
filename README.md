@@ -202,6 +202,13 @@ weights that do not sum to 1 (sectors) or 100 (pillars), non-monotonic score map
 insurance sector that uses FCFF DCF, etc. The config directory is `CONFIG_DIR` (defaults to
 `./config`; mounted read-only at `/config` in Docker).
 
+`industries.yaml` maps each stock's industry label (NSE basic industry such as "Private Sector
+Bank", or Yahoo's industry such as "Banks - Regional") to a `sectors.yaml` model. Banks, NBFCs and
+insurers get their own valuation models. The `industry_classification` job (weekly, and on a
+stock's first pipeline run) reads the labels. Run it for one stock with
+`python -m app.jobs run industry_classification --symbols HDFCBANK`. A label without an entry
+shows as a "sector unmapped" data gap in the report: add it to `industries.yaml`.
+
 ## Database
 
 Models live in `backend/app/db/models.py` (all SPEC §3.4 tables). Ingested data tables carry

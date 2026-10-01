@@ -61,3 +61,59 @@ Expected coverage limits:
 
 Earlier balance sheets and cash flows come from the annual-report PDF gap filler (SPEC §3.6 step 3,
 P18).
+
+## Data-correctness pass (Prompt A, HDFCBANK report with empty fundamentals)
+
+The HDFCBANK page showed real prices but empty fundamentals and valuation. Causes found, and
+what changed. Commits are on branch `claude/gracious-wozniak-4lsfac`.
+
+| # | Symptom | Cause | Fix | Commit |
+|---|---|---|---|---|
+| 1 | Bank valued with the default model | Nothing set `instruments.sector` | NSE `industryInfo.basicIndustry` (Yahoo `industry` as fallback) mapped through `config/industries.yaml` to a sectors.yaml key; `industry_classification` job and the pipeline's symbol step; an unmapped label is a "sector unmapped" data gap | `9fe45df` |
+| 2 | Fundamentals empty; the CLI and the grid disagreed | A fiscal-year-end balance sheet without a P&L made no `fin_annual` row; the CLI counted quarters as years | Year rows from FY-end balance sheets; the grid and the CLI count years the same way (quarters reported apart); Indian FY labels everywhere | `7a5ed4d` |
+| 3 | 36 `BANKING_*.xml` (2018-06 to 2023-09): "no quarter or fiscal-year results" | **Not confirmed**: the files weren't available here. Candidates: figures only in dimensional contexts, or period facts only in dimensional contexts | Contexts carry their dimension members. Contexts dimensioned only on a consolidated/standalone axis (`basis_axes`, xbrl_map v4) are read for the basis the filing states. Descriptive facts are read from any context. The error now lists the contexts at the period end, their members, the mapped P&L elements found and the unmapped ones; `xbrl-inspect` prints `NOT PARSED: …` with every context and fact. The NSE list (≈50 latest filings) is re-read in 2-year date windows back 12 years. Real failing files go in `tests/fixtures/golden_xbrl/regression/` and must parse | `f245edf`, `8ae56bf` |
+| 4 | Bank cash flow shown as a failure | Bank results carry no cash flow | Grid cell "AR: not in XBRL, use the annual report" (banks, and every company before FY2020); the negative-CFO knock-out doesn't apply to lenders/insurers | `ab46460` |
+| 5 | No shareholding in the report | Only a chart without source/date | Report `shareholding` (source, quarter, filing date, holdings, pledge); chart captioned with source and dates; none → gap | `bc9850c` |
+| 6 | "No cost of equity"; WACC for a bank | Latest annual row (BS-only) had no share count → no market cap; banks got a WACC | Market cap from the latest share count on file, shown with its period; Ke build-up shown; beta clamp, missing beta, undated risk-free rate are gaps; banks run on Ke only (no WACC/FCFF, no reverse DCF) | `617bfba`, `9fbeeb7` |
+| 7, 9 | Weekly chart jumps (Sep 2019, Aug–Sep 2025); "nse: empty; yfinance: empty" | Corporate actions were read for the last 30 days only (split/bonus never loaded); the same event from two sources a day apart, or a pre-adjusted price source, was applied twice | Full history for a stock with no actions on file; "no actions" from every source is an answer; one application per event (`duplicate_window_days`), pre-adjusted detection, abnormal-gap report; per-share fundamentals restated to today's share basis | `4b84108` |
+| 10 | PDF step crash (`CardinalityViolation`) | The same line read twice in one upsert batch | One candidate per key (highest confidence); one report's failure doesn't stop the others | `cd8b0ff` |
+| 11 | "0 of 36 stored; 36 failed" every run | Parse failures retried like download failures | `parse_failed_version`: not retried until the parser/map version changes, then re-parsed from the cache | `a8dbffc` |
+| 12 | Panel didn't say what was found | — | XBRL step: "Years found: P&L n yr, BS n yr, CF n yr"; metrics fails loudly naming what's missing | `a8dbffc` |
+
+### Evidence (offline synthetic exchange; NSE is unreachable from this build environment)
+
+`OFFBANK` is the offline exchange's synthetic bank (banking XBRL layout, 10 years). The same
+jobs were run on `main` before this work (`341916f`) and after it (results_backfill,
+corporate_actions, shareholding, technicals, valuation_scores):
+
+| | Before | After |
+|---|---|---|
+| CLI coverage, P&L | `FY2017-FY2027 11 yr` (quarters counted as a year) | `FY2017-FY2026 10 yr; 39 quarter(s)` |
+| Baseline / FV / Top band | ₹1,096 / ₹2,334 / ₹1,388 | ₹1,096 / ₹2,334 / ₹1,388 |
+| Zone, grade, action | discount, A, accumulate | discount, A, accumulate |
+| WACC (bank) | 15.67% (computed for a bank) | not used: "bank model: valued on the cost of equity; no WACC or FCFF" |
+| Cost of equity | 10.70%, no build-up | "Ke 10.70% = Rf 6.50% + beta 0.60 x ERP 7.00% + size premium 0.00%" |
+| Market cap | shown, source of the share count not stated | "₹134,040 Cr = 100.01 Cr shares (quarter ended 2026-06-30) x price ₹1,340.27" |
+| Shareholding in report | not present | offline, quarter 2026-06-30, filed 2026-07-21, promoter 51.3%, pledge 0% |
+| Data gaps | 9, two not applicable to a bank (`knockout:negative_cfo`, `reverse_dcf_gap`) and a silently clamped beta | 9: the two non-applicable gone; `beta` (0.37 clamped at the 0.60 floor) and `risk_free_rate` (undated) added |
+
+The synthetic bank's data is clean, so its levels don't move. On HDFCBANK the fixes act on
+inputs that were missing (sector, year rows, corporate actions, share count).
+
+Price adjustment, on a synthetic ₹1,000 series with HDFC Bank's split (ex 19 Sep 2019) and 1:1
+bonus (ex 27 Aug 2025) (`tests/test_adjust_hdfcbank.py`):
+
+| Case | Before: first close, largest daily move | After |
+|---|---|---|
+| Unadjusted prices; NSE + yfinance duplicates a day apart | ₹250, 100% | ₹1,000, 0% |
+| Prices already adjusted by the source | ₹250, 100% | ₹1,000, 0% |
+
+### Still to confirm with network access
+
+1. Run the HDFCBANK sequence (see the PR) and record `xbrl-coverage --symbols HDFCBANK`; the
+   target is P&L and BS back to FY2016 or earlier.
+2. Copy 3–4 failing `BANKING_*.xml` files into `tests/fixtures/golden_xbrl/regression/`. If
+   any still fails, `python -m app.jobs xbrl-inspect <file>` shows the cause: add the axis
+   to `basis_axes` or the element names to `xbrl_map.yaml` (bump `version`).
+3. Fill HDFCBANK's golden figures: total income, net profit, advances, deposits, net worth.
+4. Set `valuation.risk_free_as_of` after checking the 10-year G-sec yield.

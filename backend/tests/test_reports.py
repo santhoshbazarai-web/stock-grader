@@ -190,6 +190,68 @@ def test_bank_sector_never_uses_fcff_dcf(db: Session) -> None:
     assert next(p for p in r.pillars if p.pillar == "quality").subs[0].name == "roa_pct"
 
 
+def test_market_cap_and_cost_of_equity_are_explained(db: Session) -> None:
+    seed_index(db)
+    seed_company(db)
+    r = build_for(db, "SYNTH", CFG).report
+    v = r.valuation
+    assert v.market_cap_cr == pytest.approx(r.cmp * 10.0)  # SHARES_CR = 10 in the seed
+    assert any(x.startswith("market cap ₹") and "Cr shares (year ended" in x for x in v.reasons)
+    ke_line = next(x for x in v.reasons if x.startswith("Ke "))
+    assert f"Ke {v.cost_of_equity:.2%} = Rf 6.50%" in ke_line and "as of not dated" in ke_line
+    # the configured risk-free rate has no date: listed once as a gap
+    assert (
+        sum(g.startswith("risk_free_rate: risk-free rate 6.50% has no date") for g in r.data_gaps)
+        == 1
+    )
+
+
+def test_bank_uses_cost_of_equity_not_wacc(db: Session) -> None:
+    seed_index(db)
+    seed_company(db, sector="banks")
+    r = build_for(db, "SYNTH", CFG).report
+    v = r.valuation
+    assert v.wacc is None and v.cost_of_equity is not None and v.dcf == []
+    assert "bank model: valued on the cost of equity; no WACC or FCFF" in v.reasons
+    # no reverse DCF for a bank: not a missing valuation input
+    assert not [g for g in r.data_gaps if g.startswith("reverse_dcf_gap")]
+    vp = next(p for p in r.pillars if p.pillar == "valuation")
+    assert [s.name for s in vp.subs] == ["discount_to_fv"]
+    jpb = next(m for m in v.methods if m.name == "justified_pb")
+    assert jpb.value is not None
+
+
+def test_no_shareholding_is_a_data_gap(db: Session) -> None:
+    from sqlalchemy import delete
+
+    from app.db.models import Shareholding
+
+    seed_index(db)
+    seed_company(db)
+    db.execute(delete(Shareholding))
+    r = build_for(db, "SYNTH", CFG).report
+    assert r.shareholding is None
+    assert any(g.startswith("shareholding: no shareholding pattern on file") for g in r.data_gaps)
+
+
+def test_a_bank_needs_no_cash_flow(db: Session) -> None:
+    """Bank results XBRL has no cash-flow statement: the bank's valuation, pillars and
+    knock-outs must not depend on it, nor list it as a gap."""
+    from sqlalchemy import update
+
+    from app.db.models import FinAnnual
+
+    seed_index(db)
+    seed_company(db, sector="banks")
+    db.execute(
+        update(FinAnnual).values(cfo=None, purchase_of_fixed_assets=None, sale_of_fixed_assets=None)
+    )
+    r = build_for(db, "SYNTH", CFG).report
+    assert {m.name for m in r.valuation.methods} == {"justified_pb", "band_pb", "relative_pb"}
+    assert "negative_cfo" not in r.knockouts.unknown
+    assert not [g for g in r.data_gaps if "cfo" in g.lower() or "cash flow" in g.lower()]
+
+
 def test_overrides_change_the_valuation(seeded: Session) -> None:
     iid = seeded.scalar(select(Instrument.id).where(Instrument.symbol == "SYNTH"))
     base = build_for(seeded, "SYNTH", CFG).report

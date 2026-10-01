@@ -206,7 +206,9 @@ class FilingsSummary(BaseModel):
     last_parsed_at: datetime | None
 
 
-ConfigFileName = Literal["providers", "valuation", "sectors", "scoring", "technical", "jobs"]
+ConfigFileName = Literal[
+    "providers", "valuation", "sectors", "scoring", "technical", "jobs", "industries"
+]
 
 
 class ConfigFile(BaseModel):
@@ -411,6 +413,8 @@ class CoverageCellOut(BaseModel):
                                "empty = a gap")  # fmt: skip
     items: int
     pending_review: int
+    note: str | None = Field(None, description="Why a gap is expected, e.g. cash flow not in "
+                             "results XBRL (banks; before FY2020)")  # fmt: skip
 
 
 class CoverageBasis(BaseModel):

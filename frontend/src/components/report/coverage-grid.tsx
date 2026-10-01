@@ -44,7 +44,7 @@ function Cell({
   const what = style
     ? `${cell.statement} FY${cell.fiscal_year}: ${cell.sources.map((s) => SOURCE_STYLE[s]?.label ?? s).join(" + ")}` +
       (cell.items ? ` (${cell.items} items)` : "")
-    : `${cell.statement} FY${cell.fiscal_year}: gap`;
+    : `${cell.statement} FY${cell.fiscal_year}: ${cell.note ? `gap, ${cell.note}` : "gap"}`;
   return (
     <td className="p-0.5">
       <div
@@ -60,7 +60,9 @@ function Cell({
         }`}
         style={style ? { background: style.color } : undefined}
       >
-        <span className="font-medium">{style ? style.short : "—"}</span>
+        <span className="font-medium">
+          {style ? style.short : cell.note ? "AR" : "—"}
+        </span>
         {rest.length > 0 && (
           <span>+{rest.map((s) => SOURCE_STYLE[s]?.short ?? s).join("+")}</span>
         )}
@@ -174,6 +176,7 @@ export function CoverageGrid({ symbol }: { symbol: string }) {
           <span className="inline-block size-3 rounded-sm border border-dashed" />{" "}
           — = gap
         </li>
+        <li>AR = not in XBRL: use the annual report</li>
         <li>
           ⚑ = values to review ·{" "}
           <Link

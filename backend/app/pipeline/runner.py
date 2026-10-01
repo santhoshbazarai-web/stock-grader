@@ -11,9 +11,9 @@ shareholding/events → reconcile → metrics → valuation → technical → sc
 - **Resumable and idempotent.** Every step's state is stored on the run. A worker picks up a
   queued run (or one whose worker stopped heart-beating for ``stale_after_s``) and continues
   from the first unfinished step; the data steps are upserts, so repeating one is harmless.
-- **Optional steps never stop the report.** A failed optional step is a warning, and its
-  message is added to the report's ``data_gaps``. A failed required step (no prices, no report
-  can be built) fails the run.
+- **Optional steps never stop the report.** A failed optional step shows as failed (or a
+  warning), the run goes on, and its message is added to the report's ``data_gaps``. A
+  failed required step (no prices, no report can be built) fails the run.
 
 Steps call the same code as the nightly jobs, restricted to the symbol and to per-run budgets
 (``max_xbrl_downloads``, ``max_annual_reports``).
@@ -33,6 +33,7 @@ from app.alerts.notify import notify
 from app.core.config import PipelineConfig
 from app.data import prices
 from app.data.providers.web_session import BLOCKED_MARKER, blocked_message
+from app.data.results_store import _fy_end_month
 from app.db.enums import FilingStatus, PipelineStatus, StepStatus
 from app.db.models import (
     AnnualReport,
@@ -70,6 +71,7 @@ class State:
     notes: list[str] = field(default_factory=list)  # optional-step problems → data_gaps
     built: Built | None = None
     years: int = 0  # fiscal years of fundamentals loaded
+    pl_years: int = 0  # ... of which have a P&L (revenue or PAT)
 
 
 @dataclass(frozen=True)
@@ -133,12 +135,37 @@ def _symbol(ctx: JobContext, st: State) -> StepResult:
         session.commit()
     finally:
         session.close()
+    sector_note, sector_ok = _classify(ctx, st.symbol)
     if master is not None:
         extra = f", BSE {master.bse_code}" if master.bse_code else ""
-        return StepResult(StepStatus.OK, f"{master.name} (ISIN {master.isin}{extra})")
+        return StepResult(StepStatus.OK if sector_ok else StepStatus.WARNING,
+                          f"{master.name} (ISIN {master.isin}{extra}); {sector_note}")  # fmt: skip
     if not have_master:
-        return StepResult(StepStatus.WARNING, "symbol master not built yet: not verified")
-    return StepResult(StepStatus.OK, "known instrument (not in the symbol master)")
+        return StepResult(StepStatus.WARNING, "symbol master not built yet: not verified; "
+                          f"{sector_note}")  # fmt: skip
+    return StepResult(StepStatus.OK if sector_ok else StepStatus.WARNING,
+                      f"known instrument (not in the symbol master); {sector_note}")  # fmt: skip
+
+
+def _classify(ctx: JobContext, symbol: str) -> tuple[str, bool]:
+    """Sector model for a stock not classified yet (industries.yaml); → (note, mapped)."""
+    from app.data.industry_store import classify_symbol
+
+    session = ctx.session_factory()
+    try:
+        inst = session.scalar(select(Instrument).where(Instrument.symbol == symbol))
+        if inst is not None and inst.classified_at is not None:
+            if inst.sector:
+                return f"sector {inst.sector} ({inst.industry_source}: {inst.basic_industry})", True
+            return (f"sector unmapped ({inst.industry_source}: {inst.basic_industry}); "
+                    "default model"), False  # fmt: skip
+        out = classify_symbol(session, ctx.router, symbol, ctx.config.industries, now=ctx.clock())
+        session.commit()
+    finally:
+        session.close()
+    if out.sector is not None and out.fetched:
+        return f"sector {out.sector} ({out.source}: {out.label})", True
+    return out.message, False
 
 
 def _prices(ctx: JobContext, st: State) -> StepResult:
@@ -199,12 +226,19 @@ def _xbrl_parse(ctx: JobContext, st: State) -> StepResult:
         ) or 0  # fmt: skip
     finally:
         session.close()
-    msg = f"{out['parsed']} of {out['downloaded']} document(s) stored"
+    tried = out["downloaded"] + out.get("reparsed", 0)
+    msg = f"{out['parsed']} of {tried} document(s) stored" if tried else "no new results filings"
+    if out.get("reparsed"):
+        msg += f" ({out['reparsed']} re-parsed from the cache)"
     if left:
         msg += f"; {left} older ones left for the nightly job"
     if out["failed"]:
-        return StepResult(StepStatus.WARNING, f"{msg}; {len(out['failed'])} failed")
-    return StepResult(StepStatus.OK, msg if out["downloaded"] else "no new results filings")
+        msg += f"; {len(out['failed'])} failed"
+    if out.get("known_parse_failures"):
+        msg += (f"; {out['known_parse_failures']} known parse failure(s) not retried until the "
+                f"parser changes ({out['parser_version']})")  # fmt: skip
+    msg += f". Years found: {_years_found(ctx, st.symbol)}"
+    return StepResult(StepStatus.WARNING if out["failed"] else StepStatus.OK, msg)
 
 
 def _pdf_gap_fill(ctx: JobContext, st: State) -> StepResult:
@@ -278,15 +312,43 @@ def _build(ctx: JobContext, st: State) -> Built:
         session.close()
     data.notes = [*data.notes, *st.notes]
     st.years = len(data.annual)
+    pl = [c for c in ("revenue", "pat") if c in data.annual.columns]
+    st.pl_years = int(data.annual[pl].notna().any(axis=1).sum()) if pl else 0
     return build_report(data, ctx.config)
 
 
+def _years_found(ctx: JobContext, symbol: str) -> str:
+    from app.data.coverage import years_summary
+
+    session = ctx.session_factory()
+    try:
+        iid = session.scalar(select(Instrument.id).where(Instrument.symbol == symbol))
+        if iid is None:
+            return "no statements stored"
+        month = _fy_end_month(session, iid, ctx.config.providers.nse.results)
+        return years_summary(session, symbol, month)
+    finally:
+        session.close()
+
+
 def _metrics(ctx: JobContext, st: State) -> StepResult:
+    """Fails loudly (the report is still built, with prices and technicals) when there is no
+    fiscal year with a P&L to compute metrics from, naming what is stored and where to get
+    the rest; warns with the metrics it could not compute otherwise."""
     st.built = _build(ctx, st)
-    gaps = len(st.built.report.data_gaps)
-    msg = f"{st.years} fiscal year(s) of fundamentals"
-    if gaps:
-        return StepResult(StepStatus.WARNING, f"{msg}; {gaps} data gap(s), listed in the report")
+    r = st.built.report
+    found = _years_found(ctx, st.symbol)
+    missing = [k for k, v in r.fundamentals.items() if v is None]
+    shown = ", ".join(missing[:6]) + (f" (+{len(missing) - 6} more)" if len(missing) > 6 else "")
+    if st.pl_years == 0:
+        return StepResult(StepStatus.FAILED, (
+            f"no fundamental metrics: no fiscal year with a P&L (revenue / PAT) on file "
+            f"[{found}]. Needs the Results XBRL step to store filings, or an XBRL / Screener "
+            f"upload (Settings → Uploads). Not computed: {shown or 'all'}"))  # fmt: skip
+    msg = f"{st.pl_years} fiscal year(s) with a P&L [{found}]"
+    if missing:
+        return StepResult(StepStatus.WARNING, f"{msg}; not computed (inputs missing, see the "
+                          f"data gaps): {shown}")  # fmt: skip
     return StepResult(StepStatus.OK, msg)
 
 
@@ -371,7 +433,7 @@ STEPS: tuple[StepDef, ...] = (
     StepDef("pdf_gap_fill", "Annual-report PDFs", True, _pdf_gap_fill),
     StepDef("shareholding_events", "Shareholding & events", True, _shareholding),
     StepDef("reconcile", "Reconciliation", True, _reconcile),
-    StepDef("metrics", "Fundamental metrics", False, _metrics),
+    StepDef("metrics", "Fundamental metrics", True, _metrics),
     StepDef("valuation", "Valuation", False, _valuation),
     StepDef("technical", "Technicals", True, _technical),
     StepDef("scoring", "Scoring", False, _scoring),
@@ -555,13 +617,11 @@ def execute(ctx: JobContext, run_id: int) -> PipelineStatus:
             except Exception as exc:
                 logger.exception("pipeline %s: step %s failed", symbol, step.name)
                 result = StepResult(StepStatus.FAILED, f"{type(exc).__name__}: {exc}")
-            if result.status is StepStatus.FAILED and step.optional:
-                result = StepResult(StepStatus.WARNING, result.message)
             fields = {"status": result.status.value, "message": result.message[:500],
                       "finished_at": ctx.now().isoformat()}  # fmt: skip
             steps[i].update(fields)
             _save(ctx, run_id, step=(i, fields))
-            if result.status is StepStatus.FAILED:
+            if result.status is StepStatus.FAILED and not step.optional:
                 for j in range(i + 1, len(steps)):
                     steps[j].update(status="skipped", message="an earlier step failed")
                 session = ctx.session_factory()

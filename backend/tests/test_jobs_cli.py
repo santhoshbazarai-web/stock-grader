@@ -114,9 +114,20 @@ def test_xbrl_inspect_needs_no_database_or_secrets(
     assert "OneD" in out and "used: quarter" in out and "used: balance_sheet" in out
     assert "dimensional, ignored" in out
     assert "revenue                      4,800.00" in out
-    assert "xbrl_map.yaml version 3" in out
+    assert "xbrl_map.yaml version 4" in out
     assert "Liabilities  [OneI]" in out  # an unmapped element, listed for review
     assert "sum:ind_as:CostOfMaterialsConsumed+PurchasesOfStockInTrade" in out  # cogs lines
+
+    # a filing that does not parse: described (contexts, facts), exit status 1
+    seg = tmp_path / "segments_only.xml"
+    seg.write_text((doc.parent / "bankx_q4fy24_standalone.xml").read_text().replace(
+        "</xbrli:period></xbrli:context>",
+        '</xbrli:period><xbrli:scenario><xbrldi:explicitMember dimension="x:SegmentsAxis">'
+        "x:RetailMember</xbrldi:explicitMember></xbrli:scenario></xbrli:context>"))  # fmt: skip
+    assert main(["xbrl-inspect", str(seg)], context_factory=no_context) == 1
+    out = capsys.readouterr().out
+    assert out.startswith("NOT PARSED: no quarter or fiscal-year results")
+    assert "SegmentsAxis=RetailMember" in out
 
     bad = tmp_path / "bad.xml"
     bad.write_bytes(b"<html/>")

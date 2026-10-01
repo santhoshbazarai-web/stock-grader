@@ -29,3 +29,15 @@ To fill an entry:
 3. **Fill in the figures.** In `expected.yaml`, fill `expected_crore` (₹ crore; EPS in ₹) from
    the published results or the annual report for that fiscal year and basis, and set
    `checked_against` (document and page).
+   For HDFCBANK, also fill `total_equity` (net worth), `expected_line_crore.total_income`,
+   and `advances` / `deposits` in `expected_extra_crore`.
+
+## Regression files (`regression/`)
+
+Real filings that once failed to parse go in `regression/` under their original names, e.g.
+3–4 of the `BANKING_*.xml` files (periods 2018-06-30 to 2023-09-30) copied from
+`data/raw/nse/<yyyy>/<mm>/<dd>/`. `test_regression_filings_parse` requires each to parse
+(a quarter or a fiscal year). If one fails, `python -m app.jobs xbrl-inspect <file>` now
+prints `NOT PARSED: …` with every context (its dimension members) and every numeric fact,
+which shows the cause: a dimension axis to add to `basis_axes`, or element names to add to
+`xbrl_map.yaml` (bump `version`; the stored failures are then retried).

@@ -8,12 +8,12 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from redis import Redis
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.core.settings import get_settings
 from app.db.enums import StatementType
-from app.db.models import AnnualReport, FinAnnual, FinLineItem
+from app.db.models import AnnualReport, FinAnnual, FinLineItem, Instrument
 from app.jobs.common import ensure_instruments
 from tests.api_support import app_client
 
@@ -140,4 +140,19 @@ def test_coverage_grid(client: TestClient, db: Session) -> None:
     assert bases["consolidated"][(2023, "CF")]["sources"] == ["pdf"]
     assert bases["consolidated"][(2024, "P&L")]["sources"] == []  # a gap
     assert bases["standalone"][(2020, "P&L")]["sources"] == ["screener"]
+    # cash flow is not in results XBRL before FY2020: an expected gap, with a pointer
+    assert bases["standalone"][(2019, "CF")]["note"] == "not in XBRL: use the annual report"
+    assert bases["standalone"][(2021, "CF")]["note"] is None
+    assert bases["consolidated"][(2023, "CF")]["note"] is None  # filled from the PDF
     assert client.get("/api/stocks/NOPE/coverage").status_code == 404
+
+
+def test_coverage_grid_bank_cash_flow_is_not_in_xbrl(client: TestClient, db: Session) -> None:
+    iid = ensure_instruments(db, ["BANKX"])["BANKX"]
+    db.execute(update(Instrument).where(Instrument.id == iid).values(sector="banks"))
+    db.commit()
+    grid = client.get("/api/stocks/BANKX/coverage").json()
+    cf = [c for c in grid["bases"][0]["cells"] if c["statement"] == "CF"]
+    assert cf and all(c["note"] == "not in XBRL: use the annual report" for c in cf)
+    other = [c for c in grid["bases"][0]["cells"] if c["statement"] != "CF"]
+    assert all(c["note"] is None for c in other)

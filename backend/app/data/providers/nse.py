@@ -53,6 +53,7 @@ from app.data.events import (
     parse_nse_results_feed,
     parse_nse_sast,
 )
+from app.data.industry import IndustryInfo, parse_nse_quote_industry
 from app.data.providers.base import ProviderError, ProviderUnavailable
 from app.data.providers.web_session import (
     BROWSER_HEADERS,
@@ -122,7 +123,7 @@ def _parse_date(value: Any) -> date | None:
     text = str(value or "").strip()
     if not text or text == "-":
         return None
-    for fmt in ("%d-%b-%Y", "%d-%m-%Y", "%Y-%m-%d"):
+    for fmt in ("%d-%b-%Y", "%d-%m-%Y", "%Y-%m-%d", "%d %b %Y", "%d/%m/%Y", "%d-%B-%Y"):
         try:
             return datetime.strptime(text, fmt).date()
         except ValueError:
@@ -363,7 +364,8 @@ def parse_ca_subject(
             a, b = float(m.group(1)), float(m.group(2))
             return CorporateActionType.BONUS, b, a + b, None
         return CorporateActionType.BONUS, None, None, None
-    if "split" in s or "sub-division" in s or "subdivision" in s:
+    if any(k in s for k in ("split", "sub-division", "subdivision", "sub division",
+                            "consolidation")):  # fmt: skip
         amounts = [float(x) for x in re.findall(_RS, s)]
         if len(amounts) >= 2 and amounts[1] > 0:
             return CorporateActionType.SPLIT, 1.0, amounts[0] / amounts[1], None
@@ -444,6 +446,27 @@ def xbrl_url_allowed(url: str, hosts: list[str]) -> bool:
 def _flag_yn(value: Any) -> bool | None:
     text = str(value or "").strip().lower()
     return True if text in ("y", "yes") else False if text in ("n", "no") else None
+
+
+def results_list_windows(today: date, history_years: int, window_years: int
+                         ) -> list[tuple[date, date]]:  # fmt: skip
+    """``[from, to]`` date windows covering the last ``history_years`` years, newest first,
+    each at most ``window_years`` long and not overlapping."""
+    out: list[tuple[date, date]] = []
+    oldest = _years_before(today, history_years)
+    end = today
+    while end > oldest:
+        start = max(_years_before(end, window_years) + timedelta(days=1), oldest)
+        out.append((start, end))
+        end = start - timedelta(days=1)
+    return out
+
+
+def _years_before(day: date, years: int) -> date:
+    try:
+        return day.replace(year=day.year - years)
+    except ValueError:  # 29 Feb
+        return day.replace(year=day.year - years, day=28)
 
 
 def parse_results_index(payload: Any, hosts: list[str]) -> tuple[pd.DataFrame, list[str]]:
@@ -673,6 +696,22 @@ class NseProvider:
         df.attrs["warnings"] = warnings
         return df
 
+    def industry_info(self, symbol: str) -> IndustryInfo:
+        """NSE's classification of ``symbol`` (quote API ``industryInfo``, basic industry)."""
+        self._http.begin_call()
+        sym = symbol.strip().upper()
+        payload = self._http.get_json(f"{self._cfg.base_url}{self._cfg.quote_path}",
+                                      params={"symbol": sym})  # fmt: skip
+        if self._raw is not None and payload is not None:  # cache before parsing (§3.2a)
+            try:
+                self._raw.save("nse", f"quote_{sym}.json", json.dumps(payload).encode())
+            except RawStoreError as exc:
+                raise ProviderUnavailable(str(exc)) from exc
+        info = parse_nse_quote_industry(payload) if payload is not None else None
+        if info is None:
+            raise ProviderUnavailable(f"NSE has no industry classification for {sym}")
+        return info
+
     def shareholding(self, symbol: str) -> pd.DataFrame:
         self._http.begin_call()
         payload = self._http.get_json(
@@ -687,21 +726,37 @@ class NseProvider:
         """Every results filing NSE lists for ``symbol`` (all ``results.periods``)."""
         self._http.begin_call()
         cfg = self._cfg.results
+        sym = symbol.strip().upper()
         frames, warnings = [], []
-        for period in cfg.periods:
-            payload = self._http.get_json(
-                f"{self._cfg.base_url}{cfg.index_path}",
-                params={"index": "equities", "symbol": symbol.strip().upper(), "period": period},
-            )
+
+        def listing(period: str, window: tuple[date, date] | None) -> int:
+            params = {"index": "equities", "symbol": sym, "period": period}
+            name = f"results_{sym}_{period}"
+            if window is not None:
+                params |= {"from_date": f"{window[0]:%d-%m-%Y}", "to_date": f"{window[1]:%d-%m-%Y}"}
+                name += f"_{window[0]:%Y%m%d}_{window[1]:%Y%m%d}"
+            payload = self._http.get_json(f"{self._cfg.base_url}{cfg.index_path}", params=params)
             if self._raw is not None and payload is not None:  # cache before parsing (§3.2a)
-                name = f"results_{symbol.strip().upper()}_{period}.json"
                 try:
-                    self._raw.save("nse", name, json.dumps(payload).encode())
+                    self._raw.save("nse", f"{name}.json", json.dumps(payload).encode())
                 except RawStoreError as exc:
                     raise ProviderUnavailable(str(exc)) from exc
-            df, w = parse_results_index(payload if payload is not None else [], cfg.xbrl_hosts)
+            rows = payload if payload is not None else []
+            df, w = parse_results_index(rows, cfg.xbrl_hosts)
             frames.append(df)
-            warnings += w
+            warnings.extend(w)
+            return len(_records(rows))
+
+        for period in cfg.periods:
+            if listing(period, None) < cfg.list_truncated_at:
+                continue
+            for window in results_list_windows(self._today(), cfg.list_history_years,
+                                               cfg.list_window_years):  # fmt: skip
+                if listing(period, window) >= cfg.list_truncated_at:
+                    warnings.append(
+                        f"{period} filings {window[0]}..{window[1]}: {cfg.list_truncated_at}+ "
+                        "listed, the list may be cut off (lower results.list_window_years)"
+                    )
         out = pd.concat(frames, ignore_index=True).drop_duplicates("url", ignore_index=True)
         out.attrs["warnings"] = warnings
         return out
