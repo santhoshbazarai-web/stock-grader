@@ -24,7 +24,7 @@ Note: without a trading calendar, OHLCV fetched over a weekend/holiday is flagge
 import logging
 import time as _time
 from collections.abc import Callable, Mapping, Sized
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
 from enum import StrEnum
 from typing import Any
@@ -213,12 +213,33 @@ class DataRouter:
         )
 
     def corporate_actions(self, symbol: str, start: date, end: date) -> RouteResult[pd.DataFrame]:
-        return self.fetch(
+        """Every provider answering with no actions is an answer (none in the window), not a
+        failure: an empty frame from the first provider, and no data gap."""
+        res = self.fetch(
             Dataset.CORPORATE_ACTIONS,
             CorporateActionsProvider,
             lambda p: p.corporate_actions(symbol, start, end),
             symbol=symbol,
+            record_gap=False,
         )
+        if res.data is not None:
+            return res
+        if res.attempts and all(a.outcome is Outcome.EMPTY for a in res.attempts):
+            empty = pd.DataFrame(
+                columns=[
+                    "ex_date",
+                    "action_type",
+                    "ratio_old",
+                    "ratio_new",
+                    "dividend_per_share",
+                    "record_date",
+                    "description",
+                ]
+            )
+            return replace(res, data=empty, source=res.attempts[0].provider)
+        self._gaps.record(GapRecord(Dataset.CORPORATE_ACTIONS, symbol, "; ".join(res.reasons),
+                                    [str(a.provider) for a in res.attempts]))  # fmt: skip
+        return res
 
     def industry(self, symbol: str) -> RouteResult[Any]:
         """``IndustryInfo`` from the first provider in ``priority.industry`` that has one."""

@@ -369,6 +369,17 @@ class BrokerConfig(_Strict):
     morning_reminder: bool  # broker_token_check notifies when its token has expired
 
 
+class AdjustmentConfig(_Strict):
+    """Split / bonus price adjustment (data/adjust.py)."""
+
+    # the same split/bonus from two sources this many days apart counts once
+    duplicate_window_days: Annotated[int, Field(ge=0)]
+    # skip an action the raw closes show no move for (the source already adjusted)
+    detect_preadjusted: bool
+    # an adjusted close-to-close move larger than this is reported (missing/doubled action)
+    abnormal_gap: Fraction
+
+
 class ProvidersConfig(_Strict):
     priority: dict[Dataset, list[Provider]]
     rate_limits: dict[Provider, RateLimit]
@@ -386,6 +397,7 @@ class ProvidersConfig(_Strict):
     bhavcopy: BhavcopyHistoryConfig
     oauth_state_ttl_s: PositiveInt
     history_years: PositiveInt
+    adjustment: AdjustmentConfig
 
     @model_validator(mode="after")
     def _check(self) -> Self:

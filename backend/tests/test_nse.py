@@ -318,6 +318,19 @@ def test_unrecognised_asm_shape(http: responses.RequestsMock) -> None:
         ("Rights 1:5 @ Premium Rs 90/-", (CorporateActionType.RIGHTS, None, None, None)),
         ("Annual General Meeting", (CorporateActionType.OTHER, None, None, None)),
         ("Bonus Issue (ratio to be announced)", (CorporateActionType.BONUS, None, None, None)),
+        (  # HDFC Bank, 2019
+            "Face Value Split (Sub-Division) - From Rs 2/- Per Share To Re 1/- Per Share",
+            (CorporateActionType.SPLIT, 1.0, 2.0, None),
+        ),
+        (
+            "Sub Division Of Equity Shares From Rs.10/- To Rs.2/-",
+            (CorporateActionType.SPLIT, 1.0, 5.0, None),
+        ),
+        (
+            "Consolidation Of Shares From Re 1/- To Rs 10/-",
+            (CorporateActionType.SPLIT, 1.0, 0.1, None),
+        ),
+        ("Bonus 1 : 1", (CorporateActionType.BONUS, 1.0, 2.0, None)),
     ],
 )
 def test_parse_ca_subject(subject: str, expected: tuple[Any, ...]) -> None:

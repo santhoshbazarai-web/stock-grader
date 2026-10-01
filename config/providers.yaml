@@ -205,3 +205,7 @@ providers:
     holiday_after_days: 3      # no file 3+ days later = market holiday (not "not yet out")
   oauth_state_ttl_s: 600  # broker login must complete within this many seconds
   history_years: 10
+  adjustment:                  # split / bonus adjustment of raw prices (data/adjust.py)
+    duplicate_window_days: 5   # same split/bonus from 2 sources ≤ 5 days apart → applied once
+    detect_preadjusted: true   # raw closes show no move at the ex-date → source already adjusted
+    abnormal_gap: 0.35         # adjusted close moving > 35% in a day is reported

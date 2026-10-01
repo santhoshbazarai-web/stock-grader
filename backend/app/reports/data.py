@@ -14,10 +14,12 @@ from sqlalchemy.orm import Session
 
 from app.core.config import AppConfig
 from app.data import prices
+from app.data.adjust import restate_per_share
 from app.data.canonical import fields_for
 from app.data.reconcile_store import issue_text, open_issues
 from app.db.enums import EventKind, StatementType, SurveillanceList, Timeframe
 from app.db.models import (
+    CorporateAction,
     DeliveryDaily,
     Event,
     FinAnnual,
@@ -91,6 +93,14 @@ def load_financials(
             return df, basis.value, rows[-1].source
     empty = pd.DataFrame(columns=cols, index=pd.DatetimeIndex([], name="period_end"))
     return empty, None, None
+
+
+def load_share_actions(session: Session, iid: int) -> pd.DataFrame:
+    rows = session.execute(
+        select(CorporateAction.ex_date, CorporateAction.action_type, CorporateAction.ratio_old,
+               CorporateAction.ratio_new).where(CorporateAction.instrument_id == iid)
+    ).all()  # fmt: skip
+    return pd.DataFrame(rows, columns=["ex_date", "action_type", "ratio_old", "ratio_new"])
 
 
 def load_shareholding(session: Session, iid: int) -> tuple[pd.DataFrame, str | None]:
@@ -192,6 +202,10 @@ def load_stock_data(
     daily = prices.adjusted_daily(session, sym)
     annual, basis, fin_source = load_financials(session, FinAnnual, inst.id, "fin_annual")
     quarterly, _, _ = load_financials(session, FinQuarterly, inst.id, "fin_quarterly")
+    # per-share figures on today's share basis, like the adjusted prices (rule 6)
+    actions = load_share_actions(session, inst.id)
+    annual, restated = restate_per_share(annual, actions, config.providers.adjustment)
+    quarterly, _ = restate_per_share(quarterly, actions, config.providers.adjustment)
     shp, shp_source = load_shareholding(session, inst.id)
     price_source = session.scalar(
         select(PriceDaily.source)
@@ -223,7 +237,7 @@ def load_stock_data(
             or 0
         ) > 0
 
-    notes: list[str] = []
+    notes: list[str] = list(restated)
     snap = session.execute(
         select(TechnicalSnapshot.as_of, TechnicalSnapshot.rs_percentile)
         .where(

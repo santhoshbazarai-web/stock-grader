@@ -123,7 +123,7 @@ def _parse_date(value: Any) -> date | None:
     text = str(value or "").strip()
     if not text or text == "-":
         return None
-    for fmt in ("%d-%b-%Y", "%d-%m-%Y", "%Y-%m-%d"):
+    for fmt in ("%d-%b-%Y", "%d-%m-%Y", "%Y-%m-%d", "%d %b %Y", "%d/%m/%Y", "%d-%B-%Y"):
         try:
             return datetime.strptime(text, fmt).date()
         except ValueError:
@@ -364,7 +364,8 @@ def parse_ca_subject(
             a, b = float(m.group(1)), float(m.group(2))
             return CorporateActionType.BONUS, b, a + b, None
         return CorporateActionType.BONUS, None, None, None
-    if "split" in s or "sub-division" in s or "subdivision" in s:
+    if any(k in s for k in ("split", "sub-division", "subdivision", "sub division",
+                            "consolidation")):  # fmt: skip
         amounts = [float(x) for x in re.findall(_RS, s)]
         if len(amounts) >= 2 and amounts[1] > 0:
             return CorporateActionType.SPLIT, 1.0, amounts[0] / amounts[1], None

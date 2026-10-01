@@ -100,6 +100,15 @@ class FundamentalsProvider(Protocol):
 | Risk-free rate | config, weekly | — | — | — | Manual update |
 | Screener Excel | **Retired as primary.** Kept as an optional manual import for gap-filling and testing only | | | | |
 
+**Split / bonus adjustment (`data/adjust.py`, providers.yaml `adjustment`).** Prices are adjusted backwards: every bar before an ex-date is multiplied by shares-before / shares-after (bonus 1:1 halves earlier prices). Each event is applied once:
+- the same split/bonus from two sources with ex-dates up to `duplicate_window_days` apart (yfinance reports a bonus as a split, sometimes a day off NSE) counts once, on the ex-date the raw closes confirm;
+- with `detect_preadjusted`, an event whose ex-date shows no matching move in the raw closes (the price source already adjusted its history) is not applied again;
+- after adjustment, a close-to-close move above `abnormal_gap` is reported as a possible missing or doubled event (a `corporate_actions` data gap on `adj_close`).
+
+The corporate-actions job reads `lookback_days` incrementally, but a stock with no actions on file gets its full history (`nse.corporate_actions_from_years`). Every provider answering "no actions" is an answer, not a failure (no data gap).
+
+Per-share fundamentals are put on today's share basis too (`restate_per_share`): a row known (announcement date, else period end) before a split/bonus ex-date has EPS and book value per share divided, and diluted shares multiplied, by shares-after / shares-before. A row announced after the ex-date is left alone: the company already restated it (Ind AS 33). The report notes each restatement.
+
 NSE endpoints need a browser-like session (cookies from the homepage + headers) and polite rate limiting. Use archive CSVs where possible and cache aggressively. Respect each source's terms of use. The Screener import is for personal use only.
 
 ### 3.2a NSE/BSE fetching rules
