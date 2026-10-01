@@ -48,6 +48,9 @@ export function ReportHeader({ report, onRun }: { report: StockReport; onRun?: (
           as of {report.as_of} · prices {report.sources.prices ?? "—"} · fundamentals {report.sources.fundamentals ?? "—"}
           {report.sources.statement_type ? ` (${report.sources.statement_type})` : ""} · shareholding{" "}
           {report.sources.shareholding ?? "—"}
+          {report.shareholding
+            ? ` (${report.shareholding.period_end}${report.shareholding.filing_date ? `, filed ${report.shareholding.filing_date}` : ""})`
+            : ""}
         </p>
         <div className="flex items-center gap-2">
           {queued && <span className="text-muted-foreground text-xs" role="status">{queued}</span>}

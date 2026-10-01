@@ -190,6 +190,19 @@ def test_bank_sector_never_uses_fcff_dcf(db: Session) -> None:
     assert next(p for p in r.pillars if p.pillar == "quality").subs[0].name == "roa_pct"
 
 
+def test_no_shareholding_is_a_data_gap(db: Session) -> None:
+    from sqlalchemy import delete
+
+    from app.db.models import Shareholding
+
+    seed_index(db)
+    seed_company(db)
+    db.execute(delete(Shareholding))
+    r = build_for(db, "SYNTH", CFG).report
+    assert r.shareholding is None
+    assert any(g.startswith("shareholding: no shareholding pattern on file") for g in r.data_gaps)
+
+
 def test_a_bank_needs_no_cash_flow(db: Session) -> None:
     """Bank results XBRL has no cash-flow statement: the bank's valuation, pillars and
     knock-outs must not depend on it, nor list it as a gap."""

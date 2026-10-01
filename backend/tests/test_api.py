@@ -508,6 +508,12 @@ def test_fundamentals_history(client: TestClient, seeded: Session) -> None:
     shp = body["shareholding"]
     assert [s["period_end"] for s in shp] == ["2023-12-31", "2024-03-31"]
     assert shp[-1]["fii_pct"] == 20.5 and shp[-1]["public_pct"] == pytest.approx(12.0)
+    assert shp[-1]["source"] == "nse" and shp[-1]["filing_date"] == "2024-04-21"
+    assert shp[-1]["mf_pct"] == 8.0
+    rep = client.get("/api/stocks/SYNTH/report").json()["shareholding"]
+    assert rep["source"] == "nse" and rep["period_end"] == "2024-03-31"
+    assert rep["filing_date"] == "2024-04-21" and rep["quarters"] == 2
+    assert rep["fii_pct"] == 20.5 and rep["promoter_pledge_pct"] is not None
     assert client.get("/api/stocks/NOPE/fundamentals").status_code == 404
 
 

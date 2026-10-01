@@ -847,7 +847,7 @@ An optional paragraph explaining the report, written by a local model from the r
    - **Chart:** lightweight-charts weekly candles with overlays for demand/supply zones, AVWAPs, 30-wk SMA, POC, and valuation-level lines (Baseline, FV, Top band). Includes a daily/weekly toggle.
    - **Valuation panel:** a method table, a DCF sensitivity heatmap, reverse-DCF readout, and editable assumptions that save as an override and recompute live.
    - **Scorecards:** a six-pillar radar chart plus expandable sub-metrics, each with its reason.
-   - **Fundamentals:** 10-yr charts for sales, EBITDA, PAT, CFO, FCF, ROCE and CCC, plus a shareholding trend.
+   - **Fundamentals:** 10-yr charts for sales, EBITDA, PAT, CFO, FCF, ROCE and CCC, plus a shareholding trend (promoter, FII, DII, public, pledge per quarter) captioned with its source, quarter and filing date. The report also carries `shareholding` (latest pattern: source, quarter, filing date, holdings, promoter change and previous pledge); with no pattern on file it lists a `shareholding` data gap.
    - **Red flags and data gaps.**
 4. **Watchlist & alerts.**
 5. **Backtest:** choose rules (grade set × zone set × holding period) and see the equity curve against Nifty 500, CAGR, max drawdown and hit rate.

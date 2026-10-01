@@ -104,6 +104,7 @@ export type StockReport = {
   red_flags: string[];
   data_gaps: string[];
   thesis: string | null;
+  shareholding?: ShareholdingSummary | null; // absent in reports built before Prompt A
   reconciliation_issues?: string[]; // SPEC v0.2 §3.9 (absent in reports built before P21)
   provisional_grade: Grade | null;
   mos_grade: Grade | null;
@@ -189,8 +190,26 @@ export type ShareholdingPoint = {
   promoter_pct: number | null;
   fii_pct: number | null;
   dii_pct: number | null;
+  mf_pct?: number | null;
   public_pct: number | null;
   promoter_pledge_pct: number | null;
+  filing_date?: string | null; // when the pattern was filed
+  source?: string | null;
+};
+
+export type ShareholdingSummary = {
+  source: string | null;
+  period_end: string;
+  filing_date: string | null;
+  promoter_pct: number | null;
+  promoter_pledge_pct: number | null;
+  fii_pct: number | null;
+  dii_pct: number | null;
+  mf_pct: number | null;
+  public_pct: number | null;
+  promoter_change_pp: number | null;
+  pledge_prev_pct: number | null;
+  quarters: number;
 };
 
 export type FundamentalsHistory = {

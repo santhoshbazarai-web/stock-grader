@@ -168,6 +168,8 @@ function Shareholding({ h, table }: { h: FundamentalsHistory; table: boolean }) 
                 </th>
               ))}
               <th className="py-1 text-right font-normal">Pledged %</th>
+              <th className="py-1 text-right font-normal">Filed</th>
+              <th className="py-1 text-right font-normal">Source</th>
             </tr>
           </thead>
           <tbody>
@@ -180,6 +182,8 @@ function Shareholding({ h, table }: { h: FundamentalsHistory; table: boolean }) 
                   </td>
                 ))}
                 <td className="py-1 text-right">{num(d.promoter_pledge_pct, 2)}</td>
+                <td className="py-1 text-right">{d.filing_date ?? "—"}</td>
+                <td className="py-1 text-right">{d.source ?? "—"}</td>
               </tr>
             ))}
           </tbody>
@@ -187,7 +191,8 @@ function Shareholding({ h, table }: { h: FundamentalsHistory; table: boolean }) 
       </div>
     );
   }
-  const lastPledge = data.at(-1)?.promoter_pledge_pct;
+  const last = data.at(-1);
+  const lastPledge = last?.promoter_pledge_pct;
   return (
     <figure className="flex flex-col gap-1">
       <figcaption className="flex items-baseline justify-between text-xs">
@@ -196,6 +201,10 @@ function Shareholding({ h, table }: { h: FundamentalsHistory; table: boolean }) 
         </span>
         <span className="text-muted-foreground">Promoter pledge: {lastPledge == null ? "—" : `${num(lastPledge, 2)}%`}</span>
       </figcaption>
+      <p className="text-muted-foreground text-xs" aria-label="Shareholding source">
+        Source {last?.source ?? "—"} · quarter ended {last?.period_end ?? "—"} · filed{" "}
+        {last?.filing_date ?? "date not recorded"}
+      </p>
       <div className="h-56 w-full">
         <ResponsiveContainer>
           <LineChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>

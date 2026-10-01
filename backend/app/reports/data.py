@@ -101,10 +101,11 @@ def load_shareholding(session: Session, iid: int) -> tuple[pd.DataFrame, str | N
             .order_by(Shareholding.period_end)
         )
     )
+    cols = [*SHP_COLUMNS, "filing_date", "source"]
     df = pd.DataFrame(
-        [{c: getattr(r, c) for c in SHP_COLUMNS} for r in rows],
+        [{c: getattr(r, c) for c in cols} for r in rows],
         index=pd.DatetimeIndex([pd.Timestamp(r.period_end) for r in rows], name="period_end"),
-        columns=list(SHP_COLUMNS),
+        columns=cols,
     )
     return df, (rows[-1].source if rows else None)
 

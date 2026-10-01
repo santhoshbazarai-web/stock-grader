@@ -29,6 +29,7 @@ from app.reports.dto import (
     PillarDto,
     ReverseDcfDto,
     Scores,
+    ShareholdingDto,
     StockReport,
     SubScoreDto,
     TechnicalDto,
@@ -182,6 +183,30 @@ def _shp_changes(shp: pd.DataFrame) -> dict[str, float | None]:
     return out
 
 
+def _shareholding_dto(shp: pd.DataFrame) -> ShareholdingDto | None:
+    if shp.empty:
+        return None
+    s = shp.sort_index()
+    last = s.iloc[-1]
+    ch = _shp_changes(s)
+    filed = last.get("filing_date")
+    source = last.get("source")
+    return ShareholdingDto(
+        source=source if isinstance(source, str) else None,
+        period_end=pd.Timestamp(s.index[-1]).date(),
+        filing_date=None if filed is None or pd.isna(filed) else pd.Timestamp(filed).date(),
+        promoter_pct=_v(last.get("promoter_pct")),
+        promoter_pledge_pct=_v(last.get("promoter_pledge_pct")),
+        fii_pct=_v(last.get("fii_pct")),
+        dii_pct=_v(last.get("dii_pct")),
+        mf_pct=_v(last.get("mf_pct")),
+        public_pct=_v(last.get("public_pct")),
+        promoter_change_pp=ch["promoter_change"],
+        pledge_prev_pct=ch["pledge_prev"],
+        quarters=len(s),
+    )
+
+
 def _avg_traded_value(tv: pd.Series | None, days: int) -> float | None:
     if tv is None:
         return None
@@ -293,6 +318,9 @@ def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> B
     )
     eps_q_latest, eps_q_prev = _last_two(quarterly_yoy(quarterly, "eps_diluted"))
     shp = _shp_changes(data.shareholding)
+    if data.shareholding.empty:
+        why = "no shareholding pattern on file (promoter, FII/DII, pledge): run shareholding"
+        gap(Dataset.SHAREHOLDING, None, why)
 
     # ── technicals ──
     t = analyze(
@@ -538,6 +566,7 @@ def _assemble(
         else None
     )
     return StockReport(
+        shareholding=_shareholding_dto(data.shareholding),
         symbol=data.symbol,
         name=data.name,
         cmp=cmp,
