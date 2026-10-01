@@ -393,7 +393,7 @@ def config_copy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def test_config_view(client: TestClient) -> None:
     body = client.get("/api/config").json()
     assert [f["name"] for f in body["files"]] == [
-        "providers", "valuation", "sectors", "scoring", "technical", "jobs",
+        "providers", "valuation", "sectors", "scoring", "technical", "jobs", "industries",
     ]  # fmt: skip
     assert body["parsed"]["scoring"]["weights"]["quality"] == 25
 

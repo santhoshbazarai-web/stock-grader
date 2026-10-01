@@ -44,6 +44,7 @@ from app.data.providers.base import (
     EventsProvider,
     FundamentalsProvider,
     IndexPriceProvider,
+    IndustryProvider,
     PriceProvider,
     ProviderError,
     ProviderUnavailable,
@@ -216,6 +217,15 @@ class DataRouter:
             Dataset.CORPORATE_ACTIONS,
             CorporateActionsProvider,
             lambda p: p.corporate_actions(symbol, start, end),
+            symbol=symbol,
+        )
+
+    def industry(self, symbol: str) -> RouteResult[Any]:
+        """``IndustryInfo`` from the first provider in ``priority.industry`` that has one."""
+        return self.fetch(
+            Dataset.INDUSTRY,
+            IndustryProvider,
+            lambda p: p.industry_info(symbol),
             symbol=symbol,
         )
 

@@ -222,6 +222,14 @@ def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> B
 
     if data.sector is not None and data.sector not in config.sectors.root:
         data_gaps.append(f"sector {data.sector!r} not in sectors.yaml: using default")
+    elif data.sector is None:
+        if data.industry_label:
+            data_gaps.append(f"sector unmapped: {data.industry_source} industry "
+                             f"'{data.industry_label}' has no entry in industries.yaml; "
+                             "using the default model")  # fmt: skip
+        else:
+            data_gaps.append("sector unmapped: industry not classified yet "
+                             "(industry_classification job); using the default model")  # fmt: skip
     if data.statement_type == "standalone":
         red_flags.append("standalone statements (no consolidated figures on file)")
 

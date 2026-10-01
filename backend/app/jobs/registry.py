@@ -7,6 +7,7 @@ from app.jobs.backtests import backtests
 from app.jobs.brokers import bhavcopy_history, broker_token_check
 from app.jobs.events import events, results_watch
 from app.jobs.fundamentals import results_backfill, shareholding
+from app.jobs.industry import industry_classification
 from app.jobs.market import corporate_actions, eod_prices, index_constituents, nse_bhavcopy
 from app.jobs.reconcile import reconcile_job
 from app.jobs.reports import refresh_queue, valuation_scores
@@ -65,6 +66,11 @@ REGISTRY: dict[JobName, JobSpec] = {
         ),
         JobSpec(
             JobName.RECONCILE, "Cross-source checks of the latest periods (§3.9)", reconcile_job
+        ),
+        JobSpec(
+            JobName.INDUSTRY_CLASSIFICATION,
+            "Industry classification → sector model (industries.yaml)",
+            industry_classification,
         ),
         JobSpec(JobName.THESIS, "LLM thesis for watchlist reports (local model, §8a)", thesis),
     )

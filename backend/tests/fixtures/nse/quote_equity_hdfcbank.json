@@ -1,0 +1,5 @@
+{
+  "_note": "Hand-built in the shape of NSE's /api/quote-equity response (only the parts the app reads); HDFC Bank is classified by NSE as Financial Services / Banks / Private Sector Bank.",
+  "info": {"symbol": "HDFCBANK", "companyName": "HDFC Bank Limited", "isin": "INE040A01034"},
+  "industryInfo": {"macro": "Financial Services", "sector": "Financial Services", "industry": "Banks", "basicIndustry": "Private Sector Bank"}
+}

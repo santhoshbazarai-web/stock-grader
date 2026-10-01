@@ -206,7 +206,9 @@ class FilingsSummary(BaseModel):
     last_parsed_at: datetime | None
 
 
-ConfigFileName = Literal["providers", "valuation", "sectors", "scoring", "technical", "jobs"]
+ConfigFileName = Literal[
+    "providers", "valuation", "sectors", "scoring", "technical", "jobs", "industries"
+]
 
 
 class ConfigFile(BaseModel):

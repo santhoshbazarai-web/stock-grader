@@ -98,6 +98,7 @@ def nse_endpoints(cfg: NseConfig, symbol: str, today: date) -> list[Endpoint]:
                  {"index": "equities", "symbol": sym}),
         Endpoint("shareholding", f"{cfg.base_url}{SHAREHOLDING_PATH}",
                  {"index": "equities", "symbol": sym}),
+        Endpoint("industry (quote)", f"{cfg.base_url}{cfg.quote_path}", {"symbol": sym}),
         Endpoint("board meetings", f"{cfg.base_url}{cfg.events.board_meetings_path}", window),
         Endpoint("announcements", f"{cfg.base_url}{cfg.events.announcements_path}", window),
     ]  # fmt: skip

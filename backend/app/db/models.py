@@ -121,6 +121,11 @@ class Instrument(SourcedMixin, Base):
     series: Mapped[str | None] = mapped_column(String(8))
     industry: Mapped[str | None] = mapped_column(String(200))  # NSE industry
     sector: Mapped[str | None] = mapped_column(String(64))  # key into config/sectors.yaml
+    # the classification the sector was derived from (industries.yaml): NSE basic industry or
+    # Yahoo industry, which source, and when it was read
+    basic_industry: Mapped[str | None] = mapped_column(String(200))
+    industry_source: Mapped[str | None] = mapped_column(String(16))
+    classified_at: Mapped[datetime | None]
     is_index: Mapped[bool] = mapped_column(Boolean, server_default="false")
     listing_date: Mapped[date | None]
     face_value: Mapped[float | None]

@@ -133,12 +133,37 @@ def _symbol(ctx: JobContext, st: State) -> StepResult:
         session.commit()
     finally:
         session.close()
+    sector_note, sector_ok = _classify(ctx, st.symbol)
     if master is not None:
         extra = f", BSE {master.bse_code}" if master.bse_code else ""
-        return StepResult(StepStatus.OK, f"{master.name} (ISIN {master.isin}{extra})")
+        return StepResult(StepStatus.OK if sector_ok else StepStatus.WARNING,
+                          f"{master.name} (ISIN {master.isin}{extra}); {sector_note}")  # fmt: skip
     if not have_master:
-        return StepResult(StepStatus.WARNING, "symbol master not built yet: not verified")
-    return StepResult(StepStatus.OK, "known instrument (not in the symbol master)")
+        return StepResult(StepStatus.WARNING, "symbol master not built yet: not verified; "
+                          f"{sector_note}")  # fmt: skip
+    return StepResult(StepStatus.OK if sector_ok else StepStatus.WARNING,
+                      f"known instrument (not in the symbol master); {sector_note}")  # fmt: skip
+
+
+def _classify(ctx: JobContext, symbol: str) -> tuple[str, bool]:
+    """Sector model for a stock not classified yet (industries.yaml); → (note, mapped)."""
+    from app.data.industry_store import classify_symbol
+
+    session = ctx.session_factory()
+    try:
+        inst = session.scalar(select(Instrument).where(Instrument.symbol == symbol))
+        if inst is not None and inst.classified_at is not None:
+            if inst.sector:
+                return f"sector {inst.sector} ({inst.industry_source}: {inst.basic_industry})", True
+            return (f"sector unmapped ({inst.industry_source}: {inst.basic_industry}); "
+                    "default model"), False  # fmt: skip
+        out = classify_symbol(session, ctx.router, symbol, ctx.config.industries, now=ctx.clock())
+        session.commit()
+    finally:
+        session.close()
+    if out.sector is not None and out.fetched:
+        return f"sector {out.sector} ({out.source}: {out.label})", True
+    return out.message, False
 
 
 def _prices(ctx: JobContext, st: State) -> StepResult:

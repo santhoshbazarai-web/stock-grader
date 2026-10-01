@@ -62,6 +62,8 @@ class StockData:
     reconciliation_issues: list[str] = field(default_factory=list)
     event_red_flags: list[str] = field(default_factory=list)
     auditor_resignations: list[date] | None = None
+    industry_label: str | None = None  # the classification label the sector came from
+    industry_source: str | None = None  # "nse" | "yfinance" | None (not classified yet)
 
 
 def load_financials(
@@ -251,6 +253,8 @@ def load_stock_data(
         symbol=sym,
         name=inst.name,
         sector=overrides.sector or inst.sector,
+        industry_label=inst.basic_industry,
+        industry_source=inst.industry_source,
         daily=daily,
         annual=annual,
         quarterly=quarterly,

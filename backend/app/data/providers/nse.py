@@ -53,6 +53,7 @@ from app.data.events import (
     parse_nse_results_feed,
     parse_nse_sast,
 )
+from app.data.industry import IndustryInfo, parse_nse_quote_industry
 from app.data.providers.base import ProviderError, ProviderUnavailable
 from app.data.providers.web_session import (
     BROWSER_HEADERS,
@@ -672,6 +673,22 @@ class NseProvider:
         df, warnings = parse_corporate_actions(payload if payload is not None else [])
         df.attrs["warnings"] = warnings
         return df
+
+    def industry_info(self, symbol: str) -> IndustryInfo:
+        """NSE's classification of ``symbol`` (quote API ``industryInfo``, basic industry)."""
+        self._http.begin_call()
+        sym = symbol.strip().upper()
+        payload = self._http.get_json(f"{self._cfg.base_url}{self._cfg.quote_path}",
+                                      params={"symbol": sym})  # fmt: skip
+        if self._raw is not None and payload is not None:  # cache before parsing (§3.2a)
+            try:
+                self._raw.save("nse", f"quote_{sym}.json", json.dumps(payload).encode())
+            except RawStoreError as exc:
+                raise ProviderUnavailable(str(exc)) from exc
+        info = parse_nse_quote_industry(payload) if payload is not None else None
+        if info is None:
+            raise ProviderUnavailable(f"NSE has no industry classification for {sym}")
+        return info
 
     def shareholding(self, symbol: str) -> pd.DataFrame:
         self._http.begin_call()

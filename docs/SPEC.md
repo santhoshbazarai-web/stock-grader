@@ -506,7 +506,13 @@ Use the sector median multiple, adjusted for ROCE and growth relative to peers:
 - Graham number = √(22.5 × EPS × BVPS).
 
 ### 5.6 Sector models (`sector_models.py`)
-Driven by `config/sectors.yaml`:
+Driven by `config/sectors.yaml`. A stock's sector key comes from its industry classification, mapped by `config/industries.yaml`:
+- **Sources:** NSE's basic industry (quote API `industryInfo.basicIndustry`), else Yahoo's `industry`, in the order of `providers.yaml` `priority.industry`.
+- **When:** the weekly `industry_classification` job, and the pipeline's symbol step for a stock not classified yet.
+- **Routing:** banks, NBFCs and insurers map to their own models (rule 10).
+- **Unmapped labels:** the default model is used, with a "sector unmapped" data gap naming the label. A per-stock sector override still wins.
+
+The sector models:
 - **Banks/NBFC:** justified P/B = (ROE − g)/(Ke − g) × BVPS; residual income model.
 - **Insurance:** P/EV band; EV plus a VNB multiple (manual EV input allowed).
 - **Cyclicals:** normalised mid-cycle EBITDA (7–10 yr median margin × current sales) × EV/EBITDA band median.

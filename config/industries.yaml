@@ -1,0 +1,100 @@
+# industries.yaml — industry label → sectors.yaml key (SPEC §5 sector switching; AGENTS.md
+# rule 10: banks / NBFCs / insurers must never use the FCFF model).
+#
+# Each instrument's industry is read per symbol (industry_classification job, and the
+# pipeline's symbol step for a stock seen for the first time), from the first source in
+# providers.yaml priority.industry that answers:
+#   nse      — NSE's four-level classification, `basicIndustry` (most specific level)
+#   yfinance — Yahoo's `industry`
+# The label is looked up in that source's table below. Matching ignores case, spaces and
+# punctuation. A label with no entry leaves the sector unset: the report uses the `default`
+# model and lists a "sector unmapped" data gap naming the label, so it can be added here (or
+# overridden per stock on its page). Labels mapped to `default` are deliberate.
+industries:
+  nse_basic_industry:
+    # banks, lenders, insurers: their own models (bank: P/B-ROE, residual income; insurance)
+    Private Sector Bank: banks
+    Public Sector Bank: banks
+    Other Bank: banks
+    Non Banking Financial Company (NBFC): nbfc
+    Housing Finance Company: nbfc
+    Microfinance Institutions: nbfc
+    Financial Institution: nbfc
+    Life Insurance: insurance
+    General Insurance: insurance
+    Investment Company: holding_company
+    Holding Company: holding_company
+    # IT
+    Computers - Software & Consulting: it_services
+    IT Enabled Services: it_services
+    Software Products: it_services
+    # consumer staples
+    Diversified FMCG: fmcg
+    Personal Care: fmcg
+    Packaged Foods: fmcg
+    Household Products: fmcg
+    Cigarettes & Tobacco Products: fmcg
+    Tea & Coffee: fmcg
+    Dairy Products: fmcg
+    # healthcare
+    Pharmaceuticals: pharma
+    # industrials
+    Heavy Electrical Equipment: capital_goods
+    Other Electrical Equipment: capital_goods
+    Industrial Products: capital_goods
+    Civil Construction: capital_goods
+    Aerospace & Defense: capital_goods
+    Compressors, Pumps & Diesel Engines: capital_goods
+    # cyclicals
+    Iron & Steel: metals
+    Iron & Steel Products: metals
+    Aluminium: metals
+    Copper: metals
+    Zinc: metals
+    Diversified Metals: metals
+    Cement & Cement Products: cement
+    Specialty Chemicals: chemicals
+    Commodity Chemicals: chemicals
+    Petrochemicals: chemicals
+    Passenger Cars & Utility Vehicles: auto
+    2/3 Wheelers: auto
+    Commercial Vehicles: auto
+    Tractors: auto
+    Auto Components & Equipments: auto
+    Residential, Commercial Projects: real_estate
+    Real Estate Investment Trusts (REITs): real_estate
+  yfinance_industry:
+    Banks - Regional: banks
+    Banks - Diversified: banks
+    Credit Services: nbfc
+    Mortgage Finance: nbfc
+    Financial Conglomerates: nbfc
+    Insurance - Life: insurance
+    Insurance - Diversified: insurance
+    Insurance - Property & Casualty: insurance
+    Insurance - Reinsurance: insurance
+    Asset Management: holding_company
+    Information Technology Services: it_services
+    Software - Application: it_services
+    Software - Infrastructure: it_services
+    Household & Personal Products: fmcg
+    Packaged Foods: fmcg
+    Tobacco: fmcg
+    Confectioners: fmcg
+    Drug Manufacturers - Specialty & Generic: pharma
+    Drug Manufacturers - General: pharma
+    Specialty Industrial Machinery: capital_goods
+    Electrical Equipment & Parts: capital_goods
+    Engineering & Construction: capital_goods
+    Aerospace & Defense: capital_goods
+    Steel: metals
+    Aluminum: metals
+    Copper: metals
+    Other Industrial Metals & Mining: metals
+    Building Materials: cement
+    Specialty Chemicals: chemicals
+    Chemicals: chemicals
+    Auto Manufacturers: auto
+    Auto Parts: auto
+    Real Estate - Development: real_estate
+    Real Estate - Diversified: real_estate

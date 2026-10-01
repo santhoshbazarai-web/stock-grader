@@ -10,6 +10,7 @@ Load with :func:`load_config` (explicit directory) or :func:`get_config` (cached
 """
 
 import math
+import re
 from datetime import time
 from enum import StrEnum
 from functools import lru_cache
@@ -107,6 +108,7 @@ class Dataset(StrEnum):
     SYMBOL_MASTER = "symbol_master"  # NSE / BSE / Fyers masters + NSE symbol and name changes
     EVENTS = "events"  # exchange feeds: announcements, results, board meetings, pledge, deals ...
     REFERENCE_FINANCIALS = "reference_financials"  # other sources the reconciliation checks
+    INDUSTRY = "industry"  # per-symbol industry classification → sector model (industries.yaml)
 
 
 class RateLimit(_Strict):
@@ -277,6 +279,7 @@ SessionMethods = Annotated[list[SessionMethod], Field(min_length=1),
 
 class NseConfig(_Strict):
     base_url: str
+    quote_path: str  # per-symbol quote API (industryInfo: the four-level classification)
     session: SessionMethods  # tried in order; see BrowserSessionConfig
     browser: BrowserSessionConfig
     archives_url: str
@@ -896,6 +899,7 @@ class JobName(StrEnum):
     BHAVCOPY_HISTORY = "bhavcopy_history"
     BROKER_TOKEN_CHECK = "broker_token_check"
     THESIS = "thesis"
+    INDUSTRY_CLASSIFICATION = "industry_classification"
 
 
 class Season(_Strict):
@@ -952,6 +956,13 @@ class CatchUpConfig(_Strict):
         if unknown:
             raise ValueError(f"catch_up.skip: unknown jobs {sorted(unknown)}")
         return self
+
+
+class IndustryClassificationConfig(_Strict):
+    """industry_classification job: industry label → sector model for the universe."""
+
+    refresh_days: PositiveInt  # re-read a stock's classification after this many days
+    max_per_run: PositiveInt  # NSE allows ~1 request/s: keep a run short
 
 
 ThesisUnit = Literal["pct", "x", "days", "cr", "inr", "count"]
@@ -1166,6 +1177,7 @@ class JobsConfig(_Strict):
     alerts: AlertsJobConfig
     telegram_bot: TelegramBotConfig
     thesis: ThesisConfig
+    industry_classification: IndustryClassificationConfig
     catch_up: CatchUpConfig
     doctor: DoctorConfig
     backtest: BacktestConfig
@@ -1205,6 +1217,22 @@ class JobsConfig(_Strict):
 # ───────────────────────── aggregate + loader ─────────────────────────
 
 
+def normalise_label(label: str) -> str:
+    """Industry label key: lower case, punctuation and repeated spaces removed."""
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", label.lower()).split())
+
+
+class IndustriesConfig(_Strict):
+    """``industries.yaml``: per-source industry label → sectors.yaml key."""
+
+    nse_basic_industry: dict[str, str]
+    yfinance_industry: dict[str, str]
+
+    def table(self, source: str) -> dict[str, str]:
+        raw = {"nse": self.nse_basic_industry, "yfinance": self.yfinance_industry}.get(source, {})
+        return {normalise_label(k): v for k, v in raw.items()}
+
+
 class AppConfig(_Strict):
     providers: ProvidersConfig
     valuation: ValuationConfig
@@ -1212,6 +1240,16 @@ class AppConfig(_Strict):
     scoring: ScoringConfig
     technical: TechnicalConfig
     jobs: JobsConfig
+    industries: IndustriesConfig
+
+    @model_validator(mode="after")
+    def _industries_map_to_sectors(self) -> Self:
+        bad = sorted({v for table in (self.industries.nse_basic_industry,
+                                       self.industries.yfinance_industry)
+                      for v in table.values() if v not in self.sectors.root})  # fmt: skip
+        if bad:
+            raise ValueError(f"industries.yaml maps to unknown sectors: {bad}")
+        return self
 
 
 CONFIG_FILES: tuple[str, ...] = tuple(AppConfig.model_fields)

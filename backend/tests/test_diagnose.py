@@ -132,7 +132,8 @@ def test_nse_diagnose_rows_and_summary() -> None:
     # homepage + filings page + 5 endpoints, every one refused by Akamai
     assert [r.endpoint for r in curl] == ["homepage", "warm-up page 1", "results filing list",
                                           "corporate actions", "shareholding",
-                                          "board meetings", "announcements"]  # fmt: skip
+                                          "industry (quote)", "board meetings",
+                                          "announcements"]  # fmt: skip
     assert all(r.verdict == "blocked-403" and r.server == "AkamaiGHost" for r in curl)
     assert curl[0].cookie_names == ["_abck", "bm_sz"]
     results = curl[2]

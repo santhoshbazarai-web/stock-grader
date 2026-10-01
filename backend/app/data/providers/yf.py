@@ -33,6 +33,7 @@ from app.data.canonical import (
     labels_for,
     pick,
 )
+from app.data.industry import IndustryInfo, parse_yfinance_info
 from app.data.providers.base import ProviderError, ProviderUnavailable
 from app.db.enums import CorporateActionType
 
@@ -71,6 +72,9 @@ class TickerLike(Protocol):
     def fast_info(self) -> Any: ...
 
     def get_income_stmt(self, *, pretty: bool = ..., freq: str = ...) -> pd.DataFrame: ...
+
+    @property
+    def info(self) -> Any: ...
 
     def get_balance_sheet(self, *, pretty: bool = ..., freq: str = ...) -> pd.DataFrame: ...
 
@@ -226,6 +230,18 @@ class YFinanceProvider:
             [BONUS_AS_SPLIT] if any(r["action_type"] == "split" for r in rows) else []
         )
         return df
+
+    # ───────────── classification ─────────────
+
+    def industry_info(self, symbol: str) -> IndustryInfo:
+        """Yahoo's ``industry`` for the stock (e.g. "Banks - Regional")."""
+        self._begin()
+        ticker = to_yf_symbol(symbol)
+        t = self._ticker_factory(ticker)
+        info = parse_yfinance_info(self._call(lambda: t.info, f"info {ticker}"))
+        if info is None:
+            raise ProviderUnavailable(f"yfinance has no industry for {ticker}")
+        return info
 
     # ───────────── fundamentals ─────────────
 

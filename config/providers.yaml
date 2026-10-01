@@ -17,6 +17,7 @@ providers:
     index_constituents: [nse]
     surveillance:       [nse]
     events:             [nse, bse]  # every feed in jobs.events / results_watch is read (not a fallback)
+    industry:           [nse, yfinance]  # basic industry → sector model (industries.yaml)
     reference_financials: [market_lens]  # reconciliation-only sources (off unless market_lens.enabled)
   rate_limits:            # requests per second / per minute (verify against current broker docs)
     fyers:    {per_sec: 8,  per_min: 180}
@@ -52,6 +53,7 @@ providers:
     NIFTYREALTY: "^CNXREALTY"
   nse:
     base_url: "https://www.nseindia.com"            # homepage (cookie warm-up) + JSON APIs
+    quote_path: "/api/quote-equity"                 # ?symbol=..: industryInfo (classification)
     archives_url: "https://nsearchives.nseindia.com" # bhavcopy, F&O ban list
     niftyindices_url: "https://www.niftyindices.com" # index constituent CSVs
     cookie_ttl_s: 300          # re-visit the homepage for fresh cookies after this
