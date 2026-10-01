@@ -429,6 +429,37 @@ Notifications → "Send test notification" to check delivery.
 To run a check outside market hours:
 `python -m app.jobs run alerts_intraday --force`.
 
+### Notifications and the Telegram bot
+
+- **One path, both channels.** Every notification goes through `app.alerts.notify`: price
+  alerts, results changes (`results_watch`), broker-token reminders and tests. It is stored
+  in-app and, when `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are set, also sent to Telegram.
+  The delivery outcome is kept on each notification.
+- **Notification centre (`/notifications`, or "View all" under the bell):**
+  - filters: all or unread, type (price alerts, results changes, broker tokens, tests) and
+    stock;
+  - mark read or unread, and older notifications page in;
+  - **Resend** re-delivers one whose Telegram send failed;
+  - the Telegram card shows the bot's state, last poll and last error.
+- **Telegram bot** (read-only; runs in the worker, or alone with `python -m app.jobs
+  telegram-bot`):
+  - `/grade SYMBOL` gives grade, action, zone, FV and buy zone from the latest stored report.
+    The symbol can be an NSE symbol, a BSE code or a company name.
+  - `/buyzone` lists stocks in their buy zone or up to 3% above it.
+  - `/status` shows data freshness, recent job runs, broker tokens, data gaps and unread
+    notifications.
+  - It answers only `TELEGRAM_CHAT_ID`. Other chats get no reply, so the bot doesn't reveal
+    it exists.
+  - It is outbound only: it long-polls `getUpdates`, with no webhook and no open port.
+  - A restart doesn't answer old messages twice, and commands older than 10 minutes are
+    skipped.
+  - Only one worker polls at a time (Redis lock).
+  - Settings are in `jobs.yaml` → `telegram_bot`.
+  - Telegram returns 409 if a webhook is set on the bot; delete it (`deleteWebhook`) so long
+    polling works.
+- **Your chat ID:** send your bot a message, then open
+  `https://api.telegram.org/bot<token>/getUpdates` once and copy `message.chat.id`.
+
 ### Backtests
 
 Backtests ask one question: over a period, would buying the stocks whose grade and zone

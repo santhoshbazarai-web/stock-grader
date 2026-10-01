@@ -140,3 +140,15 @@ def buy_zone(
         f"{cfg.invalidation_atr_buffer:g} x ATR {atr:,.2f}"
     )
     return BuyZone("zone", lo, hi, [support.label], stop, entry, rr_fv, rr_top, v, reasons)
+
+
+def distance_to_buy_zone(cmp: float, low: float | None, high: float | None) -> float | None:
+    """0 inside the zone; above it, the fall needed as a fraction of CMP (> 0); below it, the
+    rise back to the zone's low (< 0)."""
+    if low is None or high is None or cmp <= 0:
+        return None
+    if cmp > high:
+        return (cmp - high) / cmp
+    if cmp < low:
+        return (cmp - low) / cmp
+    return 0.0

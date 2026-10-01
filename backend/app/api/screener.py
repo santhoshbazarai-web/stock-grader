@@ -11,6 +11,7 @@ from app.core.config import GradeKey, ZoneKey
 from app.db.models import ScreenerPreset
 from app.db.upsert import upsert
 from app.reports.service import latest_payloads
+from app.technical.buy_zone import distance_to_buy_zone
 
 router = APIRouter(tags=["screener"])
 
@@ -20,18 +21,6 @@ SortKey = Literal[
     "symbol", "total_score", "pct_to_buy_zone", "earned_premium", "rs_percentile",
     "market_cap_cr", "cmp",
 ]  # fmt: skip
-
-
-def distance_to_buy_zone(cmp: float, low: float | None, high: float | None) -> float | None:
-    """0 inside the zone; above it, the fall needed as a fraction of CMP (> 0); below it, the
-    rise back to the zone's low (< 0)."""
-    if low is None or high is None or cmp <= 0:
-        return None
-    if cmp > high:
-        return (cmp - high) / cmp
-    if cmp < low:
-        return (cmp - low) / cmp
-    return 0.0
 
 
 def row(payload: dict[str, Any]) -> ScreenerRow:

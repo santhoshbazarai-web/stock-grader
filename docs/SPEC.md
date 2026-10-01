@@ -363,6 +363,27 @@ Implementation notes (`fundamentals/reconcile.py` (pure), `data/reconcile_store.
 - Broker redirect URIs are `http://127.0.0.1:8000/api/brokers/{fyers|kite}/callback`, registered in each developer console. Check that the broker accepts localhost redirects; if not, use the Tailscale HTTPS hostname.
 - Telegram uses outbound-only calls to the Bot API, so no public IP or webhook is needed. The bot token and chat ID live in `.env`. The bot also answers `/grade SYMBOL` and `/buyzone` read-only queries via long-polling.
 
+Implementation notes for notifications and the Telegram bot (P23; `alerts/notify.py`, `alerts/bot.py`, `api/notifications.py`; `jobs.yaml` → `telegram_bot`):
+- **Both channels:** every notification is created by `notify()`. This covers price alerts (P14), results changes (§3.8), broker-token reminders (§3.3) and tests.
+  - It is stored in `notifications`. When the token and chat ID are set, it is also sent to Telegram, and the delivery outcome (`sent` / `failed` / `disabled`) is recorded.
+  - A failed delivery can be re-sent (`POST /api/notifications/{id}/resend`).
+- **Notification centre:** `GET /api/notifications` takes `unread_only`, `kind` (repeatable), `symbol`, `before_id` paging and `limit`. It returns the unread count, counts per kind and `next_before_id`.
+  - Read state: `POST …/{id}/read`, `POST …/{id}/unread` and `POST …/read-all`.
+  - `GET /api/notifications/telegram` reports whether delivery is configured, whether the bot is enabled, and the bot heartbeat: state, last poll, last command, last error, and how many messages were ignored.
+  - The UI is `/notifications`, linked from the bell.
+- **Bot:** a worker thread (or `python -m app.jobs telegram-bot`) long-polls `getUpdates` with `poll_timeout_s`; it is outbound only.
+  - It answers only messages whose `chat.id` equals `TELEGRAM_CHAT_ID`. Other chats get no reply and are counted.
+  - Commands older than `max_message_age_s` are skipped.
+  - The update offset is kept in Redis and acknowledged before answering, so nothing is answered twice.
+  - A Redis lock allows one poller; other workers stand by.
+  - Errors back off from `error_backoff_s` up to `max_backoff_s`. A 409 (webhook set, or another poller) is reported with the remedy.
+  - The token is never logged: errors carry the exception type or Telegram's description only.
+- **Commands** (read-only; plain text, clipped to `max_reply_chars`):
+  - `/grade SYMBOL` resolves by exact symbol, else fuzzy symbol search (§3.5). It answers from the latest stored report and never builds one.
+  - `/buyzone` lists stocks in their buy zone or within `buyzone_near_pct` above it: in-zone first, then by grade and distance, up to `buyzone_limit`.
+  - `/status` shows the latest price and report dates, the last run of each job in `status_jobs`, enabled brokers' token status, open data gaps, queued pipeline runs and unread notifications.
+  - `/help` lists the commands.
+
 ---
 
 ## 4. Fundamental metrics (`fundamentals/metrics.py`)

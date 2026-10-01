@@ -11,6 +11,7 @@
     python -m app.jobs pdf-inspect report.pdf [--fy 2014] # what the annual-report reader finds
     python -m app.jobs pdf-reparse [--symbols TCS]        # re-read cached annual reports
     python -m app.jobs pipeline-worker                    # only the on-demand pipeline loop
+    python -m app.jobs telegram-bot                       # only the Telegram bot (long polling)
 
 Exit codes: 0 success/skipped, 1 failed, 2 unknown or not-yet-implemented job.
 """
@@ -87,6 +88,10 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_parser(
         "pipeline-worker",
         help="run queued on-demand pipeline runs as they arrive (the worker does this too)",
+    )
+    sub.add_parser(
+        "telegram-bot",
+        help="answer /grade, /buyzone, /status from the owner's chat (the worker does this too)",
     )
     return p
 
@@ -249,6 +254,27 @@ def pipeline_worker(ctx: JobContext) -> int:
     return 0
 
 
+def telegram_bot(ctx: JobContext) -> int:
+    """The worker's Telegram bot thread on its own: Ctrl+C stops it."""
+    import threading
+
+    from app.alerts.bot import build_bot
+    from app.core.settings import get_settings
+
+    bot = build_bot(get_settings(), ctx.config, ctx.session_factory, ctx.redis)
+    if bot is None:
+        print("telegram bot: set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID, and keep "
+              "jobs.telegram_bot.enabled true", file=sys.stderr)  # fmt: skip
+        return 2
+    stop = threading.Event()
+    print("telegram bot: long polling (Ctrl+C to stop)", flush=True)
+    try:
+        bot.run(stop)
+    except KeyboardInterrupt:
+        stop.set()
+    return 0
+
+
 def _list(ctx: JobContext) -> int:
     for name in JobName:
         spec = REGISTRY[name]
@@ -351,4 +377,6 @@ def main(argv: Sequence[str] | None = None, context_factory: ContextFactory | No
         return pdf_reparse(ctx, args.symbols)
     if args.command == "pipeline-worker":
         return pipeline_worker(ctx)
+    if args.command == "telegram-bot":
+        return telegram_bot(ctx)
     return verify_adjustment(ctx, args.symbol)

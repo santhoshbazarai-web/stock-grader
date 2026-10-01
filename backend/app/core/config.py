@@ -888,6 +888,30 @@ class CorporateActionsJobConfig(_Strict):
     lookback_days: PositiveInt
 
 
+class TelegramBotConfig(_Strict):
+    """The read-only Telegram bot (SPEC §3.10, P23): long-polling, outbound only, answering only
+    the owner's TELEGRAM_CHAT_ID."""
+
+    enabled: bool  # runs in the worker when TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are set
+    poll_timeout_s: Annotated[int, Field(ge=1, le=50)]  # getUpdates long-poll (Telegram max 50)
+    error_backoff_s: PositiveFloat  # first wait after a failed poll; doubles up to the max
+    max_backoff_s: PositiveFloat
+    max_message_age_s: PositiveInt  # older commands (sent while the bot was down) are skipped
+    buyzone_near_pct: Fraction  # /buyzone also lists stocks this close above their zone
+    buyzone_limit: PositiveInt
+    status_jobs: list[str] = Field(min_length=1)  # jobs whose last run /status reports
+    max_reply_chars: Annotated[int, Field(ge=200, le=4096)]  # Telegram caps a message at 4096
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        if self.error_backoff_s > self.max_backoff_s:
+            raise ValueError("error_backoff_s must be <= max_backoff_s")
+        unknown = set(self.status_jobs) - {j.value for j in JobName}
+        if unknown:
+            raise ValueError(f"status_jobs: unknown jobs {sorted(unknown)}")
+        return self
+
+
 class AlertsJobConfig(_Strict):
     market_open: time
     market_close: time
@@ -1039,6 +1063,7 @@ class JobsConfig(_Strict):
     eod_prices: EodPricesJobConfig
     corporate_actions: CorporateActionsJobConfig
     alerts: AlertsJobConfig
+    telegram_bot: TelegramBotConfig
     backtest: BacktestConfig
     results_backfill: ResultsBackfillJobConfig
     results_watch: ResultsWatchJobConfig

@@ -3,6 +3,7 @@
 // Bell in the nav: unread count from triggered alerts (polled every minute), a dropdown of the
 // latest notifications, click-through to the stock, and mark-as-read.
 import { Bell } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -82,13 +83,18 @@ export function NotificationBell() {
       {open && (
         <div role="dialog" aria-label="Notifications" className="bg-popover absolute right-0 z-30 mt-1 w-80 rounded-md border p-2 shadow-md">
           <div className="flex items-center justify-between px-1 pb-1">
-            <span className="text-sm font-medium">Alerts</span>
-            <Button size="sm" variant="ghost" disabled={!unread} onClick={readAll}>
-              Mark all read
-            </Button>
+            <span className="text-sm font-medium">Notifications</span>
+            <span className="flex items-center gap-1">
+              <Button size="sm" variant="ghost" disabled={!unread} onClick={readAll}>
+                Mark all read
+              </Button>
+              <Link href="/notifications" className="text-xs underline" onClick={() => setOpen(false)}>
+                View all
+              </Link>
+            </span>
           </div>
           {!view || view.items.length === 0 ? (
-            <p className="text-muted-foreground px-1 py-4 text-center text-sm">No alerts have fired yet.</p>
+            <p className="text-muted-foreground px-1 py-4 text-center text-sm">No notifications yet.</p>
           ) : (
             <ul className="max-h-96 overflow-y-auto">
               {view.items.map((n) => (

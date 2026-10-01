@@ -414,8 +414,11 @@ function Notifications() {
       <CardHeader>
         <CardTitle className="text-base">Notifications</CardTitle>
         <CardDescription>
-          Price alerts (Watchlist & alerts) are checked every 5 minutes during market hours, using Fyers live
-          prices with Kite as fallback. They appear under the bell; Telegram is optional.
+          Price alerts, results changes and broker reminders appear under the bell and in the{" "}
+          <Link href="/notifications" className="underline">
+            notification centre
+          </Link>
+          ; Telegram (delivery plus a read-only /grade, /buyzone, /status bot) is optional.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-2 text-sm">

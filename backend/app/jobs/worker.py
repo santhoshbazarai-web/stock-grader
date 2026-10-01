@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from app.alerts.bot import build_bot
 from app.core.config import AppConfig, JobName, get_config
 from app.core.logging import configure_logging
 from app.core.settings import get_settings
@@ -61,6 +62,11 @@ def main() -> None:
     pipeline = threading.Thread(target=worker_loop, args=(ctx, stop), name="pipeline",
                                 daemon=True)  # fmt: skip
     pipeline.start()  # on-demand pipeline runs (SPEC §3.7), picked up within poll_interval_s
+    bot = build_bot(settings, config, ctx.session_factory, ctx.redis)
+    if bot is not None:  # read-only Telegram bot (P23): long polling, owner's chat only
+        threading.Thread(target=bot.run, args=(stop,), name="telegram-bot", daemon=True).start()
+    else:
+        logger.info("telegram bot not started (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID unset)")
     try:
         scheduler.start()
     finally:

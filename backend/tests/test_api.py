@@ -682,7 +682,13 @@ def test_notifications_list_and_read(client: TestClient, db: Session) -> None:
     from app.db.models import Notification
 
     body = client.get("/api/notifications").json()
-    assert body == {"items": [], "unread": 0, "telegram_configured": False}
+    assert body == {
+        "items": [],
+        "unread": 0,
+        "telegram_configured": False,
+        "kinds": {},
+        "next_before_id": None,
+    }
     for i in range(3):
         db.add(Notification(kind="crosses_fv", title=f"T{i}", body="b", telegram="disabled"))
     db.flush()
@@ -709,3 +715,67 @@ def test_notification_test_message(client: TestClient, monkeypatch: pytest.Monke
         sent = client.post("/api/notifications/test").json()
     assert sent["telegram"] == "sent" and sent["kind"] == "test"
     assert client.get("/api/notifications").json()["telegram_configured"] is True
+
+
+def test_notification_centre_filters_paging_resend(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import responses
+
+    from app.db.models import Notification
+
+    for i, (kind, sym) in enumerate([("crosses_fv", "TCS"), ("results", "TCS"),
+                                     ("results", "INFY"), ("broker_token", None),
+                                     ("enters_buy_zone", "INFY")]):  # fmt: skip
+        db.add(Notification(kind=kind, symbol=sym, title=f"T{i}", body="b",
+                            telegram="failed" if i == 1 else "disabled",
+                            telegram_error="HTTP 502" if i == 1 else None))  # fmt: skip
+    db.flush()
+    body = client.get("/api/notifications").json()
+    assert body["kinds"] == {"crosses_fv": 1, "results": 2, "broker_token": 1,
+                             "enters_buy_zone": 1}  # fmt: skip
+    results = client.get("/api/notifications", params={"kind": ["results"]}).json()
+    assert [n["title"] for n in results["items"]] == ["T2", "T1"]
+    tcs = client.get("/api/notifications", params={"symbol": "tcs"}).json()
+    assert [n["title"] for n in tcs["items"]] == ["T1", "T0"]
+    page1 = client.get("/api/notifications", params={"limit": 2}).json()
+    assert [n["title"] for n in page1["items"]] == ["T4", "T3"] and page1["next_before_id"]
+    page2 = client.get("/api/notifications", params={"limit": 2,
+                       "before_id": page1["next_before_id"]}).json()  # fmt: skip
+    assert [n["title"] for n in page2["items"]] == ["T2", "T1"]
+    page3 = client.get("/api/notifications", params={"limit": 2,
+                       "before_id": page2["next_before_id"]}).json()  # fmt: skip
+    assert [n["title"] for n in page3["items"]] == ["T0"] and page3["next_before_id"] is None
+
+    failed = results["items"][1]
+    assert client.post(f"/api/notifications/{failed['id']}/resend").status_code == 409
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "1:abc")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "42")
+    get_settings.cache_clear()
+    with responses.RequestsMock() as rsps:
+        rsps.post("https://api.telegram.org/bot1:abc/sendMessage", json={"ok": True})
+        again = client.post(f"/api/notifications/{failed['id']}/resend").json()
+    assert again["telegram"] == "sent" and again["telegram_error"] is None
+
+    nid = page1["items"][0]["id"]
+    client.post(f"/api/notifications/{nid}/read")
+    assert client.post(f"/api/notifications/{nid}/unread").status_code == 204
+    assert client.get("/api/notifications").json()["unread"] == 5
+    assert client.post("/api/notifications/999999/unread").status_code == 404
+
+
+def test_telegram_bot_status(client: TestClient, redis_client: Redis) -> None:
+    from app.alerts.bot import STATUS_KEY
+
+    redis_client.delete(STATUS_KEY, STATUS_KEY + ":counts")
+    st = client.get("/api/notifications/telegram").json()
+    assert st == {"configured": False, "bot_enabled": True, "state": None, "last_poll_at": None,
+                  "last_command_at": None, "last_error": None, "last_error_at": None,
+                  "ignored_messages": 0}  # fmt: skip
+    redis_client.set(STATUS_KEY, '{"state": "polling", "last_poll_at": '
+                     '"2024-06-14T13:00:00+00:00", "last_error": null}')  # fmt: skip
+    redis_client.hincrby(STATUS_KEY + ":counts", "ignored", 2)
+    st = client.get("/api/notifications/telegram").json()
+    assert st["state"] == "polling" and st["ignored_messages"] == 2
+    assert st["last_poll_at"].startswith("2024-06-14T13:00:00")
+    redis_client.delete(STATUS_KEY, STATUS_KEY + ":counts")

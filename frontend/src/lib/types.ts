@@ -399,7 +399,24 @@ export type Notification = {
   telegram_error: string | null;
 };
 
-export type NotificationsView = { items: Notification[]; unread: number; telegram_configured: boolean };
+export type NotificationsView = {
+  items: Notification[];
+  unread: number;
+  telegram_configured: boolean;
+  kinds?: Record<string, number>; // all notifications by kind (P23)
+  next_before_id?: number | null; // paging: pass as before_id
+};
+
+export type TelegramStatus = {
+  configured: boolean;
+  bot_enabled: boolean;
+  state: string | null; // polling | standby (another worker polls) | stopped | null = never ran
+  last_poll_at: string | null;
+  last_command_at: string | null;
+  last_error: string | null;
+  last_error_at: string | null;
+  ignored_messages: number;
+};
 
 // ───────── backtests (backend/app/backtest/runner.py::run_backtest) ─────────
 

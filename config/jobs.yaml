@@ -43,6 +43,17 @@ jobs:
     hysteresis_pct: 0.002     # a level counts as crossed only once price clears it by 0.2%
     cooldown_minutes: 60      # the same alert does not fire again within this window
     telegram_timeout_s: 10
+  telegram_bot:               # read-only bot: /grade SYMBOL, /buyzone, /status (P23)
+    enabled: true               # runs in the worker once TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID are set
+    poll_timeout_s: 30          # long polling: one outbound request open at a time, no webhook
+    error_backoff_s: 5          # after a failed poll; doubles up to max_backoff_s
+    max_backoff_s: 300
+    max_message_age_s: 600      # commands older than 10 min (sent while the bot was down) are skipped
+    buyzone_near_pct: 0.03      # /buyzone: in the buy zone, or at most 3% above it
+    buyzone_limit: 15
+    status_jobs: [eod_prices, nse_bhavcopy, technicals, valuation_scores, results_watch, events,
+                  alerts_intraday]
+    max_reply_chars: 3900
   backtest:                   # SPEC §11
     benchmark: NIFTY500       # price index; used when the TRI below has no stored prices
     benchmark_tri: NIFTY500TRI

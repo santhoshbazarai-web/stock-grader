@@ -394,3 +394,37 @@ def test_auditor_knockout_from_events(synth: Env) -> None:
     assert data.auditor_resignations == [as_of - timedelta(days=30)]
     assert "auditor" in report.knockouts.triggered
     assert any(f.startswith("event: Resignation of Statutory Auditors") for f in report.red_flags)
+
+
+def test_results_change_goes_to_telegram_too(synth: Env) -> None:
+    """P23: a results change notification is in-app and on Telegram (the same notify path as
+    the P14 price alerts)."""
+    from app.alerts.telegram import Delivery
+
+    class Recorder:
+        def __init__(self) -> None:
+            self.sent: list[str] = []
+
+        def send(self, text: str) -> Delivery:
+            self.sent.append(text)
+            return Delivery("sent")
+
+    env = synth
+    recorder = Recorder()
+    env.ctx.notifier = recorder  # type: ignore[assignment]
+    user_run(env, "SYNTH")
+    with env.session() as s:
+        report = s.scalar(select(Report).join(Instrument).where(Instrument.symbol == "SYNTH"))
+        assert report is not None
+        before = dict(report.payload)
+        before.update(grade="D", grade_label="D")
+        report.payload = before
+        s.commit()
+    env.nse.feeds = {EventKind.RESULTS: results_feed("SYNTH")}
+    run_job(REGISTRY[JobName.RESULTS_WATCH], env.ctx)
+    run_pending(env.ctx)
+    with env.session() as s:
+        [note] = s.scalars(select(Notification).where(Notification.kind == "results")).all()
+    assert note.telegram == "sent"
+    assert recorder.sent == [f"{note.title}\n{note.body}"]
+    assert note.title.startswith("SYNTH Q4 FY24 results: Grade D→")
