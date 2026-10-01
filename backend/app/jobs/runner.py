@@ -44,6 +44,7 @@ class JobContext:
     clock: Callable[[], datetime] = lambda: datetime.now(UTC)
     notifier: TelegramNotifier | None = None  # alerts: optional Telegram delivery
     raw_store: RawStore | None = None  # raw-file cache (SPEC §3.2a); None only in tests
+    thesis_model: Any = None  # TextModel for the thesis job; None = built from the settings
 
     def now(self) -> datetime:
         return self.clock().astimezone(ZoneInfo(self.config.jobs.timezone))

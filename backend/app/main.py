@@ -24,6 +24,7 @@ from app.api import (
     screener,
     stocks,
     technical,
+    thesis,
     watchlist,
 )
 from app.api.deps import require_user
@@ -80,7 +81,7 @@ def create_app() -> FastAPI:
     app.include_router(brokers.router, prefix="/api")  # per-route auth; callbacks use state
     for module in (
         stocks, technical, screener, watchlist, notifications, admin, annual_reports, pipeline,
-        events,
+        events, thesis,
     ):  # fmt: skip
         app.include_router(
             module.router,

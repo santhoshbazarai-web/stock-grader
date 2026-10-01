@@ -710,3 +710,16 @@ export type Reconciliation = {
   open: ReconciliationIssue[];
   closed: ReconciliationIssue[];
 };
+
+export type Thesis = {
+  symbol: string;
+  as_of: string;
+  enabled: boolean;
+  status: "ok" | "rejected" | "failed" | "missing" | "disabled";
+  text: string | null;
+  model: string | null;
+  generated_at: string | null;
+  attempts: number;
+  problems: string[];
+  reasons: string[];
+};

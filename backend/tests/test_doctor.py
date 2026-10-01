@@ -1,6 +1,7 @@
 """``make doctor`` (SPEC §3.10): every check reports independently; failures set exit code 1;
 secrets are never printed."""
 
+import shutil
 import time
 from collections import namedtuple
 from datetime import UTC, datetime, timedelta
@@ -14,7 +15,7 @@ from sqlalchemy import Engine
 from app import doctor
 from app.core.settings import get_settings
 from app.doctor import Doctor, main, render
-from tests.conftest import TEST_DATABASE_URL, TEST_REDIS_URL
+from tests.conftest import REPO_CONFIG_DIR, TEST_DATABASE_URL, TEST_REDIS_URL
 
 NSE = "https://www.nseindia.com/"
 ARCHIVES = "https://nsearchives.nseindia.com/"
@@ -123,3 +124,48 @@ def test_a_crashing_check_is_reported_not_raised(
     checks = by_area(Doctor(http=_NoNet()).run())
     assert checks["disk"].status == "fail" and "RuntimeError: kaput" in checks["disk"].detail
     assert checks["backups"].status == "ok"  # later checks still ran
+
+
+@pytest.fixture
+def thesis_on(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    conf = tmp_path / "config"
+    shutil.copytree(REPO_CONFIG_DIR, conf)
+    jobs = conf / "jobs.yaml"
+    off = "    enabled: false            # needs THESIS_LLM_URL"
+    assert off in jobs.read_text()
+    jobs.write_text(jobs.read_text().replace(off, off.replace("false", "true ")))
+    monkeypatch.setenv("CONFIG_DIR", str(conf))
+    get_settings.cache_clear()
+
+
+@responses.activate
+@pytest.mark.parametrize(
+    ("url", "reply", "status", "detail"),
+    [
+        (None, None, "warn", "THESIS_LLM_URL is not set"),
+        ("http://127.0.0.1:11434", {"json": {"models": [{"name": "llama3.1:8b"}]}}, "ok",
+         "llama3.1:8b available"),
+        ("http://127.0.0.1:11434", {"json": {"models": [{"name": "qwen2.5:7b"}]}}, "warn",
+         "ollama pull llama3.1:8b"),
+        ("http://127.0.0.1:11434", {"body": requests.ConnectionError("refused")}, "warn",
+         "is Ollama running"),
+    ],
+)  # fmt: skip
+def test_thesis_model_check(
+    ok_env: Path, thesis_on: None, monkeypatch: pytest.MonkeyPatch,
+    url: str | None, reply: dict[str, object] | None, status: str, detail: str,
+) -> None:  # fmt: skip
+    responses.add(responses.GET, NSE, status=200)
+    responses.add(responses.GET, ARCHIVES, status=200)
+    if url:
+        monkeypatch.setenv("THESIS_LLM_URL", url)
+        responses.add(responses.GET, f"{url}/api/tags", **reply)  # type: ignore[arg-type]
+    check = by_area(Doctor().run())["thesis model"]
+    assert check.status == status and detail in check.detail
+
+
+@responses.activate
+def test_no_thesis_check_when_off(ok_env: Path) -> None:
+    responses.add(responses.GET, NSE, status=200)
+    responses.add(responses.GET, ARCHIVES, status=200)
+    assert "thesis model" not in by_area(Doctor().run())

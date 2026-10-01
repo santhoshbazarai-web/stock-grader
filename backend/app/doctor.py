@@ -15,6 +15,8 @@ Checks, in order (each ✓ ok, ! warning or ✗ failure; exit code 1 on any fail
 - **disk**: free space where raw files and backups are written.
 - **backups**: the last successful nightly pg_dump (``BACKUP_DIR``, when mounted).
 - **worker**: a scheduled job ran recently (the worker is alive), and the Telegram bot polls.
+- **thesis model** (only when ``thesis.enabled``): the local model server answers and has the
+  configured model pulled.
 
 Every check is independent: one failing (e.g. no database) does not hide the others.
 """
@@ -96,6 +98,8 @@ class Doctor:
                 self._guard("worker", lambda: self._worker(settings, config))
         if config is not None:
             self._guard("nse", lambda: self._nse(config))
+            if settings is not None and config.jobs.thesis.enabled:
+                self._guard("thesis model", lambda: self._thesis(settings, config))
             self._guard("disk", lambda: self._disk(settings, config))
             self._guard("backups", lambda: self._backups(config))
         # env first, then config, then the rest in run order
@@ -226,6 +230,30 @@ class Doctor:
                 "ok" if ok else "warn",
                 f"HTTP {code}" + ("" if ok else ": blocked? (browser session refused)"),
             )
+
+    def _thesis(self, settings: Settings, config: AppConfig) -> None:
+        url, model = settings.thesis_llm_url, config.jobs.thesis.model
+        if not url:
+            self.add("thesis model", "warn", "thesis.enabled but THESIS_LLM_URL is not set: "
+                     "no thesis is written")  # fmt: skip
+            return
+        if url == "fake":
+            self.add("thesis model", "ok", "built-in fake model (development)")
+            return
+        try:
+            resp = self._http.get(f"{url.rstrip('/')}/api/tags",
+                                  timeout=config.jobs.doctor.nse_timeout_s)  # fmt: skip
+            names = {m.get("name") for m in resp.json().get("models", [])} if resp.ok else set()
+        except (requests.RequestException, ValueError, AttributeError) as exc:
+            self.add("thesis model", "warn", f"model server unreachable ({type(exc).__name__}) "
+                     f"at {url}: is Ollama running?")  # fmt: skip
+            return
+        if not resp.ok:
+            self.add("thesis model", "warn", f"model server answered HTTP {resp.status_code}")
+        elif model not in names and f"{model}:latest" not in names:
+            self.add("thesis model", "warn", f"model {model} not pulled: run `ollama pull {model}`")
+        else:
+            self.add("thesis model", "ok", f"{model} available at {url}")
 
     def _disk(self, settings: Settings | None, config: AppConfig) -> None:
         cfg = config.jobs.doctor

@@ -86,7 +86,10 @@ Read SPEC §0 and §3.2–3.10 first; they override earlier sections.
 ### P25 — End-to-end acceptance test
 > Playwright test: type "hdfc bank" in the search box, select it, watch the pipeline complete, and verify the report shows Baseline/FV/Top band, zone, grade, action, the coverage grid with ≥10 years of P&L, and a sources panel. Run it against 5 golden stocks. This test must pass before calling v1 done.
 
+### P26 — LLM thesis (local model)
+> Optional thesis paragraph on the stock page, written by a local model (Ollama, off by default; SPEC §0 rules out paid APIs) from the report's numbers only. Reject any draft that cites a number not in the report, retry with the problems listed, and tie the stored text to the exact numbers it was written from. See SPEC §8a.
+
 ### Later
-- NSE/BSE XBRL parser to replace manual Screener uploads
-- LLM thesis generator (numbers in → text out, no new facts)
+- ~~NSE/BSE XBRL parser to replace manual Screener uploads~~ (done in P17)
+- ~~LLM thesis generator (numbers in → text out, no new facts)~~ (done in P26)
 - Optional Fyers/Kite GTT creation with explicit confirmation modal

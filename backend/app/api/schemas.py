@@ -515,3 +515,18 @@ class ReconciliationOut(BaseModel):
     checked_at: datetime | None = Field(description="Last check of any figure (None: never)")
     open: list[IssueOut] = Field(description="Lower the valuation confidence; the banner")
     closed: list[IssueOut] = Field(description="Resolved or ignored, newest first")
+
+
+class ThesisOut(BaseModel):
+    """LLM thesis for the latest report (SPEC §8a)."""
+
+    symbol: str
+    as_of: str = Field(description="Date of the report the thesis belongs to")
+    enabled: bool = Field(description="Generator on and a local model configured")
+    status: Literal["ok", "rejected", "failed", "missing", "disabled"]
+    text: str | None = Field(description="Only when status is ok (passed the facts check)")
+    model: str | None
+    generated_at: datetime | None
+    attempts: int
+    problems: list[str] = Field(description="Why the last draft was rejected / the model failed")
+    reasons: list[str]

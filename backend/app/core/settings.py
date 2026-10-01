@@ -65,6 +65,12 @@ class Settings(BaseSettings):
     # (app/devtools/offline_exchange.py) instead of NSE and the brokers. Refused otherwise.
     offline_exchange: bool = False
 
+    # Optional LLM thesis (SPEC §8a): a local Ollama server, e.g. http://127.0.0.1:11434 (or
+    # http://host.docker.internal:11434 from the containers). Only local / private hosts: the
+    # report's numbers never leave your network and no paid API is used. "fake" (development
+    # only) is a built-in stand-in that writes the thesis from the facts, for tests and demos.
+    thesis_llm_url: str | None = None
+
     # Optional Telegram delivery for alert notifications (never logged).
     telegram_bot_token: SecretStr | None = None
     telegram_chat_id: str | None = None
@@ -84,6 +90,30 @@ class Settings(BaseSettings):
         if not v.get_secret_value():
             raise ValueError("APP_PASSWORD must not be empty")
         return v
+
+    @field_validator("thesis_llm_url", mode="before")
+    @classmethod
+    def _blank_is_unset(cls, v: object) -> object:
+        return None if isinstance(v, str) and not v.strip() else v
+
+    @model_validator(mode="after")
+    def _local_llm_only(self) -> "Settings":
+        url = self.thesis_llm_url
+        if url is None:
+            return self
+        if url == "fake":
+            if self.app_env != "development":
+                raise ValueError("THESIS_LLM_URL=fake is for APP_ENV=development only")
+            return self
+        parts = urlsplit(url)
+        if parts.scheme not in ("http", "https") or not parts.hostname:
+            raise ValueError("THESIS_LLM_URL must be an http(s) URL, e.g. http://127.0.0.1:11434")
+        if not _local_host(parts.hostname):
+            raise ValueError(
+                "THESIS_LLM_URL must be a local or private host (Ollama on this machine or "
+                "your network): the report's numbers never leave it, and no paid API is used"
+            )
+        return self
 
     @model_validator(mode="after")
     def _offline_only_in_development(self) -> "Settings":
@@ -175,6 +205,22 @@ def _private_host(host: str) -> bool:
     except ValueError:
         return False
     return ip.is_loopback or ip in ipaddress.ip_network("100.64.0.0/10")  # Tailscale CGNAT
+
+
+def _local_host(host: str) -> bool:
+    """A host on this machine or a private network: loopback, RFC 1918 / ULA addresses, a
+    Docker service name (no dot), host.docker.internal, *.local, or the tailnet."""
+    import ipaddress
+
+    if _private_host(host) or "." not in host or host == "host.docker.internal":
+        return True
+    if host.endswith(".local") or host.endswith(".internal"):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return ip.is_private
 
 
 def config_dir_from_env() -> Path:

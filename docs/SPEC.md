@@ -20,6 +20,7 @@ Version 0.2 · Owner: Santhosh · Single-user personal research tool (see §12 C
 | Hosting | Owner's home desktop via Docker. Redirect URIs on `http://127.0.0.1`. Remote/phone access only through Tailscale (no public exposure) |
 | Alerts | In-app + Telegram bot |
 | Budget | Free sources only. No paid data, no paid LLM API |
+| LLM thesis | Optional, off by default. A **local** model only (Ollama on the owner's machine or network); numbers in → text out, no new facts (§8a) |
 | NSE Market Lens | NSE's beta screener (marketlens.nseindia.com). Used only as an optional **reconciliation** source, never primary: it is beta, undocumented and may change or be restricted |
 
 ---
@@ -790,6 +791,27 @@ Implementation notes (alerts, P14):
   - `cooldown_minutes` suppresses repeats; the transition is still recorded, so it is not replayed later.
 - **Delivery:** each firing writes a `notifications` row (the in-app bell) and, when `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are set, sends a Telegram message. A Telegram failure is stored on the row and never loses the in-app notification, and the bot token never reaches logs or stored errors.
 - **Scope:** alerts are notifications only. No orders or broker GTTs (rule 7).
+
+### 8a. LLM thesis (P26)
+An optional paragraph explaining the report, written by a local model from the report's own numbers. It adds no facts and never changes a score, zone, grade or action.
+
+- **Off by default.** It needs `jobs.yaml` → `thesis.enabled: true` and `THESIS_LLM_URL`: a local Ollama server (`/api/generate`, non-streaming, `temperature` and `seed` fixed). The URL must be loopback, a private address, a Docker service name, `host.docker.internal`, `*.local` or the tailnet, so the numbers never leave the owner's network and no paid API is used. `THESIS_LLM_URL=fake` (development only) is a built-in deterministic stand-in for tests and demos.
+- **Fact sheet** (`reports/thesis.py`, pure). Labelled lines with numbers already in display units:
+  - company, sector and model, report date, CMP, Baseline / FV / Top band, confidence, MoS;
+  - zone, grade, action, buy zone and invalidation;
+  - pillar and total scores, earned premium, valuation methods, reverse-DCF implied vs historical growth;
+  - technical stage, trend, RS percentile, distance from the 52-week high;
+  - the fundamentals listed in `thesis.fundamentals`, each with its label and unit;
+  - red flags, knock-outs, open source differences, and the first `max_reasons` decision / report reasons.
+  Missing values are left out, never written as 0. The prompt asks for one paragraph of `min_words`–`max_words` words using only these facts, copying numbers as written, with no predictions or targets.
+- **Check** (pure, before anything is kept):
+  - every number in the draft matches a number in the fact sheet, within `number_rel_tolerance` or the rounding of the number as written (₹2,452 cites ₹2,452.36). Thousands separators (Western or Indian) are ignored, and so are signs. Dates must be ones the facts state.
+  - no `forbidden_phrases` (case-insensitive);
+  - no grade, multi-word action or multi-word zone that the facts don't name;
+  - length within bounds.
+  A failing draft is retried with the problems listed, up to `max_attempts`; then the outcome is `rejected` and no text is shown. Numbers written as words and sign errors are not caught, so the UI labels the text as machine-written and unchecked in wording.
+- **Storage:** `report_theses`, keyed by (instrument, digest of the fact sheet + `PROMPT_VERSION`), with status `ok` / `rejected` / `failed`, the model, attempts, problems and the facts used. A thesis is shown (`GET /stocks/{s}/report` → `thesis`, `GET /stocks/{s}/thesis`) only when its digest matches the latest report's, so text never sits next to numbers it was not written from. A digest that already passed is reused without calling the model.
+- **When:** `POST /api/stocks/{s}/thesis` (the stock page's "Write thesis" button; `force` rewrites), and the nightly `thesis` job for watchlist stocks (`nightly_scope`, `max_per_run`) after `valuation_scores`. `make doctor` checks that the model server answers and has `thesis.model` pulled.
 
 ---
 

@@ -23,6 +23,7 @@ from pydantic import (
     ConfigDict,
     Field,
     NonNegativeFloat,
+    NonNegativeInt,
     PositiveFloat,
     PositiveInt,
     RootModel,
@@ -863,6 +864,7 @@ class JobName(StrEnum):
     RECONCILE = "reconcile"
     BHAVCOPY_HISTORY = "bhavcopy_history"
     BROKER_TOKEN_CHECK = "broker_token_check"
+    THESIS = "thesis"
 
 
 class Season(_Strict):
@@ -918,6 +920,41 @@ class CatchUpConfig(_Strict):
         unknown = set(self.skip) - {j.value for j in JobName}
         if unknown:
             raise ValueError(f"catch_up.skip: unknown jobs {sorted(unknown)}")
+        return self
+
+
+ThesisUnit = Literal["pct", "x", "days", "cr", "inr", "count"]
+
+
+class ThesisFact(_Strict):
+    label: str = Field(min_length=1)
+    unit: ThesisUnit
+
+
+class ThesisConfig(_Strict):
+    """Optional LLM thesis (SPEC §8a): a paragraph written from the report's numbers only.
+    Every number in the text must match a fact (``number_rel_tolerance``); drafts with an
+    unknown number or a ``forbidden_phrases`` entry are rejected."""
+
+    enabled: bool
+    model: str = Field(min_length=1)
+    timeout_s: PositiveFloat
+    temperature: Annotated[float, Field(ge=0, le=2)]
+    seed: int
+    max_words: PositiveInt
+    min_words: NonNegativeInt
+    max_attempts: Annotated[int, Field(ge=1, le=10)]
+    number_rel_tolerance: Annotated[float, Field(ge=0, le=0.05)]
+    max_reasons: NonNegativeInt
+    nightly_scope: Literal["watchlist", "none"]
+    max_per_run: PositiveInt
+    forbidden_phrases: list[str]
+    fundamentals: dict[str, ThesisFact]
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        if self.min_words >= self.max_words:
+            raise ValueError("min_words must be below max_words")
         return self
 
 
@@ -1097,6 +1134,7 @@ class JobsConfig(_Strict):
     corporate_actions: CorporateActionsJobConfig
     alerts: AlertsJobConfig
     telegram_bot: TelegramBotConfig
+    thesis: ThesisConfig
     catch_up: CatchUpConfig
     doctor: DoctorConfig
     backtest: BacktestConfig

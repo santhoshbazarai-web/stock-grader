@@ -18,6 +18,9 @@ x-backend: &backend
   build: ./backend
   image: stock-grader-backend:${IMAGE_TAG:-latest}
   env_file: .env.home
+  # optional LLM thesis: Ollama on the Windows / WSL2 host (THESIS_LLM_URL in .env.home)
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
   environment:
     APP_ENV: home  # refuses public URLs, weak passwords, wrong redirect URIs (fail fast)
     CONFIG_DIR: /config

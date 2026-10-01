@@ -172,3 +172,38 @@ def test_offline_exchange_only_in_development(monkeypatch: pytest.MonkeyPatch) -
         _home(monkeypatch, OFFLINE_EXCHANGE="1")
     with pytest.raises(ValidationError, match="APP_ENV=development only"):
         _prod(monkeypatch, OFFLINE_EXCHANGE="1")
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["http://127.0.0.1:11434", "http://localhost:11434", "http://ollama:11434",
+     "http://host.docker.internal:11434", "http://192.168.1.20:11434",
+     "http://desk.tail1234.ts.net:11434", "http://[::1]:11434"],
+)  # fmt: skip
+def test_thesis_llm_must_be_local(monkeypatch: pytest.MonkeyPatch, url: str) -> None:
+    monkeypatch.setenv("THESIS_LLM_URL", url)
+    assert Settings(_env_file=None).thesis_llm_url == url  # type: ignore[call-arg]
+
+
+@pytest.mark.parametrize(
+    ("url", "message"),
+    [("https://api.example.com/v1", "local or private host"),
+     ("http://8.8.8.8:11434", "local or private host"),
+     ("ollama:11434", "http\\(s\\) URL")],
+)  # fmt: skip
+def test_remote_thesis_llm_refused(monkeypatch: pytest.MonkeyPatch, url: str, message: str) -> None:
+    monkeypatch.setenv("THESIS_LLM_URL", url)
+    with pytest.raises(ValidationError, match=message):
+        Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+def test_blank_thesis_llm_url_is_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("THESIS_LLM_URL", "")  # THESIS_LLM_URL= in a .env file
+    assert Settings(_env_file=None).thesis_llm_url is None  # type: ignore[call-arg]
+
+
+def test_fake_thesis_llm_only_in_development(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("THESIS_LLM_URL", "fake")
+    assert Settings(_env_file=None).thesis_llm_url == "fake"  # type: ignore[call-arg]
+    with pytest.raises(ValidationError, match="development only"):
+        _home(monkeypatch, THESIS_LLM_URL="fake")

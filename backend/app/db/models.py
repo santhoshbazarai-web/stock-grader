@@ -755,6 +755,29 @@ class Report(ComputedMixin, Base):
     thesis: Mapped[str | None] = mapped_column(Text)
 
 
+class ReportThesis(TimestampMixin, Base):
+    """LLM thesis for one exact fact sheet (SPEC §8a), keyed by its ``digest``: a report whose
+    numbers changed has a new digest, so a thesis is never shown next to figures it was not
+    written from. ``status``: ok (text passed the no-new-facts check), rejected (every draft
+    failed it; ``problems`` says why), failed (the model could not be reached)."""
+
+    __tablename__ = "report_theses"
+    __upsert_key__ = ("instrument_id", "digest")
+    __table_args__ = (UniqueConstraint("instrument_id", "digest"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    instrument_id: Mapped[int] = _instrument_fk()
+    digest: Mapped[str] = mapped_column(String(64))
+    as_of: Mapped[date]
+    status: Mapped[str] = mapped_column(String(16))
+    text: Mapped[str | None] = mapped_column(Text)
+    model: Mapped[str] = mapped_column(String(128))
+    prompt_version: Mapped[int] = mapped_column(Integer)
+    attempts: Mapped[int] = mapped_column(Integer)
+    problems: Mapped[list[str]]
+    facts: Mapped[dict[str, Any]]
+
+
 # ───────────────────────── user & ops ─────────────────────────
 
 

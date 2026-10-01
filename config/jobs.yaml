@@ -25,6 +25,7 @@ jobs:
     reconcile: "0 23 * * *"                  # cross-source checks for the universe (§3.9)
     bhavcopy_history: "30 1 * * *"           # backfill NSE bhavcopy OHLCV history (budgeted)
     broker_token_check: "45 8 * * mon-fri"   # morning reminder when a broker token expired
+    thesis: "15 0 * * *"                     # LLM thesis for watchlist reports (after valuation_scores)
   universe_index: NIFTY500    # symbols = current members of this index + watchlist
   constituent_indices: [NIFTY500, NIFTY50, NIFTYBANK, NIFTYIT, NIFTYPHARMA, NIFTYFMCG,
                         NIFTYAUTO, NIFTYMETAL, NIFTYREALTY]
@@ -65,6 +66,46 @@ jobs:
     status_jobs: [eod_prices, nse_bhavcopy, technicals, valuation_scores, results_watch, events,
                   alerts_intraday]
     max_reply_chars: 3900
+  thesis:                     # optional LLM thesis (SPEC §8a): numbers in → text out, no new facts
+    enabled: false            # needs THESIS_LLM_URL (a local Ollama); free, nothing leaves the box
+    model: "llama3.1:8b"      # any model the local server has pulled
+    timeout_s: 180            # one generation (CPU inference is slow)
+    temperature: 0.0
+    seed: 7                   # fixed: the same facts give the same text
+    max_words: 160
+    min_words: 40
+    max_attempts: 3           # a rejected draft is retried with the problems listed
+    number_rel_tolerance: 0.005   # a cited number must match a fact within 0.5% ...
+    max_reasons: 8            # decision / valuation reasons given as facts
+    nightly_scope: watchlist  # watchlist | none (the button on the stock page always works)
+    max_per_run: 25
+    forbidden_phrases:        # predictions and advice beyond the report's own action
+      - target price
+      - price target
+      - guarantee
+      - will reach
+      - will rise
+      - will fall
+      - multibagger
+      - sure shot
+      - risk-free
+      - buy now
+    fundamentals:             # report.fundamentals given as facts: label and display unit
+      roce_latest: {label: "ROCE (latest year)", unit: pct}
+      roce_5y_avg: {label: "ROCE (5-year average)", unit: pct}
+      roe_latest: {label: "ROE (latest year)", unit: pct}
+      opm_latest: {label: "Operating margin (latest year)", unit: pct}
+      sales_cagr_5y: {label: "Sales growth (5-year CAGR)", unit: pct}
+      eps_cagr_5y: {label: "EPS growth (5-year CAGR)", unit: pct}
+      fcf_conversion_5y: {label: "FCF conversion (5 years)", unit: pct}
+      cfo_to_ebitda_5y: {label: "Operating cash flow / EBITDA (5 years)", unit: pct}
+      debt_to_equity: {label: "Debt / equity", unit: x}
+      net_debt_to_ebitda: {label: "Net debt / EBITDA", unit: x}
+      interest_coverage: {label: "Interest coverage", unit: x}
+      ccc_days: {label: "Cash conversion cycle", unit: days}
+      revenue_ttm: {label: "Revenue (trailing 12 months)", unit: cr}
+      pat_ttm: {label: "Net profit (trailing 12 months)", unit: cr}
+      piotroski: {label: "Piotroski F-score (of 9)", unit: count}
   backtest:                   # SPEC §11
     benchmark: NIFTY500       # price index; used when the TRI below has no stored prices
     benchmark_tri: NIFTY500TRI

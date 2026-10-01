@@ -19,6 +19,7 @@ import { PriceChart } from "./price-chart";
 import { ReconciliationBanner } from "./reconciliation-banner";
 import { Scorecard } from "./scorecard";
 import { SourcesPanel } from "./sources-panel";
+import { ThesisCard } from "./thesis-card";
 import { ValuationPanel } from "./valuation-panel";
 import { ZoneGauge } from "./zone-gauge";
 
@@ -156,6 +157,12 @@ export function ReportView({ symbol }: { symbol: string }) {
               <FlagsPanel report={report} />
             </Section>
           </div>
+          <Section title="Thesis">
+            <ThesisCard
+              symbol={report.symbol}
+              version={`${report.as_of}:${report.cmp}:${report.grade}:${report.action}`}
+            />
+          </Section>
           <Section title="Corporate events">
             <EventsCard symbol={report.symbol} />
           </Section>

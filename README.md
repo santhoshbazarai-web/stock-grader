@@ -540,6 +540,28 @@ To run a check outside market hours:
 - **Your chat ID:** send your bot a message, then open
   `https://api.telegram.org/bot<token>/getUpdates` once and copy `message.chat.id`.
 
+### LLM thesis (optional, local)
+
+A short paragraph on the stock page explaining the grade, zone and action, written by a model
+on your own machine from the report's numbers only (SPEC §8a). It is off by default and free:
+no paid API, and the numbers never leave your network.
+
+1. Install [Ollama](https://ollama.com) and pull a model: `ollama pull llama3.1:8b` (or set
+   `thesis.model` in `config/jobs.yaml` to one you have).
+2. Set `thesis.enabled: true` in `config/jobs.yaml`, and `THESIS_LLM_URL` in your env file:
+   `http://127.0.0.1:11434` when the API runs on the host, or
+   `http://host.docker.internal:11434` from the home Docker stack. For the containers to reach
+   it, Ollama must listen beyond localhost (`OLLAMA_HOST=0.0.0.0`).
+3. `make doctor` checks that the server answers and has the model.
+
+Then use **Write thesis** on a stock page; the nightly `thesis` job also writes one for each
+watchlist stock whose numbers changed. Every number in a draft must match a fact in the report.
+A draft that cites anything else (a made-up target, a converted figure, another grade) is retried
+with the problems listed and, if it never passes, not shown. The card says why. The text is
+tied to the exact numbers it was written from: after a refresh changes them, it disappears until
+it is rewritten. For development, `THESIS_LLM_URL=fake` uses a built-in stand-in instead of a
+model.
+
 ### Backtests
 
 Backtests ask one question: over a period, would buying the stocks whose grade and zone
@@ -601,6 +623,7 @@ through a same-origin `/api` proxy in Next.js, so the session cookie works witho
 - **Data coverage:** fiscal years × P&L / BS / CF per basis, each cell labelled and coloured
   by source (XBRL, annual-report PDF, summed quarters, Screener, yfinance); dashed cells are
   gaps, and ⚑ links to values waiting for review.
+- **Thesis:** an optional paragraph written by a local model from these numbers (below).
 - **Data sources:** where the prices, fundamentals (and their basis) and shareholding came
   from: Fyers / Kite, NSE bhavcopy, exchange results XBRL, a Screener upload, yfinance.
   Synthetic data (demo, offline exchange) is labelled as such.
