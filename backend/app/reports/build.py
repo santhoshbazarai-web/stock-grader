@@ -36,7 +36,7 @@ from app.reports.dto import (
     ValuationDto,
 )
 from app.reports.overrides import DCF_KEYS
-from app.reports.valuation_run import ValuationRun, run_valuation, ttm_by_quarter
+from app.reports.valuation_run import DCF_MODELS, ValuationRun, run_valuation, ttm_by_quarter
 from app.scoring.common import Grade, Pillar
 from app.scoring.decision import Decision, DecisionInputs, decide
 from app.scoring.earned_premium import EarnedPremium, EarnedPremiumInputs, earned_premium
@@ -412,6 +412,7 @@ def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> B
             implied_growth=run.reverse.implied_growth if run.reverse else None,
             hist_growth=mv("sales_cagr_5y"),
             cfg=sc,
+            reverse_dcf_applies=run.sector.model in DCF_MODELS,
         )
 
     grading = resolve_grade(pillars, ko, valuation_for, sc)

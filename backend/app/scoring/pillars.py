@@ -215,13 +215,16 @@ def valuation_pillar(
     implied_growth: float | None,
     hist_growth: float | None,
     cfg: ScoringConfig,
+    reverse_dcf_applies: bool = True,
 ) -> PillarScore:
-    """Zone position (FV - CMP) / FV and the reverse-DCF gap (implied - historical growth)."""
+    """Zone position (FV - CMP) / FV and the reverse-DCF gap (implied - historical growth).
+    Models with no FCFF DCF (banks, insurers, NAV, SOTP; rule 10) have no reverse DCF: the
+    pillar is the zone position alone, and the gap is not a missing input."""
     discount = (fair_value - cmp) / fair_value if fair_value and fair_value > 0 else None
-    subs = [
-        _mapped("discount_to_fv", discount, cfg.maps.discount_to_fv),
-        _mapped("reverse_dcf_gap", _diff(implied_growth, hist_growth), cfg.maps.reverse_dcf_gap),
-    ]
+    subs = [_mapped("discount_to_fv", discount, cfg.maps.discount_to_fv)]
+    if reverse_dcf_applies:
+        subs.append(_mapped("reverse_dcf_gap", _diff(implied_growth, hist_growth),
+                            cfg.maps.reverse_dcf_gap))  # fmt: skip
     return combine(Pillar.VALUATION, subs, cfg)
 
 

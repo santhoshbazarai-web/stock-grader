@@ -213,6 +213,10 @@ def test_bank_uses_cost_of_equity_not_wacc(db: Session) -> None:
     v = r.valuation
     assert v.wacc is None and v.cost_of_equity is not None and v.dcf == []
     assert "bank model: valued on the cost of equity; no WACC or FCFF" in v.reasons
+    # no reverse DCF for a bank: not a missing valuation input
+    assert not [g for g in r.data_gaps if g.startswith("reverse_dcf_gap")]
+    vp = next(p for p in r.pillars if p.pillar == "valuation")
+    assert [s.name for s in vp.subs] == ["discount_to_fv"]
     jpb = next(m for m in v.methods if m.name == "justified_pb")
     assert jpb.value is not None
 
