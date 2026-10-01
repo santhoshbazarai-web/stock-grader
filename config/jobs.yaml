@@ -122,6 +122,12 @@ jobs:
     stt_sell: 0.001
     execution_lag_days: 1     # signals use data to the rebalance close; trade N sessions later
     equity_curve_points: weekly
+    # Statements with no announcement date (Indian API, yfinance, Screener) are taken as public
+    # this many days after their period end (SEBI LODR: quarterly results within 45 days,
+    # annual within 60; 75 leaves margin). Exchange filings use their own announcement date.
+    fundamentals_availability_lag_days:
+      annual: 75
+      quarterly: 45
   results_backfill:              # exchange results filings (XBRL) → fin_quarterly / fin_annual
     max_downloads_per_run: 300  # XBRL documents per run; a 10-year backfill spreads over nights
     index_recheck_days: 7       # outside results_season, re-read each symbol's filing list weekly

@@ -33,6 +33,7 @@ from app.backtest.pit import (
     LINE_ITEM_COLUMNS,
     PitStock,
     PitWorld,
+    assume_availability,
     month_starts,
     rs_percentiles_at,
     stock_data_at,
@@ -82,7 +83,7 @@ def _benchmark(session: Session, config: AppConfig) -> tuple[pd.Series | None, s
     return close, f"{bt.benchmark} (price index; TRI not stored)"
 
 
-def _stock(session: Session, inst: Instrument) -> PitStock | None:
+def _stock(session: Session, inst: Instrument, config: AppConfig) -> PitStock | None:
     try:
         daily = prices.adjusted_daily(session, inst.symbol)
     except (prices.NoPriceData, prices.UnadjustedPrices):
@@ -94,6 +95,9 @@ def _stock(session: Session, inst: Instrument) -> PitStock | None:
         xmap = get_xbrl_map()
         annual = versioned_frame(annual, items, "fin_annual", xmap)
         quarterly = versioned_frame(quarterly, items, "fin_quarterly", xmap)
+    lag = config.jobs.backtest.fundamentals_availability_lag_days
+    annual, assumed_a = assume_availability(annual, lag.annual)
+    quarterly, assumed_q = assume_availability(quarterly, lag.quarterly)
     shp_rows = session.execute(
         select(
             Shareholding.period_end,
@@ -123,6 +127,8 @@ def _stock(session: Session, inst: Instrument) -> PitStock | None:
         quarterly=quarterly,
         statement_type=basis,
         shareholding=shp,
+        assumed_annual=assumed_a,
+        assumed_quarterly=assumed_q,
         delivery_pct=pd.Series([r[1] for r in dv], index=idx, dtype=float).dropna() if dv else None,
         traded_value_cr=pd.Series([r[2] for r in dv], index=idx, dtype=float).dropna()
         if dv
@@ -164,7 +170,7 @@ def load_world(
     stocks: dict[str, PitStock] = {}
     notes: list[str] = []
     for inst in insts:
-        st = _stock(session, inst)
+        st = _stock(session, inst, config)
         if st is None:
             notes.append(f"{inst.symbol}: no adjusted prices stored; excluded")
             continue
@@ -358,6 +364,15 @@ def run_backtest(
                 f"Index membership is stored only from {first}: rebalances before that have no "
                 "universe. Load historical constituents for a longer point-in-time test."
             )
+    assumed_a = sum(s.assumed_annual for s in world.stocks.values())
+    assumed_q = sum(s.assumed_quarterly for s in world.stocks.values())
+    if assumed_a or assumed_q:
+        lag = bt.fundamentals_availability_lag_days
+        caveats.append(
+            f"{assumed_a} annual and {assumed_q} quarterly statements have no announcement date "
+            f"(Indian API, yfinance, Screener): taken as public {lag.annual} / {lag.quarterly} "
+            "days after their period end."
+        )
     if excluded_annual or excluded_q or excluded_shp:
         caveats.append(
             f"Excluded for lack of announcement/filing dates (rule 4): {excluded_annual} annual, "

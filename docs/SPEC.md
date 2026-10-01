@@ -967,7 +967,11 @@ Implementation notes (P15, `backend/app/backtest/`, parameters in `jobs.backtest
   - If membership history starts after `start`, the earlier months have no universe, and a caveat says so. An empty membership table gives an explicit caveat, not a silent 0%.
 - **Point in time, at each rebalance date d:**
   - Prices, benchmark and delivery data up to d.
-  - Annual and quarterly statements with `announcement_date ≤ d`. Rows without an announcement date are excluded and counted in a caveat; the live report's assumed lag (§8 notes) is never used.
+  - Annual and quarterly statements with `announcement_date ≤ d`.
+  - Rows without an announcement date (Indian API, yfinance, Screener) are taken as public `jobs.backtest.fundamentals_availability_lag_days` after their period end: **annual 75, quarterly 45**.
+    - These follow the SEBI LODR limits of 60 and 45 days, with a margin for the year.
+    - They are marked `announcement_assumed` and counted in a caveat.
+    - Exchange filings always use their own announcement date.
   - Shareholding with `filing_date ≤ d`.
   - ASM/GSM rows effective at d, or "unknown" when no surveillance history is stored.
   - RS percentile: Mansfield RS on weekly closes to d, ranked across that month's universe.

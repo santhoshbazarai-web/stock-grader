@@ -1223,6 +1223,14 @@ class PipelineConfig(_Strict):
     sse_max_minutes: PositiveFloat  # a progress stream ends after this long
 
 
+class AvailabilityLag(_Strict):
+    """Days after the period end a statement without an announcement date is taken as public
+    in backtests (SEBI LODR: quarterly results within 45 days, annual within 60, plus margin)."""
+
+    annual: Annotated[int, Field(ge=0, le=366)]
+    quarterly: Annotated[int, Field(ge=0, le=366)]
+
+
 class BacktestConfig(_Strict):
     benchmark: str
     benchmark_tri: str | None = None
@@ -1231,6 +1239,7 @@ class BacktestConfig(_Strict):
     stt_sell: Fraction
     execution_lag_days: Annotated[int, Field(ge=0, le=5)]
     equity_curve_points: Literal["daily", "weekly"]
+    fundamentals_availability_lag_days: AvailabilityLag
 
 
 class JobsConfig(_Strict):
