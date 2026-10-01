@@ -12,6 +12,7 @@ grade and action. See [`AGENTS.md`](AGENTS.md) and [`docs/SPEC.md`](docs/SPEC.md
 | `config/` | `providers.yaml`, `valuation.yaml`, `sectors.yaml`, `scoring.yaml`, `technical.yaml` — every threshold and weight, validated at startup |
 | `docs/` | Spec, build prompts and the [deployment guide](docs/DEPLOY.md) |
 | `deploy/` | Production Caddyfile, backup and restore scripts |
+| `Caddyfile.local` | Local HTTPS proxy for development (broker redirect URIs); see [Local HTTPS](#local-https-caddyfilelocal) |
 
 ## Quick start
 
@@ -136,6 +137,63 @@ make test      # pytest; DB tests use TEST_DATABASE_URL
 make check     # ruff + mypy --strict + eslint + tsc
 ```
 
+### Local HTTPS (Caddyfile.local)
+
+The broker redirect URIs in `.env.example` are
+`https://stockgrader.localtest.me:8443/api/brokers/{fyers,kite}/callback`. `Caddyfile.local`
+serves that address with Caddy's own local certificate authority (`tls internal`), in front of
+the API (`127.0.0.1:8000`) and the web app (`127.0.0.1:3000`). It also serves
+`https://localhost:8443` and `https://127.0.0.1:8443`. `localtest.me` and all its
+subdomains resolve to `127.0.0.1` in public DNS, so nothing needs configuring. If your router
+or DNS filter blocks names that resolve to `127.0.0.1` (DNS-rebinding protection), add
+`127.0.0.1 stockgrader.localtest.me` to your hosts file (`/etc/hosts`, or
+`C:\Windows\System32\drivers\etc\hosts` on Windows).
+
+1. Install [Caddy](https://caddyserver.com/docs/install) (v2) and start the API and web app
+   (`make up`, or uvicorn on :8000 and `npm run dev` on :3000).
+2. From the repo root: `caddy run --config Caddyfile.local --adapter caddyfile`. It listens
+   on :8443 only (no :80 redirect, so it needs no root). The API and web addresses can be
+   overridden with `STOCKGRADER_API` / `STOCKGRADER_WEB` (e.g. `api:8000` inside Docker).
+3. **Trust Caddy's local root certificate**, once per machine and browser, or the browser shows
+   a certificate warning for `https://stockgrader.localtest.me:8443`. Caddy creates its root CA
+   on first start and signs a short-lived certificate for each of the three names, renewing
+   them automatically. Trusting the root covers all three names, and stays valid across
+   restarts.
+   - **Linux / macOS:** `caddy trust` adds the root to the system store (it may ask for your
+     password), plus Firefox's and Java's stores when their tools are installed. `caddy untrust`
+     removes it.
+   - **By hand:** the root is `root.crt` in Caddy's data directory under
+     `pki/authorities/local/`. On Linux and WSL that is `~/.local/share/caddy/`, on macOS
+     `~/Library/Application Support/Caddy/`, and on Windows `%AppData%\Caddy\`. Import it as a
+     trusted root CA:
+     - Windows: `certutil -addstore -f ROOT root.crt` in an admin prompt, or `certmgr.msc` →
+       Trusted Root Certification Authorities.
+     - macOS: Keychain Access → System → Always Trust.
+     - Firefox: Settings → Privacy & Security → Certificates → View Certificates → Authorities
+       → Import → "Trust this CA to identify websites".
+   - **WSL2:** when Caddy runs inside WSL, Windows browsers don't see the WSL trust store. Copy
+     `~/.local/share/caddy/pki/authorities/local/root.crt` to Windows and import it as above.
+     Windows reaches `127.0.0.1:8443` in WSL through localhost forwarding.
+   - **Check:** `curl --cacert <path>/root.crt https://stockgrader.localtest.me:8443/api/health`
+     returns `{"status":"ok",...}`, and the browser shows a padlock without a warning.
+
+   The root key stays in Caddy's data directory: it can sign certificates your machine trusts,
+   so never share it or copy it to another machine. Trust only this machine's own root.
+
+**Broker login over local HTTPS.** The login start (`/api/brokers/<broker>/login`) needs your
+app session, and the session cookie belongs to the address you logged in at. Either way works:
+
+- **Use the app at the HTTPS address:** set `WEB_URL=https://stockgrader.localtest.me:8443`
+  and `SESSION_COOKIE_SECURE=true`, log in at `https://stockgrader.localtest.me:8443`, then
+  open `https://stockgrader.localtest.me:8443/api/brokers/fyers/login` (or Settings → Brokers
+  → Connect). The broker sends you back to the callback on the same address, and the API then
+  redirects to `$WEB_URL/settings?broker=fyers&status=connected`.
+- **Keep using `http://localhost:3000`:** leave `WEB_URL=http://localhost:3000` and click
+  Connect there. The broker redirects to the HTTPS callback, which needs no cookie because the
+  login state is a signed, short-lived token. The API then returns you to `WEB_URL`. Confirm
+  that `WEB_URL` is the address you actually use the app at, or you land on a page where you are
+  not logged in. The token is still saved in that case.
+
 ## Config
 
 `app.core.config` loads every `config/*.yaml` into Pydantic models on api/worker startup and
@@ -200,15 +258,19 @@ Every result carries `source`, `fetched_at` and `reasons`.
   - it scans `app/` for order, GTT, holdings, positions or funds calls.
 
 Fyers: set `FYERS_APP_ID`, `FYERS_SECRET`, `FYERS_REDIRECT_URI` (register the same redirect URI,
-`http://localhost:8000/api/brokers/fyers/callback` locally, in the Fyers developer console), then
-open `http://localhost:8000/api/brokers/fyers/login`. After login Fyers calls back, the token is
+`https://stockgrader.localtest.me:8443/api/brokers/fyers/callback` locally, in the Fyers
+developer console; it needs [local HTTPS](#local-https-caddyfilelocal) running). Then, logged in
+at `https://stockgrader.localtest.me:8443`, open
+`https://stockgrader.localtest.me:8443/api/brokers/fyers/login`, or click Connect in Settings →
+Brokers at the address you set as `WEB_URL`. After login Fyers calls back, the token is
 Fernet-encrypted into `broker_tokens` with its JWT expiry, and you are redirected to
 `$WEB_URL/settings?broker=fyers&status=connected`. Tokens expire daily; `GET /api/brokers/status`
 shows validity. With no valid token the router falls through to the next provider.
 
 Kite: set `KITE_API_KEY`, `KITE_API_SECRET` and register `KITE_REDIRECT_URI`
-(`http://localhost:8000/api/brokers/kite/callback` locally) as the redirect URL in the Kite
-developer console, then open `http://localhost:8000/api/brokers/kite/login`. Kite tokens expire
+(`https://stockgrader.localtest.me:8443/api/brokers/kite/callback` locally) as the redirect URL
+in the Kite developer console, then open
+`https://stockgrader.localtest.me:8443/api/brokers/kite/login` in the same way. Kite tokens expire
 at 06:00 IST (`token_daily_expiry_ist`). Historical candles need Kite's paid historical-data
 add-on; without it the provider reports `unavailable` and the router uses the next provider.
 The NSE instruments dump (symbol → instrument token) is cached in Redis for

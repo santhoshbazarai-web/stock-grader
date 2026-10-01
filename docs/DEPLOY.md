@@ -144,7 +144,9 @@ it; the login state travels in Kite's `redirect_params`. So if the app still poi
 `http://localhost:8000/...`, a production login lands on localhost and fails.
 
 To keep a local development setup working, use a separate Kite app (and a separate Fyers
-app, if you prefer) with the localhost redirect URI from `.env.example`.
+app, if you prefer) with the local redirect URI from `.env.example`
+(`https://stockgrader.localtest.me:8443/api/brokers/<broker>/callback`, served by
+`Caddyfile.local`; see the README, "Local HTTPS").
 
 **Apply and check:**
 1. After editing `.env.production`, run `make prod-up`; it recreates only the changed

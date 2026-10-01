@@ -1,0 +1,57 @@
+# Local HTTPS for development (README "Local HTTPS"): Caddy's own CA (`tls internal`) in
+# front of the API (uvicorn :8000) and the web app (next dev :3000) running on this machine.
+#
+#   caddy run --config Caddyfile.local --adapter caddyfile
+#
+# Serves https://stockgrader.localtest.me:8443 (localtest.me and its subdomains resolve to
+# 127.0.0.1 in public DNS), https://localhost:8443 and https://127.0.0.1:8443. The broker
+# redirect URIs in .env.example point at the stockgrader.localtest.me address. Trust Caddy's
+# local root certificate once (`caddy trust`, or import root.crt; see the README) so browsers
+# accept it.
+#
+# Upstreams can be overridden, e.g. STOCKGRADER_API=api:8000 STOCKGRADER_WEB=web:3000.
+{
+	# Only :8443 is served: no HTTP->HTTPS redirect listener on :80 (that would need root).
+	auto_https disable_redirects
+}
+
+https://stockgrader.localtest.me:8443, https://localhost:8443, https://127.0.0.1:8443 {
+	tls internal
+
+	encode zstd gzip
+
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# The API directly (broker OAuth callbacks included); everything else is Next.js.
+	handle /api/* {
+		reverse_proxy {$STOCKGRADER_API:127.0.0.1:8000}
+	}
+	handle {
+		reverse_proxy {$STOCKGRADER_WEB:127.0.0.1:3000}
+	}
+
+	# Broker OAuth callbacks carry one-time codes in the query string: redact them, like
+	# cookies and Authorization headers (never log tokens, AGENTS.md rule 8).
+	log {
+		output stderr
+		format filter {
+			wrap console
+			fields {
+				request>uri query {
+					replace request_token REDACTED
+					replace auth_code REDACTED
+					replace code REDACTED
+					replace state REDACTED
+				}
+				request>headers>Cookie delete
+				request>headers>Authorization delete
+				resp_headers>Set-Cookie delete
+			}
+		}
+	}
+}
