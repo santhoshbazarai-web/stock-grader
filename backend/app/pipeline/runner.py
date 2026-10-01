@@ -70,6 +70,7 @@ class State:
     run_id: int
     notes: list[str] = field(default_factory=list)  # optional-step problems → data_gaps
     built: Built | None = None
+    trigger: str = "user"  # user | refresh | nightly | results (PipelineRun.trigger)
     years: int = 0  # fiscal years of fundamentals loaded
     pl_years: int = 0  # ... of which have a P&L (revenue or PAT)
 
@@ -187,6 +188,26 @@ def _prices(ctx: JobContext, st: State) -> StepResult:
     if result.status is StepStatus.OK:
         return StepResult(StepStatus.OK, f"daily bars to {last:%d %b %Y}")
     return StepResult(StepStatus.WARNING, f"{result.message}; using stored bars to {last:%d %b %Y}")
+
+
+def _indianapi(ctx: JobContext, st: State) -> StepResult:
+    """Statements from the Indian API before any NSE step, so a report works with NSE
+    blocked. Uses the cache unless due (results, age, or the Refresh button on a cache older
+    than a day); reports the years per statement and this month's calls."""
+    from app.data.providers.indianapi import usage_text
+    from app.jobs.indianapi import StopRun, fetch_symbol
+
+    client = ctx.indianapi
+    budget = ctx.config.providers.indianapi.monthly_request_budget
+    try:
+        out = fetch_symbol(ctx, st.symbol, user=st.trigger == "refresh")
+    except StopRun as exc:
+        return StepResult(StepStatus.WARNING, str(exc))
+    used = client.used_this_month() if client is not None and client.configured else None
+    quota = f" · {usage_text(used, budget)}" if used is not None else ""
+    if out.status == "failed":
+        return StepResult(StepStatus.WARNING, f"{out.message}{quota}")
+    return StepResult(StepStatus.OK, f"{out.message}{quota}")
 
 
 def _corporate_actions(ctx: JobContext, st: State) -> StepResult:
@@ -426,6 +447,7 @@ def _report(ctx: JobContext, st: State) -> StepResult:
 
 STEPS: tuple[StepDef, ...] = (
     StepDef("symbol", "Symbol", False, _symbol),
+    StepDef("indianapi", "Indian API fundamentals", True, _indianapi),
     StepDef("prices", "Prices", False, _prices),
     StepDef("corporate_actions", "Corporate actions & adjustment", True, _corporate_actions),
     StepDef("filings_index", "Filings index", True, _filings_index),
@@ -594,10 +616,10 @@ def execute(ctx: JobContext, run_id: int) -> PipelineStatus:
     try:
         run = session.get(PipelineRun, run_id)
         assert run is not None
-        symbol, steps = run.symbol, [dict(s) for s in run.steps]
+        symbol, trigger, steps = run.symbol, run.trigger, [dict(s) for s in run.steps]
     finally:
         session.close()
-    st = State(symbol, run_id)
+    st = State(symbol, run_id, trigger=trigger)
     stop = threading.Event()
     every = ctx.config.jobs.pipeline.stale_after_s / 3
     beat = threading.Thread(target=_heartbeat, args=(ctx, run_id, every, stop), daemon=True)

@@ -298,9 +298,13 @@ Implementation notes (annual-report PDFs, §3.6 steps 3-4: `data/annual_report.p
 ### 3.7 On-demand pipeline (when you type a stock)
 1. The user selects a symbol. If `reports` holds a result that is fresher than both the latest price date and the latest filing date, return it instantly.
 2. Otherwise, enqueue a `pipeline_run` with these steps:
-   - `symbol` → `prices` → `corporate_actions/adjust` → `filings index` → `xbrl parse` → `pdf gap-fill` → `shareholding/events` → `reconcile` → `metrics` → `valuation` → `technical` → `scoring` → `report`
+   - `symbol` → `indianapi` → `prices` → `corporate_actions/adjust` → `filings index` → `xbrl parse` → `pdf gap-fill` → `shareholding/events` → `reconcile` → `metrics` → `valuation` → `technical` → `scoring` → `report`
 3. The frontend subscribes to `/api/pipeline/{run_id}/events` (Server-Sent Events) and shows a step-by-step progress list. Each step shows success, warning or failure with its message.
 4. Steps are idempotent and resumable. A failure in an optional step (e.g. PDF gap-fill) still produces a report, with its `data_gaps` listed.
+   - The optional `indianapi` step runs before every NSE step, so that 10+ years of statements exist even when NSE is blocked (§3.2).
+   - It fetches only when the cache is due: a refresh-triggered run is a user refresh.
+   - Its message gives the years per statement, the model and the month's quota, e.g. "P&L 12 yr, BS 12 yr, CF 12 yr (bank model; fetched) · Indian API: 5/500 calls this month".
+   - A missing key or an exhausted budget is a warning, never a failure.
 5. Nifty 500 is pre-computed nightly, so it normally loads instantly.
 
 Implementation notes (`pipeline/runner.py`, `api/pipeline.py`, `pipeline_runs`; parameters in `jobs.yaml` → `pipeline`):

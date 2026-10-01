@@ -275,3 +275,35 @@ def test_refresh_policy() -> None:
     assert "cache used" in refresh_due(recent, now=NOW, cfg=cfg, user=True).reason
     day_old = NOW - timedelta(hours=cfg.user_refresh_min_age_hours + 1)
     assert refresh_due(day_old, now=NOW, cfg=cfg, user=True).reason == "refresh requested"
+
+
+def _pipeline_step(env: Env, symbol: str) -> tuple[str, str]:
+    from app.db.models import PipelineRun
+    from app.pipeline.runner import run_pending, start_run
+
+    with env.session() as s:
+        r, _ = start_run(s, symbol, trigger="user", force=True,
+                         cfg=env.ctx.config.jobs.pipeline, now=NOW)  # fmt: skip
+        assert r is not None
+        s.commit()
+        run_id = r.id
+    run_pending(env.ctx)
+    with env.session() as s:
+        got = s.get(PipelineRun, run_id)
+        assert got is not None
+        step = next(x for x in got.steps if x["name"] == "indianapi")
+    return step["status"], step["message"] or ""
+
+
+def test_pipeline_step_runs_before_prices_with_years_and_quota(env: Env) -> None:
+    setup(env, FakeVendor())
+    status, msg = _pipeline_step(env, "HDFCBANK")
+    assert status == "ok"
+    assert msg.startswith("P&L 12 yr, BS 12 yr, CF 12 yr (bank model")
+    assert msg.endswith("Indian API: 5/500 calls this month")
+
+
+def test_pipeline_step_without_key_is_a_warning_not_a_failure(env: Env) -> None:
+    setup(env, FakeVendor(), key=None)
+    status, msg = _pipeline_step(env, "HDFCBANK")
+    assert status == "warning" and "add indianapi_key in .env" in msg.lower()
