@@ -14,7 +14,7 @@ from app.core.config import Dataset, NseResultsConfig
 from app.data.gaps import GapRecord, GapRecorder
 from app.data.raw_store import RawStore
 from app.data.results_store import EXCHANGE_SOURCE, store_filing
-from app.data.xbrl import XbrlFormatError, announcement_date, parse_results
+from app.data.xbrl import XbrlFormatError, announcement_date, parse_results, parser_version
 from app.db.enums import FilingStatus
 from app.db.models import DataGap, ResultFiling
 from app.db.upsert import upsert
@@ -56,15 +56,15 @@ def ingest(
             content, cfg, period_start=filing_row.period_start, period_end=filing_row.period_end
         )
     except XbrlFormatError as exc:
-        _fail(filing_row, str(exc))
+        _fail(filing_row, str(exc), parse=True)
         return
     if filing.symbol and filing.symbol.strip().upper() != symbol.upper():
-        _fail(filing_row, f"document is for {filing.symbol}, not {symbol}")
+        _fail(filing_row, f"document is for {filing.symbol}, not {symbol}", parse=True)
         return
     basis = filing.statement_type or filing_row.statement_type
     if basis is None:
         _fail(filing_row, "neither the document nor the exchange listing says standalone or "
-                          "consolidated")  # fmt: skip
+                          "consolidated", parse=True)  # fmt: skip
         return
     warnings = list(filing.warnings)
     if filing_row.statement_type not in (None, filing.statement_type) and filing.statement_type:
@@ -86,6 +86,7 @@ def ingest(
     )
     filing_row.status = FilingStatus.PARSED
     filing_row.error = None
+    filing_row.parse_failed_version = None
     filing_row.periods = periods
     filing_row.warnings = warnings or None
     filing_row.parsed_at = now
@@ -116,9 +117,12 @@ def ingest(
     )
 
 
-def _fail(filing_row: ResultFiling, error: str) -> None:
+def _fail(filing_row: ResultFiling, error: str, *, parse: bool = False) -> None:
+    """``parse``: the document itself can't be read by this parser (not a download problem),
+    recorded with :func:`parser_version` so it isn't retried until the parser changes."""
     filing_row.status = FilingStatus.FAILED
     filing_row.error = error[:2000]
+    filing_row.parse_failed_version = parser_version() if parse else None
 
 
 def ensure_uploaded_row(session: Session, *, instrument_id: int, content: bytes) -> ResultFiling:

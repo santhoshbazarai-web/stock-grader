@@ -218,3 +218,13 @@ def coverage_grid(
         out.append(BasisGrid(basis, cells))
     kept = [g for g in out if any(c.sources or c.pending_review for c in g.cells)]
     return kept or out[:1]
+
+
+def years_summary(session: Session, symbol: str, fy_end_month: int) -> str:
+    """``P&L 3 yr, BS 3 yr, CF 0 yr (consolidated)`` for the pipeline panel: fiscal years per
+    statement (filed + summed from quarters) of the basis the report uses (consolidated when
+    it has anything, rule 5)."""
+    rows = coverage(session, [symbol], fy_end_month)
+    basis = rows[0].basis if rows else StatementType.CONSOLIDATED
+    parts = [f"{r.statement} {r.years + r.derived_years} yr" for r in rows if r.basis == basis]
+    return f"{', '.join(parts)} ({basis.value})" if parts else "no statements stored"

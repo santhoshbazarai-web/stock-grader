@@ -390,6 +390,9 @@ class ResultFiling(TimestampMixin, Base):
     periods: Mapped[list[str] | None]  # e.g. ["quarter 2024-03-31", "year 2024-03-31"]
     warnings: Mapped[list[str] | None]
     parsed_at: Mapped[datetime | None]
+    # The document downloaded but did not parse (status failed) with this parser version
+    # (xbrl.parser_version()): it is not downloaded or parsed again until the version changes.
+    parse_failed_version: Mapped[str | None] = mapped_column(String(32))
 
 
 class FinLineItem(Base):

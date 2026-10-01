@@ -13,6 +13,7 @@ from app.data.gaps import GapRecord
 from app.data.raw_store import RawStoreError
 from app.data.results_ingest import FALLBACK_GAP_FIELD, cache_raw, cutoff, ingest
 from app.data.results_store import OFFLINE_SOURCE
+from app.data.xbrl import parser_version
 from app.db.enums import FilingStatus, StatementType
 from app.db.models import FinQuarterly, Instrument, ResultFiling, Shareholding
 from app.db.upsert import upsert
@@ -138,30 +139,46 @@ def list_results(
 
 
 def download_results(ctx: JobContext, symbols: list[str], *, limit: int) -> dict[str, Any]:
-    """Step 2 of results_backfill: download and store pending documents (and failed ones below
-    ``max_attempts``), newest period first, at most ``limit``."""
+    """Step 2 of results_backfill: download and store pending documents (and ones whose
+    download failed, below ``max_attempts``), newest period first, at most ``limit``.
+
+    A document that downloaded but did not parse is recorded with the parser version
+    (``parse_failed_version``) and is neither downloaded nor parsed again until that version
+    changes (a new xbrl_map.yaml version or parser revision); then it is re-parsed from the
+    raw cache, downloaded only if the cache is missing."""
     jcfg, ncfg = ctx.config.jobs.results_backfill, ctx.config.providers.nse.results
-    downloaded, parsed, failed = 0, 0, {}
+    current = parser_version()
+    downloaded, parsed, reparsed, failed = 0, 0, 0, {}
+    mine = (Instrument.symbol.in_(symbols)) & (ResultFiling.exchange.in_(("nse", OFFLINE_SOURCE)))
+    failed_download = (
+        (ResultFiling.status == FilingStatus.FAILED)
+        & ResultFiling.parse_failed_version.is_(None)
+        & (ResultFiling.attempts < jcfg.max_attempts)
+    )
+    parser_changed = (
+        (ResultFiling.status == FilingStatus.FAILED)
+        & ResultFiling.parse_failed_version.is_not(None)
+        & (ResultFiling.parse_failed_version != current)
+    )
     session = ctx.session_factory()
     try:
         todo = session.execute(
             select(ResultFiling.id, Instrument.symbol)
             .join(Instrument, Instrument.id == ResultFiling.instrument_id)
-            .where(
-                Instrument.symbol.in_(symbols),
-                ResultFiling.exchange.in_(("nse", OFFLINE_SOURCE)),
-                (ResultFiling.status == FilingStatus.PENDING)
-                | (
-                    (ResultFiling.status == FilingStatus.FAILED)
-                    & (ResultFiling.attempts < jcfg.max_attempts)
-                ),
-            )
+            .where(mine, (ResultFiling.status == FilingStatus.PENDING) | failed_download
+                   | parser_changed)
             .order_by(
                 ResultFiling.period_end.desc().nulls_last(),
                 ResultFiling.disseminated_at.desc().nulls_last(),
             )
             .limit(limit)
-        ).all()
+        ).all()  # fmt: skip
+        known_failures = session.scalar(
+            select(func.count()).select_from(ResultFiling)
+            .join(Instrument, Instrument.id == ResultFiling.instrument_id)
+            .where(mine, ResultFiling.status == FilingStatus.FAILED,
+                   ResultFiling.parse_failed_version == current)
+        ) or 0  # fmt: skip
     finally:
         session.close()
     for filing_id, symbol in todo:
@@ -169,22 +186,29 @@ def download_results(ctx: JobContext, symbols: list[str], *, limit: int) -> dict
         try:
             row = session.get(ResultFiling, filing_id)
             assert row is not None
-            doc = ctx.router.results_document(row.document, symbol)
-            downloaded += 1
-            if doc.data is None:
-                row.attempts += 1
-                row.status = FilingStatus.FAILED
-                row.error = "; ".join(doc.reasons)[:2000]
+            content = _cached(ctx, row) if row.parse_failed_version else None
+            if content is not None:
+                reparsed += 1
             else:
-                try:  # cache the raw document before parsing it (SPEC §3.2a)
-                    row.raw_path = cache_raw(ctx.raw_store, "nse", row.document, doc.data)
-                except RawStoreError as exc:
+                doc = ctx.router.results_document(row.document, symbol)
+                downloaded += 1
+                if doc.data is None:
                     row.attempts += 1
                     row.status = FilingStatus.FAILED
-                    row.error = str(exc)[:2000]
+                    row.error = "; ".join(doc.reasons)[:2000]
+                    row.parse_failed_version = None
                 else:
-                    ingest(session, row, symbol=symbol, content=doc.data, cfg=ncfg,
-                           gaps=ctx.gaps, now=ctx.now())  # fmt: skip
+                    try:  # cache the raw document before parsing it (SPEC §3.2a)
+                        row.raw_path = cache_raw(ctx.raw_store, "nse", row.document, doc.data)
+                        content = doc.data
+                    except RawStoreError as exc:
+                        row.attempts += 1
+                        row.status = FilingStatus.FAILED
+                        row.error = str(exc)[:2000]
+                        row.parse_failed_version = None
+            if content is not None:
+                ingest(session, row, symbol=symbol, content=content, cfg=ncfg,
+                       gaps=ctx.gaps, now=ctx.now())  # fmt: skip
             if row.status is FilingStatus.PARSED:
                 parsed += 1
             else:
@@ -192,7 +216,18 @@ def download_results(ctx: JobContext, symbols: list[str], *, limit: int) -> dict
             session.commit()
         finally:
             session.close()
-    return {"downloaded": downloaded, "parsed": parsed, "failed": dict(list(failed.items())[:50])}
+    return {"downloaded": downloaded, "reparsed": reparsed, "parsed": parsed,
+            "failed": dict(list(failed.items())[:50]),
+            "known_parse_failures": known_failures, "parser_version": current}  # fmt: skip
+
+
+def _cached(ctx: JobContext, row: ResultFiling) -> bytes | None:
+    if ctx.raw_store is None or not row.raw_path:
+        return None
+    try:
+        return ctx.raw_store.read(row.raw_path)
+    except (OSError, RawStoreError):
+        return None
 
 
 def _list_filings(

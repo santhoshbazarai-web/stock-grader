@@ -52,6 +52,16 @@ _XSI_NIL = "{http://www.w3.org/2001/XMLSchema-instance}nil"
 CRORE = 1e7  # the wide fin tables hold ₹ crore and share counts in crore
 
 
+# Bump when the parser's code changes what it can read (xbrl_map.yaml has its own version):
+# filings that failed to parse with an older version are then retried from the cache.
+PARSER_REVISION = 2  # 2: basis-only dimensional contexts, text facts from any context
+
+
+def parser_version(xmap: XbrlMap | None = None) -> str:
+    """``map<xbrl_map version>.r<PARSER_REVISION>``, e.g. ``map4.r2``."""
+    return f"map{(xmap or get_xbrl_map()).version}.r{PARSER_REVISION}"
+
+
 class XbrlFormatError(ValueError):
     """Not an XBRL instance, unsafe XML, or no usable results in it."""
 

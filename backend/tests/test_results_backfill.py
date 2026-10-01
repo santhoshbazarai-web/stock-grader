@@ -108,16 +108,42 @@ def test_lists_downloads_parses_and_stores_with_announcement_dates(acme: Env) ->
     assert "sga" in gaps  # the results format has no SG&A line
 
 
-def test_reruns_are_incremental_and_failures_stop_after_max_attempts(acme: Env) -> None:
+def test_a_parse_failure_is_not_retried_until_the_parser_changes(
+    acme: Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.data import results_ingest
+    from app.jobs import fundamentals
+
+    run(acme, symbols=("ACME",))
+    row = ledger(acme)[BROKEN]
+    assert row.status is FilingStatus.FAILED and row.parse_failed_version == "map4.r2"
+    rec = run(acme, symbols=("ACME",))
+    d = rec.outcome.details
+    assert d["listed_new"] == 0 and d["downloaded"] == 0 and d["reparsed"] == 0
+    assert d["known_parse_failures"] == 1 and d["parser_version"] == "map4.r2"
+    assert (
+        acme.nse.document_requests.count(BROKEN) == 1 and acme.nse.document_requests.count(Q4) == 1
+    )
+    # a new parser version: re-parsed from the raw cache, not downloaded again
+    for mod in (results_ingest, fundamentals):
+        monkeypatch.setattr(mod, "parser_version", lambda *a: "map4.r3")
+    rec = run(acme, symbols=("ACME",))
+    d = rec.outcome.details
+    assert d["reparsed"] == 1 and d["downloaded"] == 0
+    assert acme.nse.document_requests.count(BROKEN) == 1
+    assert ledger(acme)[BROKEN].parse_failed_version == "map4.r3"  # still fails: recorded
+
+
+def test_download_failures_stop_after_max_attempts(acme: Env) -> None:
+    acme.nse.documents.pop(BROKEN)  # not downloadable: a download failure, retried
     run(acme, symbols=("ACME",))
     for attempt in (2, 3):
         rec = run(acme, symbols=("ACME",))
-        assert rec.outcome.details["listed_new"] == 0
-        assert rec.outcome.details["downloaded"] == 1  # only the broken one is retried
+        assert rec.outcome.details["downloaded"] == 1  # only the missing one is retried
         assert ledger(acme)[BROKEN].attempts == attempt
+        assert ledger(acme)[BROKEN].parse_failed_version is None
     rec = run(acme, symbols=("ACME",))
     assert rec.outcome.details["downloaded"] == 0  # max_attempts (3) reached
-    assert acme.nse.document_requests.count(Q4) == 1
 
 
 def test_download_budget_takes_the_newest_periods_first(acme: Env) -> None:

@@ -237,7 +237,7 @@ Implementation notes (results XBRL, `data/xbrl.py`, `data/results_store.py`, `da
 - **Announcement date (rule 4):** the exchange's dissemination time; at or after `available_after_ist` (the close) it counts from the next day. An uploaded document has no dissemination time, so its date is the board-meeting date + 1 day.
 - **Ingestion:** `result_filings` is the ledger (one row per document, pending → parsed / failed).
   - `results_backfill` re-reads every symbol's list in results season, or weekly (`index_recheck_days`) outside it.
-  - It downloads at most `max_downloads_per_run` documents per run, newest period first, back to `providers.history_years`, and retries failures up to `max_attempts`.
+  - It downloads at most `max_downloads_per_run` documents per run, newest period first, back to `providers.history_years`, and retries download failures up to `max_attempts`. A document that downloaded but did not parse is recorded with the parser version (`result_filings.parse_failed_version`, `map<xbrl_map version>.r<PARSER_REVISION>`): it is not downloaded or parsed again until that version changes, then it is re-parsed from the raw cache (downloaded only if the cache is missing).
   - Documents are fetched only over https from `xbrl_hosts`, capped at `max_xbrl_bytes`, and parsed with `defusedxml`.
   - A document naming another symbol, or with no stated basis, is refused (rule 5).
   - If a symbol's list can't be read in season, new quarters come from yfinance with their first-seen date and a `results_filing` data gap, which is resolved when the filing is stored.
@@ -312,7 +312,9 @@ Implementation notes (`pipeline/runner.py`, `api/pipeline.py`, `pipeline_runs`; 
   - Shareholding & events stores the shareholding pattern. It reports the stock's events on file, which come from the market-wide feeds (§3.8), not a per-stock fetch.
   - Reconciliation runs §3.9 for the stock. Open differences make it a warning.
   - Required steps: symbol (in the symbol master, once that is built), prices (stored bars suffice when the refresh fails), metrics, valuation, scoring, report.
-- **Optional-step failures:** a failed optional step is a warning. Its message is added to the report's `data_gaps` as "pipeline <step>: <message>", and the report is still built. A failed required step fails the run, and the steps after it are skipped.
+- **Optional-step failures:** a failed optional step shows as failed (or a warning) and the run goes on. Its message is added to the report's `data_gaps` as "pipeline <step>: <message>", and the report is still built.
+  - The Results XBRL step ends with the years found per statement ("Years found: P&L 3 yr, BS 3 yr, CF 0 yr (consolidated)") and the known parse failures it skipped.
+  - Fundamental metrics is optional but fails loudly: no fiscal year with a P&L fails it with the years stored per statement and where to get the rest (Results XBRL step, XBRL / Screener upload); otherwise it lists the metrics it could not compute. A failed required step fails the run, and the steps after it are skipped.
 - **Resumable:** the worker claims a queued run with `FOR UPDATE SKIP LOCKED`.
   - A heartbeat thread keeps long steps owned. A running run whose heartbeat is older than `stale_after_s` is taken over and resumed from its first unfinished step; the data steps are upserts, so repeating one is harmless.
   - After `max_attempts` claims the run fails.
