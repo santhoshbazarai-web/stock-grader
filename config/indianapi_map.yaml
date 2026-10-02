@@ -213,3 +213,15 @@ checks:
   # by the vendor's price date and profit definition (~2%), so 5% before it is listed
   key_metric_tolerance: 0.05
   corporate_action_window_days: 3   # vendor and exchange ex-dates this close: the same action
+
+# The vendor gives no sale of fixed assets: /stock has gross CapitalExpenditures, the history
+# has CFO and Free Cash Flow (= CFO - net capex). Net capex = CFO - FCF (history) is split:
+#   /stock purchase present: sale = purchase - net capex (TCS FY26: 4,700 - 4,081 = 619)
+#   history only:            purchase = net capex, sale = 0, both tagged "net capex"
+# A purchase below net capex by more than the tolerance is inconsistent: nothing derived.
+net_capex:
+  cfo: cfo
+  free_cash_flow: free_cash_flow
+  purchase: purchase_of_fixed_assets
+  sale: sale_of_fixed_assets
+  tolerance: 0.02

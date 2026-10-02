@@ -320,6 +320,53 @@ a Screener export is an optional top-up.
   elements the mapping ignores. Add names to `backend/app/fundamentals/xbrl_map.yaml` (and bump its
   `version`); it covers the Ind AS, bank and pre-Ind-AS (Indian GAAP) results formats.
 
+## Fundamentals: Indian API (bulk, works without NSE)
+
+[stock.indianapi.in](https://stock.indianapi.in) gives 10+ years of consolidated P&L, balance sheet and cash flow per stock in five calls: `/stock` and `/historical_stats` with `yoy_results`, `balancesheet`, `cashflow` and `quarter_results`. It fills only what the NSE results XBRL does not cover. Exchange-filed figures always win (`priority.fin_results: [nse, indianapi, yfinance]`). Details are in SPEC §3.9a.
+
+**Setup.** Add your key to `.env`:
+
+```
+INDIANAPI_KEY=your-key
+```
+
+Without a key the source shows "not configured: add INDIANAPI_KEY in .env" on the Data sources page and in the pipeline panel, and nothing is called. The key is sent only as the `X-Api-Key` header. It is never logged, and it is never stored in request metadata or error messages.
+
+**Quota.** `providers.yaml` → `indianapi`:
+- `monthly_request_budget: 500` calls per calendar month (IST). Calls stop at `stop_at_fraction` (90%).
+- Usage shows as "Indian API: 123/500 calls this month" on Data sources and in the pipeline panel.
+- A stock costs 5 calls, and is fetched again only when:
+  - new results were announced;
+  - the cache is older than `refresh_days` (30);
+  - or you press Refresh and the cache is older than `user_refresh_min_age_hours` (24).
+
+**Commands.**
+
+```bash
+# one or more stocks (5 calls each, cached answers cost nothing)
+docker compose exec worker python -m app.jobs run fundamentals_indianapi --symbols HDFCBANK
+# the whole universe, until the monthly budget's stop point
+docker compose exec worker python -m app.jobs run fundamentals_indianapi --all-universe
+# what got stored: years and source per statement (same as the stock page grid)
+docker compose exec worker python -m app.jobs xbrl-coverage --symbols HDFCBANK
+```
+
+The nightly schedule (`50 6 * * *`) takes at most `jobs.fundamentals_indianapi.max_stocks_per_run` (10) stocks, never-fetched or stalest first. The on-demand pipeline runs an `indianapi` step before the NSE steps.
+
+**Safety.**
+- A vendor answer counts only if its ISIN or NSE code matches the stock. A different company is recorded as a data gap and never stored as data.
+- 404 and 429 responses, a missing key and an exhausted budget each end as a data gap, not a crash.
+- Every raw answer is kept in `vendor_responses` and `data/raw/indianapi/yyyy/mm/dd/`.
+
+**Checks.**
+- Differences above 2% are listed in the stock page's reconciliation banner:
+  - between `/stock` and its own history;
+  - between the vendor and NSE XBRL (revenue, PAT, net worth, deposits, loans, EPS);
+  - and keyMetrics (BVPS, P/B, ROA, market cap) against our own values.
+- The vendor's bonus and split list is checked against our corporate actions.
+- Its board-meeting calendar feeds the results watcher.
+- Its analyst consensus is shown for information only and never scored.
+
 ## Fundamentals: annual-report PDFs (gap filler)
 
 Results XBRL carries the balance sheet only half-yearly, and the cash flow only from FY2020, so
@@ -359,6 +406,22 @@ older years lack them. Annual reports fill those years (SPEC §3.6 step 3).
 - **Untested against real reports:** NSE is unreachable from the build environment, so the
   reader and NSE's annual-report list format have only been tested on synthetic reports.
   Check a few real ones with `pdf-inspect` first.
+
+## Price adjustment check
+
+Prices are adjusted for splits and bonuses per source. A history stitched from Fyers (already adjusted) and NSE bhavcopy (raw) is adjusted exactly once. `providers.yaml` → `adjustment.prices_already_adjusted` sets each source's expected state, and a detector checks it.
+
+Moves that look like a missing or doubled split or bonus appear in a banner on the stock page with **Apply suggested fix** (and **Dismiss**). To inspect a stock:
+
+```bash
+docker compose exec worker python -m app.jobs verify-adjustment --symbol HDFCBANK --readjust \
+    --around 2025-08-22:2025-08-29 --around 2019-09-10:2019-09-20
+```
+
+This re-runs the adjustment and prints:
+- the raw bars with their source in each window;
+- the overnight gaps above 3× ATR/close;
+- the open anomalies.
 
 ## On-demand pipeline
 

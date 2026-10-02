@@ -433,6 +433,10 @@ The bulk fundamentals source when NSE is blocked: 10+ years of statements per st
   - Quarters come from `quarter_results`. The four quarters must sum to the year within 1%.
   - An item no source gives is None plus a data gap, never 0. NIM, GNPA, NNPA and CAR are not in the vendor's data and stay gaps.
   - `/stock` shareholding is stale and is not used; shareholding stays NSE-sourced.
+- **Capex split** (`net_capex` in `indianapi_map.yaml`): the vendor reports no sale of fixed assets. Net capex = the history's Cash from Operating Activity − Free Cash Flow.
+  - Where `/stock` gives gross CapitalExpenditures, sale = gross − net (TCS FY26: 4,700 − 4,081 = 619).
+  - In history-only years, purchase = net capex and sale = 0, both tagged "net capex".
+  - A gross figure below net capex (beyond `tolerance`) is inconsistent: nothing is derived, and a note says so.
 - **Priority** (`priority.fin_results`: nse > indianapi > yfinance): a vendor value fills only a key that no exchange-filed or annual-report figure covers. It is removed when a filed figure arrives, and the wide row keeps the better source's label.
 - **Cross-checks** (`checks` in `indianapi_map.yaml`):
   - keyMetrics (BVPS, P/B, ROA, market cap) are compared with our values for the latest fiscal year: equity / shares, price / BVPS, profit (including minority interest) / average total assets, and price × shares.

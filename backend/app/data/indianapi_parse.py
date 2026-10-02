@@ -447,8 +447,49 @@ def map_statements(stock: Any | None, hists: Mapping[str, Any], amap: IndianApiM
             out.notes.append(f"{code} for FY{min(used)}-FY{max(used)} is {alt} (the vendor's "
                              f"history gives no separate {code})")  # fmt: skip
 
+    # 5. capex split from the history's net capex (CFO - Free Cash Flow)
+    if amap.net_capex is not None and "cashflow" in tables:
+        _split_net_capex(chosen, tables["cashflow"], items, amap, hist_cpu, out)
+
     out.values = sorted(chosen.values(), key=lambda v: (v.period_end, v.item_code, v.period_type))
     return out
+
+
+def _split_net_capex(chosen: dict[tuple[str, date, PeriodKind], VendorValue],
+                     table: Mapping[str, Mapping[date, float]], items: Mapping[str, VendorItem],
+                     amap: IndianApiMap, cpu: float, out: Mapped) -> None:  # fmt: skip
+    nc = amap.net_capex
+    assert nc is not None
+    cfo_item, fcf_item = items.get(nc.cfo), items.get(nc.free_cash_flow)
+    if cfo_item is None or fcf_item is None or cfo_item.hist is None or fcf_item.hist is None:
+        return
+    cfo_s = table.get(cfo_item.hist.labels[0], {}) if cfo_item.hist.labels else {}
+    fcf_s = table.get(fcf_item.hist.labels[0], {}) if fcf_item.hist.labels else {}
+    inconsistent = []
+    for end in sorted(set(cfo_s) & set(fcf_s)):
+        if (nc.sale, end, "year") in chosen:
+            continue
+        net = (cfo_s[end] - fcf_s[end]) * cpu * CRORE_INR
+        bought = chosen.get((nc.purchase, end, "year"))
+        tag = "hist net capex = Cash from Operating Activity - Free Cash Flow"
+        if bought is None:
+            if net < 0:
+                continue
+            chosen[(nc.purchase, end, "year")] = VendorValue(end, "year", "cf", nc.purchase, net,
+                                                             "amount", f"{tag} (net)")  # fmt: skip
+            sale = 0.0
+        else:
+            sale = bought.value - net
+            if sale < -nc.tolerance * max(abs(bought.value), 1.0):
+                inconsistent.append(fiscal_year_of(end))
+                continue
+            sale = max(sale, 0.0)
+        why = f"{tag}; sale = purchase - net capex"
+        chosen[(nc.sale, end, "year")] = VendorValue(end, "year", "cf", nc.sale, sale, "amount",
+                                                     why)  # fmt: skip
+    if inconsistent:
+        out.notes.append("capex split not derived for FY" + ", FY".join(map(str, inconsistent))
+                         + ": /stock capex below the history's net capex")  # fmt: skip
 
 
 def _hist_vs_stock(chosen: Mapping[tuple[str, date, PeriodKind], VendorValue],

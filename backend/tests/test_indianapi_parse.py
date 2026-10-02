@@ -244,3 +244,26 @@ def test_map_validation(tmp_path: Path) -> None:
     p.write_text(yaml.safe_dump(bad2))
     with pytest.raises(IndianApiMapError, match="a cf item reads stats=balancesheet"):
         load_indianapi_map(p)
+
+
+def test_capex_split_from_the_history_net_capex() -> None:
+    """TCS: /stock CapitalExpenditures 4,700 cr (FY26) and the history's CFO 52,094 - FCF
+    48,013 = net capex 4,081 → sale of fixed assets 619. History-only years: purchase = net
+    capex, sale 0, both tagged as such."""
+    from app.core.settings import config_dir_from_env
+    from app.fundamentals.indianapi_map import get_indianapi_map
+
+    fix = Path(__file__).parent / "fixtures" / "indianapi"
+    stock = json.loads((fix / "tcs_stock.json").read_text())
+    hists = {
+        s: json.loads((fix / f"tcs_{f}.json").read_text())
+        for s, f in (("yoy_results", "pl"), ("balancesheet", "bs"), ("cashflow", "cf"))
+    }
+    m = map_statements(stock, hists, get_indianapi_map(config_dir_from_env()))  # fmt: skip
+    fy26, fy16 = date(2026, 3, 31), date(2016, 3, 31)
+    assert m.get("purchase_of_fixed_assets", fy26, "year") == pytest.approx(4700e7)
+    assert m.get("sale_of_fixed_assets", fy26, "year") == pytest.approx(619e7)
+    assert m.get("purchase_of_fixed_assets", fy16, "year") == pytest.approx(1965e7)
+    assert m.get("sale_of_fixed_assets", fy16, "year") == 0.0
+    tags = {v.origin for v in m.values if v.item_code == "sale_of_fixed_assets"}
+    assert all("net capex" in t for t in tags)
