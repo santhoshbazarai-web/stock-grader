@@ -922,6 +922,8 @@ class BankMaps(_Strict):
     nim_pct: PiecewiseLinearMap
     car_pct: PiecewiseLinearMap
     roa_pct: PiecewiseLinearMap
+    nnpa_pct: PiecewiseLinearMap
+    casa_pct: PiecewiseLinearMap
     # proxies, used only when the reported metric is missing (health pillar)
     credit_cost_pct: PiecewiseLinearMap  # for GNPA
     equity_to_assets_pct: PiecewiseLinearMap  # for CAR
@@ -955,6 +957,16 @@ class ForensicConfig(_Strict):
         return self
 
 
+class HealthConfig(_Strict):
+    """Health pillar (SPEC §7.2): a weighted mean of the inputs it has, shrunk toward
+    ``neutral`` by the share of input weight that is missing."""
+
+    neutral: Score
+    proxy_credit: Fraction  # share of a missing input's weight its proxy restores
+    weights: dict[str, PositiveFloat] = Field(min_length=1)
+    bank_weights: dict[str, PositiveFloat] = Field(min_length=1)
+
+
 class ScoringConfig(_Strict):
     weights: PillarWeights
     grade_cutoffs: GradeCutoffs
@@ -966,6 +978,7 @@ class ScoringConfig(_Strict):
     earned_premium: EarnedPremiumConfig
     decision: DecisionConfig
     bank_maps: BankMaps
+    health: HealthConfig
     data_depth: DataDepthConfig
     fundamentals: FundamentalsConfig
     forensic: ForensicConfig

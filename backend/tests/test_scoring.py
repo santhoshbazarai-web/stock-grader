@@ -237,11 +237,27 @@ def test_technical_pillar() -> None:
 
 def test_bank_pillars_use_bank_maps() -> None:
     # ROA 1.3% → 50 + 35 x 0.3/0.6 = 67.5; NIM 3.5% → 67.5 → quality 67.5
-    # GNPA 2.25% → 50 + 35 x 0.75/1.5 = 67.5; CAR 15.5% → 50 + 35 x 1.5/3 = 67.5 → health 67.5
-    bank = PillarInputs(is_bank=True, roa_pct=1.3, nim_pct=3.5, gnpa_pct=2.25, car_pct=15.5)
+    # GNPA 2.25% → 50 + 35 x 0.75/1.5 = 67.5; CAR 15.5% → 50 + 35 x 1.5/3 = 67.5;
+    # NNPA 1.05% → 50 + 35 x 0.45/0.9 = 67.5; CASA 35% → 67.5 → health 67.5
+    bank = PillarInputs(is_bank=True, roa_pct=1.3, nim_pct=3.5, gnpa_pct=2.25, car_pct=15.5,
+                        nnpa_pct=1.05, casa_pct=35.0)  # fmt: skip
     assert quality(bank, S).score == pytest.approx(67.5)
-    assert health(bank, S).score == pytest.approx(67.5)
     assert [s.name for s in quality(bank, S).subs] == ["roa_pct", "nim_pct"]
+    assert health(bank, S).score == pytest.approx(67.5) and health(bank, S).confidence == "full"
+    # NNPA and CASA missing (weights 0.2 + 0.2 of 1.0): 50 + 17.5 x 0.6 = 60.5
+    partial = health(replace(bank, nnpa_pct=None, casa_pct=None), S)
+    assert partial.score == pytest.approx(60.5) and partial.confidence == "reduced"
+    assert partial.reasons[-1] == (
+        "health 68 → 60: 40% of the input weight missing (nnpa_pct, casa_pct), so the score "
+        "is pulled toward 50 by that share"
+    )
+
+
+def test_health_shrinks_toward_neutral_for_missing_inputs() -> None:
+    # D/E 0.5 and interest cover 6 known, 3 of 5 equal weights missing → 60% missing
+    h = health(PillarInputs(debt_to_equity=0.0, interest_coverage=12), S)
+    assert h.score == pytest.approx(50 + (100 - 50) * 0.4) and h.confidence == "reduced"
+    assert h.missing == ["net_debt_ebitda", "ccc_trend_days", "altman_z2"]
 
 
 def test_pillar_needs_coverage_and_lists_missing() -> None:

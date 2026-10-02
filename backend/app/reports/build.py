@@ -411,6 +411,8 @@ def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> B
         nim_pct=bank["nim_pct"].value if "nim_pct" in bank else None,
         gnpa_pct=bank["gnpa_pct"].value if "gnpa_pct" in bank else None,
         car_pct=bank["car_pct"].value if "car_pct" in bank else None,
+        nnpa_pct=bank["nnpa_pct"].value if "nnpa_pct" in bank else None,
+        casa_pct=bank["casa_pct"].value if "casa_pct" in bank else None,
         credit_cost_pct=bank["credit_cost_pct"].value if "credit_cost_pct" in bank else None,
         equity_to_assets_pct=(
             bank["equity_to_assets_pct"].value if "equity_to_assets_pct" in bank else None

@@ -13,7 +13,11 @@ listed in ``PillarScore.missing`` (data gaps), never scored as 0 or as an averag
     Valuation   (FV - CMP) / FV, reverse-DCF gap (implied - historical growth)
     Health      D/E, interest coverage, net debt/EBITDA, CCC trend (days now - trend_years
                 ago), Altman Z''
-                banks: GNPA, CAR
+                banks: GNPA, CAR, NNPA, CASA (proxies: credit cost for GNPA, equity / assets
+                for CAR)
+                Weighted (``health.weights`` / ``bank_weights``), and shrunk toward
+                ``health.neutral`` by the missing share of the weight (no minimum coverage):
+                score = neutral + (raw - neutral) x (1 - missing weight / total weight)
     Governance  pledge %, promoter holding change QoQ (pp), MF+FII+DII change QoQ (pp),
                 other-income share of PBT, related-party-transaction flag
     Technical   Weinstein stage, RS percentile, structure trend, delivery ratio
@@ -92,6 +96,8 @@ class PillarInputs:
     nim_pct: float | None = None
     gnpa_pct: float | None = None
     car_pct: float | None = None
+    nnpa_pct: float | None = None
+    casa_pct: float | None = None
     # proxies used only in place of a missing reported metric (fundamentals/banking.PROXIES)
     credit_cost_pct: float | None = None  # for GNPA
     equity_to_assets_pct: float | None = None  # for CAR
@@ -169,49 +175,75 @@ def growth(x: PillarInputs, cfg: ScoringConfig) -> PillarScore:
 
 
 def health(x: PillarInputs, cfg: ScoringConfig) -> PillarScore:
-    m = cfg.maps
-    if x.is_bank:
-        return _bank_health(x, cfg)
-    else:
-        subs = [
-            _mapped("debt_to_equity", x.debt_to_equity, m.debt_to_equity),
-            _mapped("interest_coverage", x.interest_coverage, m.interest_coverage),
-            _mapped("net_debt_ebitda", x.net_debt_to_ebitda, m.net_debt_ebitda),
-            _mapped("ccc_trend_days", _diff(x.ccc_days, x.ccc_days_prior), m.ccc_trend_days),
-            _mapped("altman_z2", x.altman_z2, m.altman_z2),
-        ]
-    return combine(Pillar.HEALTH, subs, cfg)
-
-
-def _bank_health(x: PillarInputs, cfg: ScoringConfig) -> PillarScore:
-    """GNPA and CAR as reported; a missing one is replaced by its proxy (credit cost for GNPA,
-    equity / assets for CAR). Then the pillar scores what exists, lists the missing reported
-    metrics, and its confidence is reduced instead of the pillar being n/a."""
-    b = cfg.bank_maps
-    pairs = (
-        ("gnpa_pct", x.gnpa_pct, b.gnpa_pct, "credit_cost_pct", x.credit_cost_pct,
-         b.credit_cost_pct),
-        ("car_pct", x.car_pct, b.car_pct, "equity_to_assets_pct", x.equity_to_assets_pct,
-         b.equity_to_assets_pct),
-    )  # fmt: skip
-    subs: list[SubScore] = []
+    """Weighted mean of the available inputs, shrunk toward neutral by the missing weight."""
+    m, b, h = cfg.maps, cfg.bank_maps, cfg.health
+    # (sub-score, share of its weight that counts as present)
+    scored: list[tuple[SubScore, float]] = []
     replaced: list[str] = []
-    for name, value, points, proxy, pvalue, ppoints in pairs:
-        sub = _mapped(name, value, points)
-        if sub.score is None:
-            alt = _mapped(proxy, pvalue, ppoints)
-            if alt.score is not None:
-                sub = SubScore(alt.name, alt.value, alt.score,
-                               f"{alt.reason} (proxy: {name} not reported)")  # fmt: skip
-                replaced.append(name)
-        subs.append(sub)
-    out = combine(Pillar.HEALTH, subs, cfg)
-    if not replaced:
-        return out
-    reasons = [*out.reasons, f"health: {', '.join(replaced)} not reported; scored from proxies "
-               "(reduced confidence)"]  # fmt: skip
-    return PillarScore(out.pillar, out.score, out.subs, [*replaced, *out.missing], reasons,
-                       confidence="reduced")  # fmt: skip
+    if x.is_bank:
+        proxies = {
+            "gnpa_pct": ("credit_cost_pct", x.credit_cost_pct, b.credit_cost_pct),
+            "car_pct": ("equity_to_assets_pct", x.equity_to_assets_pct, b.equity_to_assets_pct),
+        }
+        reported = {
+            "gnpa_pct": (x.gnpa_pct, b.gnpa_pct), "car_pct": (x.car_pct, b.car_pct),
+            "nnpa_pct": (x.nnpa_pct, b.nnpa_pct), "casa_pct": (x.casa_pct, b.casa_pct),
+        }  # fmt: skip
+        weights = h.bank_weights
+        for name in weights:
+            value, points = reported[name]
+            sub = _mapped(name, value, points)
+            present = 1.0 if sub.score is not None else 0.0
+            if sub.score is None and name in proxies:
+                pname, pvalue, ppoints = proxies[name]
+                alt = _mapped(pname, pvalue, ppoints)
+                if alt.score is not None:
+                    sub = SubScore(alt.name, alt.value, alt.score,
+                                   f"{alt.reason} (proxy: {name} not reported)")  # fmt: skip
+                    present = h.proxy_credit
+                    replaced.append(name)
+            scored.append((sub, present))
+    else:
+        weights = h.weights
+        values = {
+            "debt_to_equity": (x.debt_to_equity, m.debt_to_equity),
+            "interest_coverage": (x.interest_coverage, m.interest_coverage),
+            "net_debt_ebitda": (x.net_debt_to_ebitda, m.net_debt_ebitda),
+            "ccc_trend_days": (_diff(x.ccc_days, x.ccc_days_prior), m.ccc_trend_days),
+            "altman_z2": (x.altman_z2, m.altman_z2),
+        }
+        for name in weights:
+            sub = _mapped(name, *values[name])
+            scored.append((sub, 1.0 if sub.score is not None else 0.0))
+    return _shrunk(scored, list(weights.values()), replaced, h.neutral)
+
+
+def _shrunk(
+    scored: list[tuple[SubScore, float]], weights: list[float], replaced: list[str],
+    neutral: float,
+) -> PillarScore:  # fmt: skip
+    subs = [s for s, _ in scored]
+    reasons = [s.reason for s in subs]
+    missing = [*replaced, *(s.name for s in subs if s.score is None)]
+    total = sum(weights)
+    have = [(s, w) for (s, _), w in zip(scored, weights, strict=True) if s.score is not None]
+    if not have:
+        reasons.append("health: no input available: no score")
+        return PillarScore(Pillar.HEALTH, None, subs, missing, reasons)
+    raw = sum(w * (s.score or 0.0) for s, w in have) / sum(w for _, w in have)
+    present = sum(p * w for (_, p), w in zip(scored, weights, strict=True)) / total
+    score = neutral + (raw - neutral) * present
+    reasons.append(f"health {raw:.0f}/100 from {len(have)} of {len(subs)} inputs")
+    if replaced:
+        reasons.append(f"health: {', '.join(replaced)} not reported; scored from proxies "
+                       "(reduced confidence)")  # fmt: skip
+    if present < 1.0:
+        reasons.append(
+            f"health {raw:.0f} → {score:.0f}: {1 - present:.0%} of the input weight missing "
+            f"({', '.join(missing)}), so the score is pulled toward {neutral:g} by that share"
+        )
+    confidence: Literal["full", "reduced"] = "reduced" if present < 1.0 else "full"
+    return PillarScore(Pillar.HEALTH, score, subs, missing, reasons, confidence=confidence)
 
 
 def governance(x: PillarInputs, cfg: ScoringConfig) -> PillarScore:

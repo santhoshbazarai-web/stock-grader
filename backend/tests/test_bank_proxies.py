@@ -97,25 +97,31 @@ def test_health_scores_from_proxies_with_reduced_confidence(hdfc: HdfcData) -> N
                      equity_to_assets_pct=b["equity_to_assets_pct"].value)  # fmt: skip
     p = health(x, cfg)
     assert p.score is not None and p.confidence == "reduced"
-    assert p.missing == ["gnpa_pct", "car_pct"]
-    assert [s.name for s in p.subs] == ["credit_cost_pct", "equity_to_assets_pct"]
+    assert p.missing == ["gnpa_pct", "car_pct", "nnpa_pct", "casa_pct"]
+    assert [s.name for s in p.subs] == ["credit_cost_pct", "equity_to_assets_pct", "nnpa_pct",
+                                        "casa_pct"]  # fmt: skip
     assert "(proxy: gnpa_pct not reported)" in p.subs[0].reason
-    assert p.reasons[-1] == ("health: gnpa_pct, car_pct not reported; scored from proxies "
+    assert p.reasons[-2] == ("health: gnpa_pct, car_pct not reported; scored from proxies "
                              "(reduced confidence)")  # fmt: skip
-    # credit cost 0.50% → 100; equity/assets 11.94% → 85 + (0.94/3)·15 ≈ 89.7
-    assert p.score == pytest.approx((100 + 89.7) / 2, abs=0.2)
+    # credit cost 0.50% → 100; equity/assets 11.94% → 85 + (0.94/3)·15 ≈ 89.7: raw 94.85.
+    # GNPA, CAR (0.3 each) count half through their proxies; NNPA, CASA (0.2 each) missing:
+    # present 0.3 → 50 + 44.85 x 0.3 = 63.5, well below the unadjusted 95
+    assert p.score == pytest.approx(50 + ((100 + 89.7) / 2 - 50) * 0.3, abs=0.1)
+    assert p.score < 70
+    assert p.reasons[-1].startswith("health 95 → 63: 70% of the input weight missing")
 
 
 def test_reported_metrics_are_never_replaced() -> None:
     cfg = get_config().scoring
-    x = PillarInputs(is_bank=True, gnpa_pct=1.5, car_pct=17.0, credit_cost_pct=3.0,
-                     equity_to_assets_pct=5.0)  # fmt: skip
+    x = PillarInputs(is_bank=True, gnpa_pct=1.5, car_pct=17.0, nnpa_pct=0.6, casa_pct=40.0,
+                     credit_cost_pct=3.0, equity_to_assets_pct=5.0)  # fmt: skip
     p = health(x, cfg)
     assert p.confidence == "full" and p.score == pytest.approx(85.0)
-    assert [s.name for s in p.subs] == ["gnpa_pct", "car_pct"]
-    # one reported, one proxied
+    assert [s.name for s in p.subs] == ["gnpa_pct", "car_pct", "nnpa_pct", "casa_pct"]
+    # one reported, one proxied, NNPA / CASA missing: present 0.3 + 0.15 → 50 + 35 x 0.45
     q = health(PillarInputs(is_bank=True, gnpa_pct=1.5, equity_to_assets_pct=11.0), cfg)
-    assert q.confidence == "reduced" and q.missing == ["car_pct"] and q.score == pytest.approx(85)
+    assert q.confidence == "reduced" and q.missing == ["car_pct", "nnpa_pct", "casa_pct"]
+    assert q.score == pytest.approx(65.75)
     # nothing at all: no score, no proxy invented
     r = health(PillarInputs(is_bank=True), cfg)
     assert r.score is None and r.confidence == "full"
