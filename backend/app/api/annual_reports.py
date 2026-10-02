@@ -28,7 +28,7 @@ from app.data.raw_store import RawStore, RawStoreError
 from app.data.results_ingest import cache_raw, upload_document_id
 from app.data.results_store import _fy_end_month
 from app.db.enums import FilingStatus, ReviewStatus
-from app.db.models import AnnualReport, Instrument, PdfLineCandidate
+from app.db.models import AnnualReport, FinAnnual, Instrument, PdfLineCandidate
 from app.fundamentals.pdf_labels import get_pdf_labels
 from app.fundamentals.xbrl_map import get_xbrl_map
 from app.jobs.common import ensure_instruments
@@ -302,7 +302,8 @@ def review_value(
 def stock_coverage(session: SessionDep, config: ConfigDep, symbol: str) -> CoverageGridOut:
     """Fiscal years by statement (P&L / BS / CF) with the source of each cell: exchange XBRL,
     annual-report PDF, derived from quarters, or a Screener / yfinance row; empty = a gap
-    (SPEC §3.6 step 4). The last ``providers.history_years`` completed fiscal years."""
+    (SPEC §3.6 step 4). The last ``providers.history_years`` completed fiscal years, or from
+    the earliest stored year when that is older."""
     sym = symbol.upper()
     iid = session.scalar(select(Instrument.id).where(Instrument.symbol == sym))
     if iid is None:
@@ -310,7 +311,12 @@ def stock_coverage(session: SessionDep, config: ConfigDep, symbol: str) -> Cover
     month = _fy_end_month(session, iid, config.providers.nse.results)
     today = datetime.now(UTC).date()
     last = today.year if today.month > month else today.year - 1
-    years = list(range(last - config.providers.history_years + 1, last + 1))
+    first = last - config.providers.history_years + 1
+    stored = session.scalar(select(func.min(FinAnnual.fiscal_year))
+                            .where(FinAnnual.instrument_id == iid))  # fmt: skip
+    if isinstance(stored, int) and stored < first:  # e.g. 12 years from the Indian API
+        first = stored
+    years = list(range(first, last + 1))
     sector = session.scalar(select(Instrument.sector).where(Instrument.id == iid))
     model = config.sectors.for_sector(sector).model if sector in config.sectors.root else None
     bank = model in (SectorModel.BANK, SectorModel.INSURANCE) or files_as_bank(session, iid)

@@ -74,7 +74,9 @@ def test_fy24_profit_up_42_percent_but_eps_up_2(hdfc: HdfcData) -> None:
     # with the break: PAT per year-end share 45,997 / 1,115.95 → 64,062 / 1,519.38 (+2.3%)
     ps, note = yoy_growth(annual, "pat", 2024, [MERGER], shares_year_end=shares)
     assert ps == pytest.approx(eps_hist["Mar 2024"] / eps_hist["Mar 2023"] - 1, abs=0.002)
-    assert note == "FY2024 pat growth per share (year-end shares): merger"
+    assert note == (
+        "FY2024 pat growth per share (year-end shares; weighted where not reported): merger"
+    )
     # revenue: +66% in aggregate, +22% per share
     rev, _ = yoy_growth(annual, "revenue", 2024, [])
     rev_ps, _ = yoy_growth(annual, "revenue", 2024, [MERGER], shares_year_end=shares)
@@ -95,12 +97,15 @@ def test_cagr_windows_across_the_break_are_per_share(
     s23 = annual.loc[pd.Timestamp("2023-03-31"), "revenue"] / shares[2023]
     s26 = annual.loc[pd.Timestamp("2026-03-31"), "revenue"] / shares[2026]
     assert out["sales_cagr_3y"].value == pytest.approx((s26 / s23) ** (1 / 3) - 1, rel=1e-9)
-    assert out["sales_cagr_3y"].reason == "per share (year-end shares)"
+    assert out["sales_cagr_3y"].reason == (
+        "per share (year-end shares; weighted where not reported)"
+    )
     assert out["eps_cagr_3y"].value is not None and out["eps_cagr_3y"].value < 0.08
     assert out["ebitda_cagr_3y"].value is None  # the bank has no EBITDA: still None, reason
     assert notes == [
         "Structural break FY2024 (merger): HDFC Ltd merged. Growth across it is per "
-        "share (year-end shares): sales_cagr_3y, ebitda_cagr_3y, eps_cagr_3y"
+        "share (year-end shares; weighted where not reported): sales_cagr_3y, "
+        "ebitda_cagr_3y, eps_cagr_3y"
     ]
 
 
@@ -119,3 +124,17 @@ def test_no_events_change_nothing(hdfc: tuple[pd.DataFrame, dict[int, float]]) -
     metrics = {"sales_cagr_3y": Metric(0.1)}
     assert adjust_growth(metrics, annual, [], cagr_years=[3], shares_year_end=shares) == (
         metrics, [])  # fmt: skip
+
+
+def test_year_end_shares_missing_for_old_years_use_the_weighted_count(
+    hdfc: HdfcData,
+) -> None:
+    annual, shares = hdfc
+    recent = {fy: v for fy, v in shares.items() if fy >= 2020}  # older years not reported
+    metrics = {"sales_cagr_10y": Metric(9.9)}
+    out, _ = adjust_growth(metrics, annual, [MERGER], cagr_years=[10],
+                               shares_year_end=recent, year=2026)  # fmt: skip
+    assert out["sales_cagr_10y"].value is not None
+    assert out["sales_cagr_10y"].reason == (
+        "per share (year-end shares; weighted where not reported)"
+    )

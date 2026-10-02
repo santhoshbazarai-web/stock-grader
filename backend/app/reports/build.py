@@ -305,6 +305,9 @@ def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> B
         am = annual_metrics(
             annual, tax_rate_fallback=vc.tax_rate_default, days=sc.fundamentals.days_in_year
         )
+    # metrics that mean nothing for this sector model are dropped, not reported as missing
+    fc = sc.fundamentals
+    metrics = {k: m for k, m in metrics.items() if fc.applies(sector.model.value, k)}
     # SPEC §4: growth windows across a merger / demerger are measured per share
     metrics, structural_notes = adjust_growth(
         metrics, annual, data.structural_events, cagr_years=sc.fundamentals.cagr_years,
@@ -426,6 +429,7 @@ def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> B
             pledge_pct=shp["pledge"],
             cfo_history=[_v(v) for v in cfo.tolist()] if len(cfo) else None,
             cfo_applies=not is_financial,
+            beneish_applies=not is_financial,
             auditor_resignations=data.overrides.auditor_resignations
             if data.overrides.auditor_resignations is not None
             else data.auditor_resignations,
@@ -563,10 +567,14 @@ def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> B
         decision=decision,
         metrics=metrics,
         extras={
-            "piotroski": pio.value if pio else None,
-            "beneish_m": ben.value if ben else None,
-            "altman_z2": alt.value if alt else None,
-            **{k: m.value for k, m in bank.items()},
+            k: v
+            for k, v in {
+                "piotroski": pio.value if pio else None,
+                "beneish_m": ben.value if ben else None,
+                "altman_z2": alt.value if alt else None,
+                **{k: m.value for k, m in bank.items()},
+            }.items()
+            if fc.applies(sector.model.value, k)
         },
         red_flags=red_flags,
         data_gaps=data_gaps,

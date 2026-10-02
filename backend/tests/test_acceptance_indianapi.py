@@ -158,3 +158,15 @@ def test_periods_known_on_the_same_day_do_not_break_the_report(
         r = build_for(s, "HDFCBANK", get_config()).report
     assert r.grade is not None and r.levels.fair_value is not None
     assert any("band" in m.name and m.value is not None for m in r.valuation.methods)
+
+
+def test_bank_report_lists_only_metrics_that_apply(reports: dict[str, StockReport]) -> None:
+    r = reports["HDFCBANK"]
+    # 10-year growth across the merger: per share, weighted shares where no year-end count
+    assert r.fundamentals["sales_cagr_10y"] is not None
+    assert r.fundamentals["eps_cagr_10y"] is not None
+    for k in ("roce_latest", "roic_latest", "ccc_days", "opm_ttm", "piotroski", "altman_z2"):
+        assert k not in r.fundamentals, k  # not applicable to a bank: never "missing"
+    assert "beneish" not in r.knockouts.unknown
+    assert not any("ebitda_cagr" in x for x in r.reasons)
+    assert "roe_latest" in r.fundamentals  # the rest is unchanged

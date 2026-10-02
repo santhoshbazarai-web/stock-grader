@@ -35,6 +35,8 @@ class KnockoutInputs:
     # False for banks / NBFCs / insurers: their operating cash flow moves with deposits and
     # loans, so the negative-CFO check does not apply (and needs no cash-flow data)
     cfo_applies: bool = True
+    # False for lenders / insurers: the Beneish M-score is built for industrial companies
+    beneish_applies: bool = True
 
 
 @dataclass(frozen=True)
@@ -131,12 +133,15 @@ def knockouts(inputs: KnockoutInputs, cfg: KnockoutsConfig) -> KnockoutResult:
     )
 
     b = inputs.beneish_m
-    check(
-        "beneish",
-        None if b is None else b > cfg.beneish_m_max,
-        f"Beneish M-score {b:.2f} > {cfg.beneish_m_max:g}" if b is not None else "",
-        "Beneish M-score unavailable",
-    )
+    if inputs.beneish_applies:
+        check(
+            "beneish",
+            None if b is None else b > cfg.beneish_m_max,
+            f"Beneish M-score {b:.2f} > {cfg.beneish_m_max:g}" if b is not None else "",
+            "Beneish M-score unavailable",
+        )
+    else:
+        reasons.append("knock-out check 'beneish' not applicable to a lender / insurer")
 
     cap = Grade(cfg.cap_grade) if triggered else None
     if cap is not None:
