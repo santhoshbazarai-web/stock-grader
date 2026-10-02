@@ -641,6 +641,16 @@ def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> B
     return Built(report, run, val, t, grading, bz, gaps)
 
 
+def _prev_close(data: StockData) -> float | None:
+    close = data.daily["close"].dropna()
+    return float(close.iloc[-2]) if len(close) >= 2 else None
+
+
+def _day_change(data: StockData, cmp: float) -> float | None:
+    prev = _prev_close(data)
+    return cmp / prev - 1 if prev else None
+
+
 def _assemble(
     *,
     data: StockData,
@@ -705,6 +715,10 @@ def _assemble(
         symbol=data.symbol,
         name=data.name,
         cmp=cmp,
+        prev_close=_prev_close(data),
+        day_change_pct=_day_change(data, cmp),
+        sector=data.sector,
+        industry=data.industry_label,
         as_of=as_of,
         sources={**data.sources, "statement_type": data.statement_type},
         levels=Levels(

@@ -167,3 +167,48 @@
   --viz-div-pos-2: #e66767;
   --viz-div-pos-3: #f3b1b0;
 }
+
+/* ───────── Design-system tokens (components/ds) ─────────
+   Semantic valuation colours: green = discount, amber = fair, red = premium, grey = unknown.
+   Text variants (-ink) meet 4.5:1 on the card surface in both themes. */
+:root {
+  --sem-discount: #12803f;
+  --sem-discount-bg: #e3f4ea;
+  --sem-fair: #a76400;
+  --sem-fair-bg: #fbf0d8;
+  --sem-premium: #c0332f;
+  --sem-premium-bg: #fbe5e4;
+  --sem-unknown: #6b6a66;
+  --sem-unknown-bg: #eceae5;
+  --brand: #2a5bd7;
+  --shadow-card: 0 1px 2px rgb(16 24 40 / 6%), 0 1px 3px rgb(16 24 40 / 8%);
+  --shadow-pop: 0 8px 24px rgb(16 24 40 / 14%);
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.9375rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.5rem;
+  --text-2xl: 2rem;
+}
+.dark {
+  --sem-discount: #4cc380;
+  --sem-discount-bg: #123222;
+  --sem-fair: #e5b24a;
+  --sem-fair-bg: #3a2c0e;
+  --sem-premium: #ef7a76;
+  --sem-premium-bg: #3d1816;
+  --sem-unknown: #a3a29c;
+  --sem-unknown-bg: #2c2c2a;
+  --brand: #7ba0ff;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 40%);
+  --shadow-pop: 0 8px 24px rgb(0 0 0 / 50%);
+}
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}

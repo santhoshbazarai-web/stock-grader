@@ -31,6 +31,7 @@ test("header search: codes, former names, keyboard navigation", async ({
   await expect(box).toHaveValue("");
 
   // keyboard: ↓ moves the highlight (aria-activedescendant), Enter opens it
+  await page.mouse.move(0, 0); // a resting pointer over a result would hover-select it
   await box.fill("demo");
   const options = list.getByRole("option");
   await expect(options.nth(2)).toBeVisible();

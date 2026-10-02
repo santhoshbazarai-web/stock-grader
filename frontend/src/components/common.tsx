@@ -1,9 +1,14 @@
 "use client";
 
 // Small shared pieces for the app pages: navigation, grade/action badges, empty states.
-import { LogOut } from "lucide-react";
+import { LogOut, Monitor, Moon, Sun } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+
+import { EmptyState } from "@/components/ds";
+import { brokerState } from "@/components/pages/brokers";
+import type { BrokerStatus } from "@/lib/types";
 
 import { NotificationBell } from "@/components/notification-bell";
 import { ReconnectBanner } from "@/components/pages/brokers";
@@ -16,43 +21,136 @@ import { ACTION_LABEL, ZONE_LABEL } from "@/lib/format";
 const LINKS = [
   { href: "/", label: "Dashboard" },
   { href: "/screener", label: "Screener" },
-  { href: "/watchlist", label: "Watchlist & alerts" },
+  { href: "/valuation-map", label: "Valuation Map" },
+  { href: "/watchlist", label: "Watchlist" },
+];
+const MORE = [
+  { href: "/notes", label: "Notes" },
+  { href: "/glossary", label: "Glossary" },
   { href: "/backtests", label: "Backtests" },
   { href: "/review", label: "Review" },
   { href: "/settings", label: "Settings" },
 ];
 
+/** Light / dark / system, remembered in localStorage (the layout script applies it first). */
+function ThemeToggle() {
+  const [mode, setMode] = useState<"system" | "light" | "dark">("system");
+  useEffect(() => {
+    try {
+      const m = localStorage.getItem("theme");
+      if (m === "light" || m === "dark") setMode(m);
+    } catch {
+      /* storage unavailable */
+    }
+  }, []);
+  function cycle() {
+    const next = mode === "system" ? "light" : mode === "light" ? "dark" : "system";
+    setMode(next);
+    try {
+      if (next === "system") localStorage.removeItem("theme");
+      else localStorage.setItem("theme", next);
+    } catch {
+      /* ignore */
+    }
+    const dark = next === "dark" || (next === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    document.documentElement.classList.toggle("dark", dark);
+  }
+  const Icon = mode === "dark" ? Moon : mode === "light" ? Sun : Monitor;
+  return (
+    <Button size="sm" variant="ghost" onClick={cycle} aria-label={`Theme: ${mode} (click to change)`} title={`Theme: ${mode}`}>
+      <Icon />
+    </Button>
+  );
+}
+
+/** "Fyers connected" / "Reconnect Fyers": the live-price broker at a glance. */
+function BrokerChip() {
+  const [b, setB] = useState<BrokerStatus | null>(null);
+  useEffect(() => {
+    let live = true;
+    api<BrokerStatus[]>("/brokers/status")
+      .then((all) => live && setB(all.find((x) => x.broker === "fyers" && x.enabled) ?? null))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
+  if (!b) return null;
+  const ok = brokerState(b) === "connected";
+  return (
+    <Link
+      href="/settings"
+      title={b.reason}
+      aria-label={ok ? "Fyers connected" : "Fyers not connected: reconnect"}
+      className="hidden items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs sm:inline-flex"
+    >
+      <span aria-hidden className="size-2 rounded-full" style={{ background: ok ? "var(--sem-discount)" : "var(--sem-premium)" }} />
+      Fyers {ok ? "live" : <span className="font-medium underline">Reconnect</span>}
+    </Link>
+  );
+}
+
 export function AppNav() {
   const path = usePathname();
   const router = useRouter();
+  // Ctrl/Cmd+K focuses the global search from anywhere
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        document.querySelector<HTMLInputElement>('input[aria-label="Search stocks"]')?.focus();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   async function logout() {
     await api("/auth/logout", { method: "POST" }).catch(() => undefined);
     router.replace("/login");
   }
+  const active = (href: string) => (href === "/" ? path === "/" : path.startsWith(href));
+  const moreActive = MORE.some((l) => active(l.href));
   return (
     <>
-      <nav className="flex flex-wrap items-center justify-between gap-3 border-b pb-3" aria-label="Main">
+      <nav className="bg-background/90 sticky top-0 z-30 -mx-4 flex flex-wrap items-center justify-between gap-3 border-b px-4 py-2 backdrop-blur sm:-mx-6 sm:px-6" aria-label="Main">
         <div className="flex flex-wrap items-center gap-1">
-          <Link href="/" className="mr-3 text-sm font-semibold">
+          <Link href="/" className="mr-3 flex items-center gap-2 text-sm font-semibold">
+            <span aria-hidden className="grid size-6 place-items-center rounded-md bg-[var(--brand)] text-xs text-white">
+              SG
+            </span>
             Stock Grader
           </Link>
-          {LINKS.map((l) => {
-            const active = l.href === "/" ? path === "/" : path.startsWith(l.href);
-            return (
-              <Link
-                key={l.href}
-                href={l.href}
-                aria-current={active ? "page" : undefined}
-                className={`rounded-md px-2.5 py-1.5 text-sm ${active ? "bg-secondary font-medium" : "text-muted-foreground hover:text-foreground"}`}
-              >
-                {l.label}
-              </Link>
-            );
-          })}
+          {LINKS.map((l) => (
+            <Link
+              key={l.href}
+              href={l.href}
+              aria-current={active(l.href) ? "page" : undefined}
+              className={`rounded-md px-2.5 py-1.5 text-sm ${active(l.href) ? "bg-secondary font-medium" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              {l.label}
+            </Link>
+          ))}
+          <details className="relative">
+            <summary className={`cursor-pointer list-none rounded-md px-2.5 py-1.5 text-sm ${moreActive ? "bg-secondary font-medium" : "text-muted-foreground hover:text-foreground"}`}>
+              More ▾
+            </summary>
+            <div className="bg-popover absolute left-0 z-40 mt-1 flex min-w-40 flex-col rounded-lg border p-1 shadow-[var(--shadow-pop)]">
+              {MORE.map((l) => (
+                <Link key={l.href} href={l.href} aria-current={active(l.href) ? "page" : undefined} className="hover:bg-secondary rounded-md px-3 py-1.5 text-sm">
+                  {l.label}
+                </Link>
+              ))}
+            </div>
+          </details>
         </div>
         <div className="flex items-center gap-2">
-          <SymbolSearch />
+          <BrokerChip />
+          <span className="flex items-center gap-1">
+            <SymbolSearch />
+            <kbd className="text-muted-foreground hidden rounded border px-1 text-[10px] lg:inline">Ctrl K</kbd>
+          </span>
           <NotificationBell />
+          <ThemeToggle />
           <Button size="sm" variant="ghost" onClick={logout} aria-label="Sign out">
             <LogOut />
           </Button>
@@ -60,6 +158,16 @@ export function AppNav() {
       </nav>
       <ReconnectBanner />
     </>
+  );
+}
+
+/** A page that is planned but not built yet: never a 404. */
+export function ComingSoon({ title, children }: { title: string; children?: React.ReactNode }) {
+  return (
+    <Page>
+      <h1 className="text-xl font-semibold">{title}</h1>
+      <EmptyState title="Coming soon">{children ?? `${title} is planned and not built yet.`}</EmptyState>
+    </Page>
   );
 }
 

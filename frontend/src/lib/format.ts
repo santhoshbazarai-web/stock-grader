@@ -28,6 +28,43 @@ export function signedPct(v: number | null | undefined, digits = 1): string {
   return `${v > 0 ? "+" : ""}${(v * 100).toFixed(digits)}%`;
 }
 
+/** ₹ crore → "₹4.2 L Cr" (lakh crore) from 1 lakh crore, else "₹52,300 Cr". */
+export function croreCompact(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return DASH;
+  const a = Math.abs(v);
+  if (a >= 1e5) return `₹${new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 }).format(v / 1e5)} L Cr`;
+  return `₹${new Intl.NumberFormat("en-IN", { maximumFractionDigits: a >= 100 ? 0 : 2 }).format(v)} Cr`;
+}
+
+/** A value already in percent (13.7 → "13.7%"). */
+export function pctPoints(v: number | null | undefined, digits = 1): string {
+  return v == null || !Number.isFinite(v) ? DASH : `${v.toFixed(digits)}%`;
+}
+
+/** Multiple (2.4 → "2.4x"). */
+export function times(v: number | null | undefined, digits = 1): string {
+  return v == null || !Number.isFinite(v) ? DASH : `${v.toFixed(digits)}x`;
+}
+
+export type Tone = "discount" | "fair" | "premium" | "unknown";
+
+/** Zone → semantic tone: green discount, amber fair, red premium, grey unknown. */
+export function zoneTone(zone: string | null | undefined): Tone {
+  if (zone === "deep_discount" || zone === "discount") return "discount";
+  if (zone === "fair") return "fair";
+  if (zone === "premium" || zone === "extreme_premium") return "premium";
+  return "unknown";
+}
+
+/** A step / run message safe to show: no SQL, driver errors or stack traces reach the UI. */
+export function friendlyMessage(msg: string | null | undefined): string {
+  if (!msg) return "";
+  if (/Traceback|psycopg|sqlalchemy|SQLSTATE|\bSELECT\b|\bINSERT\b|CardinalityViolation|\n\s+File "/i.test(msg)) {
+    return "A data step hit an internal error. The report is still built from the data on file; details are in the worker log.";
+  }
+  return msg.length > 240 ? `${msg.slice(0, 237)}…` : msg;
+}
+
 const ACRONYMS: Record<string, string> = { it: "IT", fmcg: "FMCG", nbfc: "NBFC", ev: "EV", pb: "PB" };
 
 export function titleCase(s: string): string {

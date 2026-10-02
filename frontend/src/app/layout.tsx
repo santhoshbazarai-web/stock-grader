@@ -9,7 +9,9 @@ export const metadata: Metadata = {
 // Follow the OS colour scheme (shadcn's `.dark` class) before first paint.
 const themeScript = `(() => {
   const m = window.matchMedia("(prefers-color-scheme: dark)");
-  const apply = () => document.documentElement.classList.toggle("dark", m.matches);
+  let saved = null;
+  try { saved = localStorage.getItem("theme"); } catch (e) {}
+  const apply = () => document.documentElement.classList.toggle("dark", saved ? saved === "dark" : m.matches);
   apply();
   m.addEventListener("change", apply);
 })();`;

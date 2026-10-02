@@ -233,6 +233,10 @@ class StockReport(_Dto):
     symbol: str
     name: str | None
     cmp: float
+    prev_close: float | None = Field(None, description="Previous session's close")
+    day_change_pct: float | None = Field(None, description="CMP vs previous close (fraction)")
+    sector: str | None = Field(None, description="Sector key / label for the breadcrumb")
+    industry: str | None = Field(None, description="NSE basic industry")
     as_of: date
     sources: dict[str, str | None]
     levels: Levels

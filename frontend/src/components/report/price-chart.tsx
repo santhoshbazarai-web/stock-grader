@@ -53,9 +53,18 @@ export function debugQuery(r: StockReport): string {
   return q.toString();
 }
 
+type Range = "1M" | "6M" | "1Y" | "5Y" | "Max";
+const RANGES: Range[] = ["1M", "6M", "1Y", "5Y", "Max"];
+const RANGE_BARS: Record<Range, number | null> = { "1M": 22, "6M": 126, "1Y": 252, "5Y": 260, Max: null };
+type Layer = "sma" | "avwap" | "zones" | "levels";
+const LAYER_LABEL: Record<Layer, string> = { sma: "30-wk SMA", avwap: "AVWAP", zones: "Zones & buy zone", levels: "Valuation levels" };
+
 export function PriceChart({ report }: { report: StockReport }) {
   const host = useRef<HTMLDivElement>(null);
-  const [tf, setTf] = useState<"weekly" | "daily">("weekly");
+  const [range, setRange] = useState<Range>("1Y");
+  const [layers, setLayers] = useState<Record<Layer, boolean>>({ sma: true, avwap: false, zones: true, levels: true });
+  // 1M-1Y read best on daily candles; 5Y / Max on weekly ones
+  const tf = range === "5Y" || range === "Max" ? "weekly" : "daily";
   const [data, setData] = useState<TechnicalDebug | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [readout, setReadout] = useState<Readout | null>(null);
@@ -110,8 +119,8 @@ export function PriceChart({ report }: { report: StockReport }) {
         crosshairMarkerVisible: false,
       });
     const sma = line(c("--viz-s1"));
-    sma.setData(data.sma_30w.map((p) => ({ time: p.time as Time, value: p.value })));
-    const avwapSeries = data.avwaps.map((a) => {
+    if (layers.sma) sma.setData(data.sma_30w.map((p) => ({ time: p.time as Time, value: p.value })));
+    const avwapSeries = (layers.avwap ? data.avwaps : []).map((a) => {
       const s = line(c(AVWAP_SLOT[a.anchor] ?? "--viz-muted"));
       s.setData(a.series.map((p) => ({ time: p.time as Time, value: p.value })));
       return { label: AVWAP_LABEL[a.anchor] ?? a.anchor, series: s };
@@ -120,7 +129,7 @@ export function PriceChart({ report }: { report: StockReport }) {
     // Valuation levels: dashed reference lines, labelled on the price axis.
     const lv = report.levels;
     const priceLine = (price: number | null, title: string, color: string, style = LineStyle.Dashed) => {
-      if (price == null) return;
+      if (price == null || !layers.levels) return;
       candles.createPriceLine({ price, title, color, lineWidth: 1, lineStyle: style, axisLabelVisible: true });
     };
     priceLine(lv.baseline, "Baseline", c("--viz-ink-2"));
@@ -132,7 +141,7 @@ export function PriceChart({ report }: { report: StockReport }) {
     // Zones (unbroken only; fresh ones stronger) and the buy zone.
     const good = c("--viz-good");
     const bad = c("--viz-critical");
-    const boxes: Box[] = data.zones
+    const boxes: Box[] = (layers.zones ? data.zones : [])
       .filter((z) => !z.broken)
       .map((z) => {
         const base = z.side === "demand" ? good : bad;
@@ -146,7 +155,7 @@ export function PriceChart({ report }: { report: StockReport }) {
         };
       });
     const bz = report.buy_zone;
-    if (bz?.status === "zone" && bz.low != null && bz.high != null) {
+    if (layers.zones && bz?.status === "zone" && bz.low != null && bz.high != null) {
       const from = bars[Math.max(0, bars.length - (tf === "daily" ? 130 : 26))].time as Time;
       boxes.push({
         from,
@@ -158,9 +167,10 @@ export function PriceChart({ report }: { report: StockReport }) {
       });
     }
     candles.attachPrimitive(new BoxesPrimitive(boxes));
-    if (tf === "daily") {
+    const want = RANGE_BARS[range];
+    if (want != null) {
       const n = bars.length;
-      chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - 260), to: n + 5 });
+      chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - want), to: n + 3 });
     } else {
       chart.timeScale().fitContent();
     }
@@ -189,19 +199,27 @@ export function PriceChart({ report }: { report: StockReport }) {
       chart.unsubscribeCrosshairMove(onMove);
       chart.remove();
     };
-  }, [data, tf, theme, report.levels, report.invalidation, report.buy_zone]);
+  }, [data, tf, range, layers, theme, report.levels, report.invalidation, report.buy_zone]);
 
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Legend data={data} />
-        <div className="flex gap-1" role="group" aria-label="Timeframe">
-          {(["weekly", "daily"] as const).map((t) => (
-            <Button key={t} size="sm" variant={tf === t ? "default" : "outline"} onClick={() => setTf(t)} aria-pressed={tf === t}>
-              {t === "weekly" ? "Weekly" : "Daily"}
+        <div className="flex gap-1" role="group" aria-label="Range">
+          {RANGES.map((r) => (
+            <Button key={r} size="sm" variant={range === r ? "default" : "outline"} onClick={() => setRange(r)} aria-pressed={range === r}>
+              {r}
             </Button>
           ))}
         </div>
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs" role="group" aria-label="Chart layers">
+        {(Object.keys(LAYER_LABEL) as Layer[]).map((l) => (
+          <label key={l} className="inline-flex items-center gap-1.5">
+            <input type="checkbox" checked={layers[l]} onChange={(e) => setLayers((s) => ({ ...s, [l]: e.target.checked }))} />
+            {LAYER_LABEL[l]}
+          </label>
+        ))}
       </div>
       {readout && (
         <p className="text-muted-foreground text-xs tabular-nums" aria-live="polite">

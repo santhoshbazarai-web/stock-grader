@@ -182,6 +182,9 @@ def test_report_builds_once_then_serves_stored(client: TestClient, seeded: Sessi
     body = first.json()
     assert body["symbol"] == "SYNTH" and body["levels"]["fair_value"] > 0
     assert body["grade"] in ("A_plus", "A", "B", "C", "D")
+    assert body["prev_close"] > 0 and body["day_change_pct"] == pytest.approx(
+        body["cmp"] / body["prev_close"] - 1
+    )  # header: price and day change
     again = client.get("/api/stocks/SYNTH/report").json()
     assert again == body
     assert client.get("/api/stocks/SYNTH/report", params={"rebuild": True}).status_code == 200
@@ -786,3 +789,14 @@ def test_telegram_bot_status(client: TestClient, redis_client: Redis) -> None:
     assert st["state"] == "polling" and st["ignored_messages"] == 2
     assert st["last_poll_at"].startswith("2024-06-14T13:00:00")
     redis_client.delete(STATUS_KEY, STATUS_KEY + ":counts")
+
+
+def test_ui_preferences_round_trip(client: TestClient) -> None:
+    assert client.get("/api/preferences/my_metrics").json() == {"key": "my_metrics", "value": None}
+    body = {"value": ["market_cap", "pe", "pb", "roe", "roa", "dividend_yield"]}
+    assert client.put("/api/preferences/my_metrics", json=body).json()["value"] == body["value"]
+    assert client.get("/api/preferences/my_metrics").json()["value"] == body["value"]
+    assert client.put("/api/preferences/my_metrics", json={"value": ["pe"]}).status_code == 200
+    assert client.get("/api/preferences/my_metrics").json()["value"] == ["pe"]
+    assert client.put("/api/preferences/Bad Key", json={"value": 1}).status_code == 422
+    assert client.put("/api/preferences/big", json={"value": "x" * 9000}).status_code == 422

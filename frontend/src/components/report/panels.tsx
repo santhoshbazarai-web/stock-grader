@@ -72,7 +72,7 @@ const DEPTH_LABEL: Record<DataDepth["level"], string> = {
   technical_only: "Technical only",
 };
 
-function DepthBadge({ depth }: { depth: DataDepth }) {
+export function DepthBadge({ depth }: { depth: DataDepth }) {
   const color = depth.level === "full" ? "var(--viz-good)" : depth.level === "provisional" ? "var(--viz-s4)" : "var(--viz-critical)";
   return (
     <Badge variant="outline" className="text-xs" style={{ borderColor: color, color }} title={depth.reason} aria-label={`Data depth: ${DEPTH_LABEL[depth.level]}, ${depth.pl_years} years of P&L`}>

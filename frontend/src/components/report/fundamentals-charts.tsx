@@ -248,7 +248,7 @@ function Shareholding({ h, table }: { h: FundamentalsHistory; table: boolean }) 
   );
 }
 
-export function FundamentalsCharts({ symbol, onYears }: { symbol: string; onYears?: (n: number) => void }) {
+export function FundamentalsCharts({ symbol, onYears, shareholdingOnly = false }: { symbol: string; onYears?: (n: number) => void; shareholdingOnly?: boolean }) {
   const [h, setH] = useState<FundamentalsHistory | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [table, setTable] = useState(false);
@@ -270,6 +270,7 @@ export function FundamentalsCharts({ symbol, onYears }: { symbol: string; onYear
 
   if (error) return <p className="text-destructive text-sm">Fundamentals unavailable: {error}</p>;
   if (!h) return <p className="text-muted-foreground text-sm">Loading…</p>;
+  if (shareholdingOnly) return <Shareholding h={h} table={false} />;
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-2">
@@ -292,7 +293,6 @@ export function FundamentalsCharts({ symbol, onYears }: { symbol: string; onYear
           ))}
         </div>
       )}
-      <Shareholding h={h} table={table} />
     </div>
   );
 }

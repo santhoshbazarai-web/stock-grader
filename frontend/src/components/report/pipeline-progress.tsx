@@ -19,6 +19,7 @@ import {
   isBlocked,
 } from "@/components/blocked-notice";
 import { api } from "@/lib/api";
+import { friendlyMessage } from "@/lib/format";
 import type { PipelineRun, PipelineStep } from "@/lib/types";
 
 /** Follows a run: the latest state, updated on every server event; closes when it ends. */
@@ -112,13 +113,16 @@ function useHostPauses(status: PipelineRun["status"]): string[] {
 export function PipelineProgress({
   run: initial,
   onFinished,
+  onChange,
   compact = false,
 }: {
   run: PipelineRun;
   onFinished?: (run: PipelineRun) => void;
+  onChange?: (run: PipelineRun) => void;
   compact?: boolean;
 }) {
   const run = usePipelineRun(initial) ?? initial;
+  useEffect(() => onChange?.(run), [run, onChange]);
   const notified = useRef(false);
   useEffect(() => {
     if (
@@ -141,7 +145,7 @@ export function PipelineProgress({
         ? `${current?.label ?? "Working"}…`
         : run.status === "done"
           ? "Report updated"
-          : `Failed: ${run.error ?? "see the steps"}`;
+          : `Failed: ${friendlyMessage(run.error) || "see the steps"}`;
   const [open, setOpen] = useState(!compact);
   const pauses = useHostPauses(run.status);
   return (
@@ -223,7 +227,7 @@ export function PipelineProgress({
                     />
                   ) : (
                     <span className="text-muted-foreground text-xs">
-                      {s.message}
+                      {friendlyMessage(s.message)}
                     </span>
                   ))}
               </div>

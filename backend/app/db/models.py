@@ -899,6 +899,18 @@ class DataGap(Base):
     resolved_at: Mapped[datetime | None]
 
 
+class UiPreference(TimestampMixin, Base):
+    """UI settings the user chose (e.g. the six "My metrics" on the stock page)."""
+
+    __tablename__ = "ui_preferences"
+    __upsert_key__ = ("key",)
+    __table_args__ = (UniqueConstraint("key"),)
+
+    id: Mapped[int] = mapped_column(Integer, Identity(), primary_key=True)
+    key: Mapped[str] = mapped_column(String(64))
+    value: Mapped[dict[str, Any]]  # {"value": ...}
+
+
 class UserOverride(TimestampMixin, Base):
     """Per-stock assumption overrides (e.g. ``g1``, ``wacc``, ``sector_model``)."""
 

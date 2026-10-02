@@ -106,6 +106,11 @@ export type StockReport = {
   symbol: string;
   name: string | null;
   cmp: number;
+  prev_close?: number | null;
+  day_change_pct?: number | null; // fraction vs the previous close
+  sector?: string | null;
+  industry?: string | null;
+  peer_stats?: { pe: number | null; pb: number | null; ev_ebitda: number | null; roce: number | null; roe: number | null };
   as_of: string;
   sources: Record<string, string | null>;
   levels: Levels;
