@@ -154,6 +154,9 @@ providers:
         no_check_factor: 0.9
         check_tolerance_rel: 0.002   # total assets = equity + liabilities within 0.2%
         fallback_sum_factor: 0.9
+      triage:                  # coverage-grid cells with PDF values to review: default choice
+        precedence: [nse, offline, indianapi, annual_report_pdf]   # XBRL > Indian API > PDF
+        pdf_confidence_min: 0.85   # ...unless the PDF value is at least this confident
   bse:                         # BSE public data: the scrip master (symbol_master job)
     api_url: "https://api.bseindia.com"
     referer: "https://www.bseindia.com/"

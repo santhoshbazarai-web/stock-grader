@@ -867,3 +867,18 @@ export type PriceFix = {
   readjusted_bars: number;
   remaining: PriceAnomaly[];
 };
+
+export type TriageRow = {
+  candidate_id: number;
+  item_code: string;
+  period_end: string;
+  raw_label: string;
+  pdf_value_cr: number | null;
+  pdf_confidence: number;
+  other_source: string | null;
+  other_value_cr: number | null;
+  difference_cr: number | null;
+  difference_pct: number | null;
+  default: "pdf" | "other";
+  reason: string;
+};

@@ -229,6 +229,13 @@ class PdfConfidenceConfig(_Strict):
     fallback_sum_factor: Fraction  # item added up from other items (fallback_sum)
 
 
+class TriageConfig(_Strict):
+    """Coverage-grid triage of PDF values to review (``data/triage.py``)."""
+
+    precedence: list[str] = Field(min_length=1)  # line-item sources, best first
+    pdf_confidence_min: Fraction  # a PDF value this confident beats the precedence
+
+
 class NseAnnualReportsConfig(_Strict):
     """Annual reports (PDF, or a ZIP holding it) as the balance-sheet / cash-flow gap filler."""
 
@@ -237,6 +244,7 @@ class NseAnnualReportsConfig(_Strict):
     max_bytes: PositiveInt  # download size cap, and the cap on a PDF unpacked from a ZIP
     extraction: PdfExtractionConfig
     confidence: PdfConfidenceConfig
+    triage: TriageConfig
 
 
 class NseSymbolFilesConfig(_Strict):

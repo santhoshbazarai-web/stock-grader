@@ -4,6 +4,7 @@ coverage grid of the stock page (§3.6 step 4)."""
 from datetime import UTC, date, datetime
 from typing import Annotated, Any
 
+import pandas as pd
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
 from sqlalchemy import func, select
@@ -19,6 +20,8 @@ from app.api.schemas import (
     PdfCandidateOut,
     ReviewRequest,
     ReviewSummary,
+    TriageRequest,
+    TriageRowOut,
 )
 from app.core.config import SectorModel
 from app.data.annual_report import AnnualReportError, unpack
@@ -26,9 +29,10 @@ from app.data.annual_report_store import CR, ingest_report, review
 from app.data.coverage import coverage_grid, files_as_bank
 from app.data.raw_store import RawStore, RawStoreError
 from app.data.results_ingest import cache_raw, upload_document_id
-from app.data.results_store import _fy_end_month
-from app.db.enums import FilingStatus, ReviewStatus
-from app.db.models import AnnualReport, FinAnnual, Instrument, PdfLineCandidate
+from app.data.results_store import PDF_SOURCE, _fy_end_month
+from app.data.triage import PdfValue, TriageRow, triage
+from app.db.enums import FilingStatus, LineStatement, ReviewStatus
+from app.db.models import AnnualReport, FinAnnual, FinLineItem, Instrument, PdfLineCandidate
 from app.fundamentals.pdf_labels import get_pdf_labels
 from app.fundamentals.xbrl_map import get_xbrl_map
 from app.jobs.common import ensure_instruments
@@ -332,3 +336,94 @@ def stock_coverage(session: SessionDep, config: ConfigDep, symbol: str) -> Cover
                    for c in g.cells],
         ) for g in grids],
     )  # fmt: skip
+
+
+# ───────────── coverage triage ─────────────
+
+_STATEMENT = {"P&L": LineStatement.PL, "BS": LineStatement.BS, "CF": LineStatement.CF}
+
+
+def _triage_rows(session: Session, config: Any, symbol: str, fiscal_year: int,
+                 statement: str) -> tuple[int, list[TriageRow]]:  # fmt: skip
+    sym = symbol.upper()
+    iid = session.scalar(select(Instrument.id).where(Instrument.symbol == sym))
+    if iid is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"unknown symbol {sym}")
+    st = _STATEMENT.get(statement)
+    if st is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"statement {statement!r}")
+    month = _fy_end_month(session, iid, config.providers.nse.results)
+    end = date(fiscal_year, month, 1)
+    end = (pd.Timestamp(end) + pd.offsets.MonthEnd(0)).date()
+    cands = list(session.scalars(
+        select(PdfLineCandidate).where(
+            PdfLineCandidate.instrument_id == iid, PdfLineCandidate.statement == st,
+            PdfLineCandidate.status == ReviewStatus.PENDING, PdfLineCandidate.period_end == end)
+        .order_by(PdfLineCandidate.item_code, PdfLineCandidate.id)))  # fmt: skip
+    stored: dict[tuple[str, date], dict[str, float]] = {}
+    if cands:
+        latest: dict[tuple[str, date, str], tuple[int, float]] = {}
+        for item, pe, source, version, value in session.execute(
+            select(FinLineItem.item_code, FinLineItem.period_end, FinLineItem.source,
+                   FinLineItem.version, FinLineItem.value_inr)
+            .where(FinLineItem.instrument_id == iid, FinLineItem.statement == st,
+                   FinLineItem.period_end == end, FinLineItem.source != PDF_SOURCE,
+                   FinLineItem.basis.in_({c.basis for c in cands}),
+                   FinLineItem.item_code.in_({c.item_code for c in cands}))
+        ).all():  # fmt: skip
+            key = (item, pe, source)
+            if key not in latest or version > latest[key][0]:
+                latest[key] = (version, value)
+        for (item, pe, source), (_, value) in latest.items():
+            stored.setdefault((item, pe), {})[source] = value
+    tc = config.providers.nse.annual_reports.triage
+    pdf = [PdfValue(c.id, c.item_code, c.period_end,
+                    c.corrected_value_inr if c.corrected_value_inr is not None else c.value_inr,
+                    c.confidence, c.raw_label) for c in cands]  # fmt: skip
+    return iid, triage(pdf, stored, precedence=tc.precedence,
+                       pdf_confidence_min=tc.pdf_confidence_min)  # fmt: skip
+
+
+@router.get("/stocks/{symbol}/coverage/{fiscal_year}/{statement}/triage", tags=["stocks"],
+            responses={404: {"description": "Unknown symbol"}})  # fmt: skip
+def coverage_triage(session: SessionDep, config: ConfigDep, symbol: str, fiscal_year: int,
+                    statement: str) -> list[TriageRowOut]:  # fmt: skip
+    """The cell's annual-report values waiting for review, each next to the value another
+    source stored for the same item, the difference and the default choice (precedence
+    exchange XBRL > Indian API > PDF, unless the PDF value is confident enough)."""
+    _, rows = _triage_rows(session, config, symbol, fiscal_year, statement)
+    return [TriageRowOut(**r.__dict__) for r in rows]
+
+
+@router.post("/stocks/{symbol}/coverage/{fiscal_year}/{statement}/triage", tags=["stocks"],
+             responses={404: {"description": "Unknown symbol"},
+                        422: {"description": "Invalid decision"}})  # fmt: skip
+def decide_triage(session: SessionDep, config: ConfigDep, symbol: str, fiscal_year: int,
+                  statement: str, body: TriageRequest) -> list[TriageRowOut]:  # fmt: skip
+    """Save decisions: "pdf" accepts the annual-report value, "other" rejects it (the stored
+    value stays). ``apply_defaults`` decides every row by its default. Returns what is left."""
+    _, rows = _triage_rows(session, config, symbol, fiscal_year, statement)
+    by_id = {r.candidate_id: r for r in rows}
+    choices = {r.candidate_id: r.default for r in rows} if body.apply_defaults else {}
+    for d in body.decisions:
+        if d.candidate_id not in by_id:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                                f"value {d.candidate_id} is not waiting in this cell")  # fmt: skip
+        choices[d.candidate_id] = d.use
+    now = datetime.now(UTC)
+    for cid, use in choices.items():
+        c = session.get(PdfLineCandidate, cid)
+        assert c is not None
+        try:
+            review(
+                session, c, action="accept" if use == "pdf" else "reject", value_cr=None,
+                item_code=None, results_cfg=config.providers.nse.results, xmap=get_xbrl_map(),
+                labels_version=get_pdf_labels().version, now=now,
+            )  # fmt: skip
+        except ValueError as exc:
+            session.rollback()
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
+        c.note = f"triage: use {'the annual report' if use == 'pdf' else by_id[cid].other_source}"
+    session.commit()
+    _, left = _triage_rows(session, config, symbol, fiscal_year, statement)
+    return [TriageRowOut(**r.__dict__) for r in left]

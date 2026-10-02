@@ -392,6 +392,35 @@ class PdfCandidateOut(BaseModel):
     reviewed_at: datetime | None
 
 
+class TriageRowOut(BaseModel):
+    """A PDF value to review next to the value another source already stored (₹ crore)."""
+
+    candidate_id: int
+    item_code: str
+    period_end: date
+    raw_label: str
+    pdf_value_cr: float | None
+    pdf_confidence: float
+    other_source: str | None
+    other_value_cr: float | None
+    difference_cr: float | None = Field(description="PDF - other")
+    difference_pct: float | None = Field(description="Of the other value (fraction)")
+    default: Literal["pdf", "other"]
+    reason: str
+
+
+class TriageDecision(BaseModel):
+    candidate_id: int
+    use: Literal["pdf", "other"]
+
+
+class TriageRequest(BaseModel):
+    """Either explicit decisions, or ``apply_defaults`` for every row of the cell."""
+
+    decisions: list[TriageDecision] = Field(default_factory=list)
+    apply_defaults: bool = False
+
+
 class ReviewRequest(BaseModel):
     action: Literal["accept", "correct", "reject"]
     value_cr: float | None = Field(default=None, description="correct: the value in ₹ crore")

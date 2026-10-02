@@ -3,11 +3,14 @@
 // Data coverage (SPEC v0.2 §3.6 step 4): fiscal years × statements (P&L / BS / CF) per basis,
 // each cell coloured and labelled by where its figures come from: exchange XBRL, an
 // annual-report PDF, a year summed from quarters, or a Screener / yfinance row. An empty cell
-// is a gap. Values waiting in the review queue are flagged with a link to it.
+// is a gap. Values waiting in the review queue are flagged: clicking the flag opens the
+// cell's triage (annual report vs the stored value, "use this").
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { api, ApiError } from "@/lib/api";
+
+import { CoverageTriage } from "./coverage-triage";
 import type {
   CoverageCell,
   CoverageGrid as Grid,
@@ -38,10 +41,10 @@ const STATEMENTS: CoverageCell["statement"][] = ["P&L", "BS", "CF"];
 
 function Cell({
   cell,
-  symbol,
+  onReview,
 }: {
   cell: CoverageCell | undefined;
-  symbol: string;
+  onReview: (c: CoverageCell) => void;
 }) {
   if (!cell) return <td />;
   const [first, ...rest] = cell.sources;
@@ -72,13 +75,14 @@ function Cell({
           <span>+{rest.map((s) => SOURCE_STYLE[s]?.short ?? s).join("+")}</span>
         )}
         {cell.pending_review > 0 && (
-          <Link
-            href={`/review?symbol=${encodeURIComponent(symbol)}`}
+          <button
+            type="button"
+            onClick={() => onReview(cell)}
             className={`underline ${style ? "text-white" : "text-foreground"}`}
             aria-label={`${cell.pending_review} value(s) to review`}
           >
             ⚑{cell.pending_review}
-          </Link>
+          </button>
         )}
       </div>
     </td>
@@ -88,6 +92,8 @@ function Cell({
 export function CoverageGrid({ symbol }: { symbol: string }) {
   const [grid, setGrid] = useState<Grid | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [review, setReview] = useState<CoverageCell | null>(null);
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     let live = true;
@@ -99,7 +105,7 @@ export function CoverageGrid({ symbol }: { symbol: string }) {
     return () => {
       live = false;
     };
-  }, [symbol]);
+  }, [symbol, reload]);
 
   if (error)
     return (
@@ -161,7 +167,7 @@ export function CoverageGrid({ symbol }: { symbol: string }) {
                       <Cell
                         key={y}
                         cell={byKey.get(`${y}-${s}`)}
-                        symbol={grid.symbol}
+                        onReview={setReview}
                       />
                     ))}
                   </tr>
@@ -182,6 +188,18 @@ export function CoverageGrid({ symbol }: { symbol: string }) {
           <div key={b.basis}>{table}</div>
         );
       })}
+      {review && (
+        <CoverageTriage
+          key={`${review.fiscal_year}-${review.statement}`}
+          symbol={grid.symbol}
+          fiscalYear={review.fiscal_year}
+          statement={review.statement}
+          onDone={() => {
+            setReview(null);
+            setReload((n) => n + 1);
+          }}
+        />
+      )}
       <ul
         className="text-muted-foreground flex flex-wrap gap-3 text-xs"
         aria-label="Coverage legend"
@@ -203,7 +221,7 @@ export function CoverageGrid({ symbol }: { symbol: string }) {
         </li>
         <li>AR = not in XBRL: use the annual report</li>
         <li>
-          ⚑ = values to review ·{" "}
+          ⚑ = values to review (click to compare and choose) ·{" "}
           <Link
             href={`/review?symbol=${encodeURIComponent(grid.symbol)}`}
             className="underline"
