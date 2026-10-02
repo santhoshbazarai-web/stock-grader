@@ -624,7 +624,7 @@ The sector models:
 - **Top band** = max(bull DCF, band +1σ price), capped at band +2σ.
 - **MoS by provisional grade:** A 15%, B 27.5%, C 40% (from config).
 - **Zones:**
-  - Deep Discount: CMP < Baseline
+  - Deep Discount: CMP < min(Baseline, FV × (1 − MoS)). It is never shallower than Discount: a baseline above the MoS threshold (e.g. a bank's narrow P/B band at −1σ) does not widen it. The exception is the asset-heavy book-value floor, where CMP below 0.8 × book is deep value on its own.
   - Discount: Baseline ≤ CMP < FV·(1−MoS)
   - Fair: FV·(1−MoS) ≤ CMP ≤ FV·1.10
   - Premium: FV·1.10 < CMP ≤ Top band

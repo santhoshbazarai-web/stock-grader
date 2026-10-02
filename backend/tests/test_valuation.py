@@ -656,3 +656,14 @@ def test_market_cap_uses_the_latest_share_count_on_file() -> None:
     assert _latest_shares(annual, quarterly) == (20.4, "quarter ended 2025-09-30")
     assert _latest_shares(annual, pd.DataFrame()) == (10.0, "year ended 2024-03-31")
     assert _latest_shares(pd.DataFrame(), pd.DataFrame()) == (None, "")
+
+
+def test_deep_discount_is_never_shallower_than_discount() -> None:
+    # a bank: no bear DCF / EPV, a narrow P/B band whose -1 sigma (260) sits above
+    # FV x (1 - MoS) = 278.5 x 0.725 = 201.9. CMP 250 is 10% under FV: fair, not deep discount
+    band = {-2: 240.0, -1: 260.0, 0: 280.0, 1: 300.0, 2: 320.0}
+    v = _blend(250.0, bear_dcf=None, epv=None, band_prices=band)
+    assert v.baseline == pytest.approx(260.0) and v.zone is Zone.FAIR
+    assert any("deep discount starts at the threshold" in r for r in v.reasons)
+    # below the MoS threshold it is deep (the floor is above it)
+    assert _blend(190.0, bear_dcf=None, epv=None, band_prices=band).zone is Zone.DEEP_DISCOUNT

@@ -166,6 +166,7 @@ def blend(
     mos = float(getattr(config.mos_by_grade, provisional_grade))
     band = band_prices or {}
 
+    book_floor = False
     floors = {"bear DCF": bear_dcf, "EPV": epv, "band -1 sigma": band.get(-1)}
     avail = {k: v for k, v in floors.items() if v is not None and v > 0}
     baseline = min(avail.values()) if avail else None
@@ -178,6 +179,7 @@ def blend(
         floor = config.blend.asset_heavy_book_multiple * book_value_ps
         if baseline is None or floor > baseline:
             baseline = floor
+            book_floor = True
             reasons.append(f"asset-heavy: baseline raised to {floor:,.1f} (book value floor)")
 
     tops = {"bull DCF": bull_dcf, "band +1 sigma": band.get(1)}
@@ -190,9 +192,15 @@ def blend(
 
     zone = None
     if fv is not None:
+        # Deep discount is never shallower than discount: a valuation floor above the MoS
+        # threshold (a bank's narrow P/B band at -1 sigma) does not widen it. The asset-heavy
+        # book-value floor is a deliberate exception: below it is deep value on its own.
+        deep_edge = baseline
+        if baseline is not None and not book_floor:
+            deep_edge = min(baseline, fv * (1 - mos))
         zone = classify_zone(
             cmp,
-            baseline=baseline,
+            baseline=deep_edge,
             fair_value=fv,
             mos=mos,
             top_band=top,
@@ -203,7 +211,10 @@ def blend(
             f"{provisional_grade}): {zone.value.replace('_', ' ')}"
         )
         if baseline is not None and baseline > fv * (1 - mos):
-            reasons.append("baseline above the discount threshold: discount zone is empty")
+            reasons.append(
+                f"baseline {baseline:,.1f} is above the discount threshold "
+                f"{fv * (1 - mos):,.1f}: deep discount starts at the threshold"
+            )
     used = [ln.value for ln in lines if ln.effective_weight > 0 and ln.value is not None]
     conf, cv = confidence(used, config)
     if cv is None:
