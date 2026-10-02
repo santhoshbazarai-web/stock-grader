@@ -599,6 +599,8 @@ For PE, EV/EBITDA and P/B, build a daily TTM multiple series over 5 and 10 years
 Use the sector median multiple, adjusted for ROCE and growth relative to peers:
 - `adj_multiple = peer_median × (ROCE/peer_ROCE)^a × (growth/peer_growth)^b`
 - `a` and `b` come from config.
+- **Peers:** stocks whose latest stored report used the same sector, plus the sector's configured `peers` (`sectors.yaml`) whatever sector their report used. For the bank model the Indian API `peerCompanyList` from the latest verified /stock answer is added (P/B, P/E, trailing ROE; percent → fraction); a vendor peer replaces a stored one for the same company (name match ignoring case, punctuation and "Ltd"). At least `relative.min_peers` (3) peers with a positive multiple are needed; otherwise the method is None and the reasons say how many came from each source, which peers lack the multiple and which configured peers have no report yet. The method reasons list the peers and their multiples.
+- **Banks' relative P/B** adjusts the peer median for ROE only (`relative.pb_adjust_growth: false`): `adj = median × (ROE/peer_ROE)^a`.
 
 ### 5.5 EPV & Graham (`epv.py`)
 - EPV = normalised EBIT·(1−t) / WACC, adjusted for net cash.

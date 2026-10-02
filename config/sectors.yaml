@@ -12,9 +12,12 @@ sectors:
   banks:
     model: bank
     weights: {justified_pb: 0.45, band_pb: 0.35, relative_pb: 0.20}
+    # relative P/B peers besides the vendor's peer list and stocks reported in the sector
+    peers: [HDFCBANK, ICICIBANK, SBIN, KOTAKBANK, AXISBANK, INDUSINDBK, BANKBARODA, FEDERALBNK]
   nbfc:
     model: bank
     weights: {justified_pb: 0.40, band_pb: 0.35, relative_pb: 0.25}
+    peers: [BAJFINANCE, CHOLAFIN, SHRIRAMFIN, MUTHOOTFIN, SBICARD, LICHSGFIN]
   insurance:          {model: insurance, weights: {band_p_ev: 0.60, relative_p_ev: 0.40}, manual_inputs: [embedded_value, vnb]}
   metals:             {model: cyclical, normalise_years: 10, weights: {normalised_ev_ebitda: 0.60, band_ev_ebitda: 0.25, band_pb: 0.15}, asset_heavy: true}
   cement:             {model: cyclical, normalise_years: 8,  weights: {normalised_ev_ebitda: 0.50, band_ev_ebitda: 0.30, relative: 0.20}, asset_heavy: true}

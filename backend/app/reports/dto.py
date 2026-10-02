@@ -183,6 +183,10 @@ class PeerStats(_Dto):
     roce: float | None
     roe: float | None
     eps_growth: float | None
+    name: str | None = None
+    source: Literal["report", "vendor"] = Field(
+        "report", description="report: our own stored report; vendor: Indian API peerCompanyList"
+    )
 
 
 class ShareholdingDto(_Dto):

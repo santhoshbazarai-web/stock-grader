@@ -56,6 +56,7 @@ valuation:
     roce_exponent: 0.5
     growth_exponent: 0.5
     min_peers: 3                 # sector peers with a positive multiple needed for a relative value
+    pb_adjust_growth: false      # relative P/B (banks): adjust the peer median for ROE only
   mos_by_grade: {A_plus: 0.15, A: 0.15, B: 0.275, C: 0.40, D: 0.40}
   zones:
     fair_upper_mult: 1.10

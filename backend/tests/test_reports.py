@@ -102,7 +102,10 @@ def test_report_is_internally_consistent(seeded: Session) -> None:
     fv = sum(m.value * m.weight for m in used) / sum(m.weight for m in used)  # type: ignore[operator]
     assert r.levels.fair_value == pytest.approx(fv)
     rel = next(m for m in r.valuation.methods if m.name == "relative")
-    assert rel.reasons == ["PE: 0 sector peers with a positive multiple (< 3)"]
+    assert rel.reasons == [
+        "PE: 0 peers with a positive multiple (< 3): 0 from the vendor peer list, 0 with a "
+        "stored report"
+    ]
     # The MoS is the provisional grade's (SPEC §7.3).
     assert r.mos_grade == r.provisional_grade
     assert r.levels.mos_pct == getattr(CFG.valuation.mos_by_grade, r.mos_grade or "")
@@ -331,7 +334,7 @@ def test_valuation_scores_job_uses_this_runs_peers(env: Env) -> None:
         reports = {p["symbol"]: p for p in s.scalars(select(Report.payload))}
     rel = next(m for m in reports["IT0"]["valuation"]["methods"] if m["name"] == "relative")
     assert rel["value"] is not None  # three peers from the same run
-    assert "3 peers" in rel["reasons"][0]
+    assert "3 peers" in rel["reasons"][-1]
 
 
 def test_annual_fixture_shape() -> None:
@@ -398,3 +401,14 @@ def test_bank_pb_band_never_uses_the_pre_merger_window(db: Session, brk: date, e
     if expect == "regression":  # ~10 months after the break (< 2y): no plain band
         assert any("pre-break window not used" in x for x in pb.reasons)
         assert not any(x.startswith("pb 5y") or x.startswith("pb 10y") for x in pb.reasons)
+
+
+def test_bank_relative_pb_says_why_without_three_peers(db: Session) -> None:
+    seed_index(db)
+    seed_company(db, sector="banks")
+    r = build_for(db, "SYNTH", CFG).report
+    rel = next(m for m in r.valuation.methods if m.name == "relative_pb")
+    assert rel.value is None
+    assert rel.reasons[0].startswith("P/B: 0 peers with a positive multiple (< 3)")
+    assert rel.reasons[-1].startswith("configured peers without a report yet: HDFCBANK, ICICIBANK")
+    assert "vendor peer list: no Indian API /stock answer on file" in r.data_gaps

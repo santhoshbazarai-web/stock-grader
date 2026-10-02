@@ -33,24 +33,28 @@ def relative_value(
     per_share_metric: float | None,
     config: ValuationConfig,
     label: str = "PE",
+    use_growth: bool = True,
 ) -> RelativeValue:
+    """``use_growth=False``: adjust for quality only (banks' P/B on ROE)."""
     peers = [m for m in peer_multiples if m is not None and m > 0]
     if not peers:
         return RelativeValue(None, None, None, [f"no peers with a positive {label}"])
     median = float(statistics.median(peers))
-    checks = {
-        "quality": quality,
-        "peer quality": peer_quality,
-        "growth": growth,
-        "peer growth": peer_growth,
-    }
+    checks = {"quality": quality, "peer quality": peer_quality}
+    if use_growth:
+        checks |= {"growth": growth, "peer growth": peer_growth}
     bad = [k for k, v in checks.items() if v is None or v <= 0]
     if bad:
         reason = f"{', '.join(bad)} missing or not positive"
         return RelativeValue(None, None, median, [reason])
     a, b = config.relative.roce_exponent, config.relative.growth_exponent
-    adj = median * (quality / peer_quality) ** a * (growth / peer_growth) ** b  # type: ignore[operator]
+    adj = median * (quality / peer_quality) ** a  # type: ignore[operator]
+    if use_growth:
+        adj *= (growth / peer_growth) ** b  # type: ignore[operator]
     if per_share_metric is None or per_share_metric <= 0:
         return RelativeValue(None, adj, median, [f"own per-share metric for {label} not positive"])
-    reasons = [f"peer median {label} {median:.1f}x ({len(peers)} peers), adjusted to {adj:.1f}x"]
+    basis = "" if use_growth else " for ROE only"
+    reasons = [
+        f"peer median {label} {median:.1f}x ({len(peers)} peers), adjusted{basis} to {adj:.1f}x"
+    ]
     return RelativeValue(adj * per_share_metric, adj, median, reasons)

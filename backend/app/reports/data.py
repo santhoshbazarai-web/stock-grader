@@ -4,6 +4,7 @@
 report pipeline (``build.py``) never touches the database (AGENTS.md rule 2).
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any
@@ -12,11 +13,11 @@ import pandas as pd
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core.config import AppConfig, StructuralEvent
+from app.core.config import AppConfig, SectorModel, StructuralEvent
 from app.data import prices
 from app.data.adjust import restate_per_share
 from app.data.canonical import fields_for
-from app.data.indianapi_checks import analyst_consensus
+from app.data.indianapi_checks import analyst_consensus, company_key, vendor_peers
 from app.data.indianapi_parse import SHARES_PER_CRORE
 from app.data.indianapi_store import cached_answers
 from app.data.price_anomalies import open_anomalies
@@ -170,8 +171,12 @@ def load_overrides(session: Session, iid: int) -> Overrides:
     return Overrides.model_validate({k: v.get("value") for k, v in rows})
 
 
-def load_peers(session: Session, sector: str, exclude: str) -> list[PeerStats]:
-    """Latest stored ``peer_stats`` of every other stock whose report used ``sector``."""
+def load_peers(
+    session: Session, sector: str, exclude: str, symbols: Iterable[str] = ()
+) -> list[PeerStats]:
+    """Latest stored ``peer_stats`` of every other stock whose report used ``sector``, plus
+    those of ``symbols`` (the sector's configured peers) whatever sector their report used."""
+    wanted = {s.upper() for s in symbols}
     latest = (
         select(Report.instrument_id, func.max(Report.as_of).label("as_of"))
         .group_by(Report.instrument_id)
@@ -188,9 +193,42 @@ def load_peers(session: Session, sector: str, exclude: str) -> list[PeerStats]:
     out = []
     for p in payloads:
         stats = p.get("peer_stats") if isinstance(p, dict) else None
-        if stats and stats.get("sector") == sector and stats.get("symbol") != exclude:
+        if not stats or stats.get("symbol") == exclude:
+            continue
+        if stats.get("sector") == sector or str(stats.get("symbol")).upper() in wanted:
             out.append(PeerStats.model_validate(stats))
     return out
+
+
+def load_vendor_peers(
+    session: Session, iid: int, own_name: str | None, sector: str, stored: list[PeerStats]
+) -> tuple[list[PeerStats], list[str]]:
+    """The Indian API peer list from the latest verified /stock answer (no call), as peer
+    stats. A vendor peer that is also a stored peer (same company name) replaces it: one
+    company is counted once. Returns (peers, notes)."""
+    row = cached_answers(session, iid).get("/stock")
+    if row is None:
+        return stored, ["vendor peer list: no Indian API /stock answer on file"]
+    rows = vendor_peers(row.payload)
+    if not rows:
+        return stored, ["vendor peer list: empty in the /stock answer"]
+    names = dict(
+        session.execute(
+            select(Instrument.symbol, Instrument.name).where(
+                Instrument.symbol.in_([p.symbol for p in stored])
+            )
+        ).all()
+    )
+    own = company_key(own_name) if own_name else None
+    vendor = [
+        PeerStats(symbol=r["name"], name=r["name"], sector=sector, pe=r["pe"], pb=r["pb"],
+                  ev_ebitda=None, roce=None, roe=r["roe"], eps_growth=None, source="vendor")
+        for r in rows
+        if company_key(r["name"]) != own
+    ]  # fmt: skip
+    keys = {company_key(p.symbol) for p in vendor}
+    kept = [p for p in stored if company_key(names.get(p.symbol) or p.symbol) not in keys]
+    return [*vendor, *kept], []
 
 
 def load_events(
@@ -314,8 +352,18 @@ def load_stock_data(
     sector_key = overrides.sector or inst.sector or "default"
     if benchmark_close is None:
         benchmark_close = prices.close_series(session, config.jobs.universe_index)
+    sector_cfg = config.sectors.for_sector(sector_key)
+    cfg_peers = sector_cfg.peers or []
     if peers is None:
-        peers = load_peers(session, sector_key, sym)
+        peers = load_peers(session, sector_key, sym, cfg_peers)
+    else:  # batch jobs pass the sector's peers: add the configured ones they lack
+        have = {p.symbol for p in peers}
+        peers = [*peers, *(p for p in load_peers(session, "", sym, cfg_peers)
+                           if p.symbol not in have)]  # fmt: skip
+    peers = [p for p in peers if p.symbol != sym]
+    if sector_cfg.model is SectorModel.BANK:
+        peers, peer_notes = load_vendor_peers(session, inst.id, inst.name, sector_key, peers)
+        notes += peer_notes
     return StockData(
         symbol=sym,
         name=inst.name,
@@ -334,7 +382,7 @@ def load_stock_data(
         on_asm_gsm=on_list,
         rs_percentile=rs_pct,
         overrides=overrides,
-        peers=[p for p in peers if p.symbol != sym],
+        peers=peers,
         sources={
             "prices": price_source,
             "fundamentals": fin_source,

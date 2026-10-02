@@ -109,6 +109,9 @@ def test_hdfcbank_bank_model_from_twelve_years(env: Env, reports: dict[str, Stoc
     assert names["gnpa_pct"].value is None and not names["gnpa_pct"].proxy
     health = next(p for p in r.pillars if p.pillar == "health")
     assert health.score is not None and health.confidence == "reduced"
+    # relative P/B from the vendor's peer list (5 banks), adjusted for ROE only
+    rel = next(m for m in r.valuation.methods if m.name == "relative_pb")
+    assert rel.value is not None and rel.reasons[0].startswith("peers (5 vendor): ICICI Bank 2.85x")
 
 
 def test_tcs_general_model_fcff_and_bands(reports: dict[str, StockReport]) -> None:

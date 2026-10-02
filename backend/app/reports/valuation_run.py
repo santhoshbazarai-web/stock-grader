@@ -548,13 +548,23 @@ def run_valuation(
         key: str, label: str, attr: str, qattr: str, own_q: float | None, per_share: float | None
     ) -> None:
         peers = [p for p in data.peers if (getattr(p, attr) or 0) > 0]
+        n_vendor = sum(p.source == "vendor" for p in peers)
         if len(peers) < vc.relative.min_peers:
             mv[key] = None
-            mr[key] = [
-                f"{label}: {len(peers)} sector peers with a positive multiple "
-                f"(< {vc.relative.min_peers})"
-            ]
+            why = [f"{label}: {len(peers)} peers with a positive multiple "
+                   f"(< {vc.relative.min_peers}): {n_vendor} from the vendor peer list, "
+                   f"{len(peers) - n_vendor} with a stored report"]  # fmt: skip
+            no_mult = [p.name or p.symbol for p in data.peers if (getattr(p, attr) or 0) <= 0]
+            if no_mult:
+                why.append(f"no positive {label}: {', '.join(no_mult)}")
+            if sector.peers:
+                have = {p.symbol for p in data.peers}
+                missing = [s for s in sector.peers if s not in have and s != data.symbol]
+                if missing:
+                    why.append(f"configured peers without a report yet: {', '.join(missing)}")
+            mr[key] = why
             return
+        use_growth = attr != "pb" or vc.relative.pb_adjust_growth
         r = relative_value(
             peer_multiples=[float(getattr(p, attr)) for p in peers],
             peer_quality=_median_positive([getattr(p, qattr) for p in peers]),
@@ -564,8 +574,10 @@ def run_valuation(
             per_share_metric=per_share,
             config=vc,
             label=label,
+            use_growth=use_growth,
         )
-        mv[key], mr[key] = r.value, r.reasons
+        listed = ", ".join(f"{p.name or p.symbol} {getattr(p, attr):.2f}x" for p in peers)
+        mv[key], mr[key] = r.value, [f"peers ({n_vendor} vendor): {listed}", *r.reasons]
 
     # ── sector models ──
     single: float | None = None

@@ -240,3 +240,31 @@ def analyst_consensus(stock: Any) -> dict[str, Any] | None:
     return {"recommendations": int(total) if total is not None else sum(ratings.values()),
             "mean_rating": mean, "scale": "1 Strong Buy … 5 Strong Sell",
             "ratings": ratings}  # fmt: skip
+
+
+# ───────────────────────── peers ─────────────────────────
+
+
+def vendor_peers(stock: Any) -> list[dict[str, Any]]:
+    """``companyProfile.peerCompanyList``: name, P/B, P/E and trailing-12-month ROE (fraction;
+    the vendor reports percent). Rows without a name are skipped; missing ratios stay None."""
+    profile = stock.get("companyProfile") if isinstance(stock, dict) else None
+    rows = profile.get("peerCompanyList") if isinstance(profile, dict) else None
+    out = []
+    for r in rows if isinstance(rows, list) else []:
+        name = r.get("companyName") if isinstance(r, dict) else None
+        if not isinstance(name, str) or not name.strip():
+            continue
+        roe = number(r.get("returnOnAverageEquityTrailing12Month"))
+        out.append({"name": name.strip(), "pb": number(r.get("priceToBookValueRatio")),
+                    "pe": number(r.get("priceToEarningsValueRatio")),
+                    "roe": roe / 100 if roe is not None else None})  # fmt: skip
+    return out
+
+
+def company_key(name: str) -> str:
+    """Name for matching across sources: lower case, no punctuation or Ltd / Limited suffix."""
+    words = re.sub(r"[^a-z0-9 ]", " ", name.lower()).split()
+    while words and words[-1] in {"ltd", "limited"}:
+        words.pop()
+    return " ".join(words)

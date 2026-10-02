@@ -382,6 +382,25 @@ def test_relative_worked_example() -> None:
     assert r.value == pytest.approx(301.247, rel=1e-5)
 
 
+def test_relative_pb_for_banks_adjusts_for_roe_only() -> None:
+    # bank P/B: peers 2.85, 1.62, 2.14, 0.96, 0.77 → median 1.62; ROE 13.7% vs peers 15%
+    # adj = 1.62 x (0.137 / 0.15)^0.5 = 1.5482x; x BVPS 381 = 589.86 (growth not needed)
+    r = relative_value(
+        peer_multiples=[2.85, 1.62, 2.14, 0.96, 0.77],
+        peer_quality=0.15,
+        peer_growth=None,
+        quality=0.137,
+        growth=None,
+        per_share_metric=381.0,
+        config=V,
+        label="P/B",
+        use_growth=False,
+    )
+    assert r.adj_multiple == pytest.approx(1.62 * math.sqrt(0.137 / 0.15))
+    assert r.value == pytest.approx(589.86, rel=1e-4)
+    assert r.reasons == ["peer median P/B 1.6x (5 peers), adjusted for ROE only to 1.5x"]
+
+
 def test_relative_needs_positive_bases() -> None:
     r = relative_value(
         peer_multiples=[20],

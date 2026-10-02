@@ -572,6 +572,8 @@ class RelativeConfig(_Strict):
     roce_exponent: NonNegativeFloat
     growth_exponent: NonNegativeFloat
     min_peers: PositiveInt
+    # Banks' relative P/B: adjust for ROE only (P/B is set by ROE; vendor peers carry no growth)
+    pb_adjust_growth: bool
 
 
 class GradeFractions(_Strict):
@@ -701,6 +703,7 @@ class SectorConfig(_Strict):
     nav_discount: Fraction | None = None
     holding_discount: Fraction | None = None
     g1_cap: Fraction | None = None  # overrides valuation.dcf.g1_cap_by_default
+    peers: list[str] | None = None  # NSE symbols always used as relative-valuation peers
 
     @model_validator(mode="after")
     def _check(self) -> Self:

@@ -14,9 +14,11 @@ from app.data.indianapi_checks import (
     OurAction,
     analyst_consensus,
     board_meetings,
+    company_key,
     corporate_action_checks,
     key_metric_checks,
     vendor_corporate_actions,
+    vendor_peers,
 )
 from app.data.indianapi_parse import map_statements
 from app.db.enums import CorporateActionType
@@ -119,3 +121,17 @@ def test_analyst_consensus_is_informational() -> None:
                                "Strong Buy": 21}}  # fmt: skip
     assert analyst_consensus({"recosBar": {"isDataPresent": False}}) is None
     assert analyst_consensus({}) is None
+
+
+def test_vendor_peer_list_for_hdfcbank() -> None:
+    peers = vendor_peers(stock("hdfcbank"))
+    assert [p["name"] for p in peers] == [
+        "ICICI Bank", "State Bank of India", "Kotak Mahindra Bank", "Union Bank of India",
+        "Bank of Baroda",
+    ]  # fmt: skip
+    icici = peers[0]
+    assert icici["pb"] == 2.85 and icici["pe"] == 19.32
+    assert icici["roe"] == pytest.approx(0.1601)  # vendor percent → fraction
+    assert vendor_peers({}) == []
+    assert vendor_peers({"companyProfile": {"peerCompanyList": [{}]}}) == []
+    assert company_key("ICICI Bank Ltd.") == company_key("icici bank limited") == "icici bank"
