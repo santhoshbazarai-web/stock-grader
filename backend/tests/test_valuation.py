@@ -785,3 +785,15 @@ def test_deep_discount_needs_two_methods_when_they_disagree() -> None:
     assert _blend(150.0, method_values=two).zone is Zone.DEEP_DISCOUNT
     # methods that agree keep the plain rule (test_zones: 150 → deep discount)
     assert not _blend(150.0).disagreement
+
+
+def test_hdfcbank_methods_disagree_at_718_65() -> None:
+    # HDFCBANK: price 718.65, ROE 13.7%, Ke 12.25%, BVPS ~381. Justified P/B (g 6.5% cap) is
+    # well above a post-merger band and a ROE-adjusted peer value: max/min 1.9x > 1.6x.
+    methods = {"justified_pb": 800.0, "band_pb": 420.0, "relative_pb": 590.0}
+    v = blend(cmp=718.65, sector=SECTORS["banks"], method_values=methods, provisional_grade="B",
+              band_prices={-1: 380.0, 0: 420.0, 1: 500.0}, config=V)  # fmt: skip
+    assert v.disagreement and v.confidence is Confidence.LOW
+    assert v.fair_value_range == (420.0, 800.0)
+    assert v.zone is not Zone.DEEP_DISCOUNT  # price is above every baseline anyway
+    assert any(r.startswith("methods disagree") for r in v.reasons)
