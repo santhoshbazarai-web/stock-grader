@@ -10,8 +10,15 @@ from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
-from app.api.deps import ConfigDep, SessionDep, StreamSessionsDep
-from app.api.schemas import SYMBOL_PATTERN, PipelineRequest, PipelineRunOut, PipelineStart
+from app.api.deps import ConfigDep, RedisDep, SessionDep, StreamSessionsDep
+from app.api.schemas import (
+    SYMBOL_PATTERN,
+    HostPause,
+    PipelineRequest,
+    PipelineRunOut,
+    PipelineStart,
+)
+from app.core.circuit_breaker import CircuitBreaker, paused_text
 from app.db.models import PipelineRun
 from app.pipeline.runner import TERMINAL, start_run
 
@@ -34,6 +41,13 @@ def start(body: PipelineRequest, session: SessionDep, config: ConfigDep) -> Pipe
     return PipelineStart(symbol=body.symbol.upper(), fresh=run is None, reason=fresh.reason,
                          report_as_of=fresh.report_as_of,
                          run=run_out(run) if run is not None else None)  # fmt: skip
+
+
+@router.get("/hosts")
+def paused_hosts(config: ConfigDep, redis: RedisDep) -> dict[str, HostPause]:
+    """Hosts whose circuit breaker is open (a blocked response paused them), by name."""
+    breaker = CircuitBreaker(redis, config.providers.breaker)
+    return {h: HostPause(until=u, text=paused_text(h, u)) for h, u in breaker.paused().items()}
 
 
 @router.get("")

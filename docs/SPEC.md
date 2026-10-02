@@ -306,6 +306,10 @@ Implementation notes (annual-report PDFs, §3.6 steps 3-4: `data/annual_report.p
   - An empty CF cell that results XBRL cannot fill is marked "not in XBRL: use the annual report" (`AR`), not shown as a failure: every year for a bank, NBFC or insurer (sector model, or results filed in the banking format), and years before `nse.results.cash_flow_from_fy` (2020) for everyone.
 - **Tools:** `python -m app.jobs pdf-inspect <report.pdf> [--fy YEAR]` prints the pages found, each value with its confidence, and the warnings, without a database. `python -m app.jobs pdf-reparse [--symbols …]` re-reads cached reports. Scanned reports (no text layer) are refused; OCR is not supported.
 
+### 3.6a Rate limits and host circuit breaker
+- Each provider has per-second and per-minute token buckets in Redis (`providers.rate_limits`), timed by Redis `TIME` (container clock skew cannot freeze a bucket). Background jobs always leave `rate_limit_background_reserve` (30%) of the per-minute bucket for on-demand requests and step aside while an on-demand caller waits (a self-expiring `user_waiting` key); the pipeline runs `user` / `refresh` runs as on-demand. A request never sent can `release` its token.
+- **Circuit breaker** (`providers.breaker`, `core/circuit_breaker.py`): a blocked (403) response from NSE / BSE pauses the host for 15 min, then 1 h, then 6 h on repeated blocks (a success resets). While paused the router does not call it or take tokens, and pipeline steps that only need it (corporate actions, filings index, XBRL, PDF gap-fill, shareholding) end as "skipped (host paused): NSE paused until HH:MM IST"; the other steps still run. `GET /api/pipeline/hosts` lists paused hosts; the pipeline panel shows the text.
+
 ### 3.7 On-demand pipeline (when you type a stock)
 1. The user selects a symbol. If `reports` holds a result that is fresher than both the latest price date and the latest filing date, return it instantly.
 2. Otherwise, enqueue a `pipeline_run` with these steps:

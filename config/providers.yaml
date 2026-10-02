@@ -30,6 +30,10 @@ providers:
     bse:      {per_sec: 1,  per_min: 30}
     market_lens: {per_sec: 0.5, per_min: 10}
     indianapi: {per_sec: 1, per_min: 30}
+  rate_limit_background_reserve: 0.3   # of each per-minute bucket kept free for user requests
+  breaker:                # a blocked host (403) is paused: 15 min, then 1 h, then 6 h
+    hosts: [nse, bse]
+    cooldown_min: [15, 60, 360]
   staleness_hours:
     daily_ohlcv: 30
     ltp: 0.1

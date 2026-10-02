@@ -10,7 +10,7 @@ from app.core.config import Dataset, Provider, ProvidersConfig, load_config
 from app.core.rate_limiter import RateLimitTimeout
 from app.data.gaps import InMemoryGapRecorder
 from app.data.providers.base import ProviderError, ProviderUnavailable
-from app.data.router import IST, NSE_CLOSE, DataRouter, Outcome
+from app.data.router import IST, NSE_CLOSE, DataRouter, Outcome, PriceProvider
 from tests.conftest import REPO_CONFIG_DIR
 
 # Wednesday 2025-06-18 18:15 IST, just after the eod_prices job would run.
@@ -405,3 +405,36 @@ def test_fetched_at_is_utc_by_default(config: ProvidersConfig) -> None:
         {Provider.FYERS: fyers}, config, limiter=FakeLimiter(), gaps=InMemoryGapRecorder()
     )
     assert router.ltp(["TCS"]).fetched_at.tzinfo is UTC
+
+
+def test_a_blocked_host_is_paused_then_skipped_without_burning_tokens(
+    config: ProvidersConfig, redis_client: Any
+) -> None:
+    import uuid
+
+    from app.core.circuit_breaker import CircuitBreaker
+    from app.data.providers.web_session import blocked_message
+
+    prefix = f"test-br-{uuid.uuid4().hex}"
+    breaker = CircuitBreaker(redis_client, config.breaker, prefix=prefix)
+    nse = FakePriceProvider(Provider.NSE, [raises(ProviderUnavailable(blocked_message("NSE")))])
+    limiter = FakeLimiter()
+    router = DataRouter({Provider.NSE: nse}, config, limiter=limiter, gaps=InMemoryGapRecorder(),
+                        breaker=breaker, clock=lambda: NOW, sleep=lambda s: None)  # fmt: skip
+
+    def fetch() -> Any:
+        return router.fetch(Dataset.DAILY_OHLCV, PriceProvider, lambda p: p.daily_ohlcv(
+            "TCS", START, END), symbol="TCS", providers=[Provider.NSE])  # fmt: skip
+
+    try:
+        assert fetch().attempts[0].detail == blocked_message("NSE")  # the 403 trips the breaker
+        res = fetch()
+        assert nse.calls == 1  # the second call never reached the host
+        assert breaker.paused_until(Provider.NSE) is not None
+        assert res.attempts[0].outcome is Outcome.UNAVAILABLE
+        assert res.attempts[0].detail is not None
+        assert res.attempts[0].detail.startswith("NSE paused until ")
+        assert limiter.acquired == [Provider.NSE]  # only the first call took a token
+    finally:
+        for k in redis_client.scan_iter(f"{prefix}:*"):
+            redis_client.delete(k)

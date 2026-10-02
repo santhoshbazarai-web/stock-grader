@@ -22,6 +22,7 @@ Steps call the same code as the nightly jobs, restricted to the symbol and to pe
 import logging
 import threading
 from collections.abc import Callable, Iterable
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -30,7 +31,9 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.alerts.notify import notify
-from app.core.config import PipelineConfig
+from app.core.circuit_breaker import paused_text
+from app.core.config import PipelineConfig, Provider
+from app.core.rate_limiter import on_demand
 from app.data import prices
 from app.data.providers.web_session import BLOCKED_MARKER, blocked_message
 from app.data.results_store import _fy_end_month
@@ -462,6 +465,14 @@ STEPS: tuple[StepDef, ...] = (
     StepDef("report", "Report", False, _report),
 )
 STEP_BY_NAME = {s.name: s for s in STEPS}
+# steps that only talk to one watched host: skipped while its circuit breaker is open
+HOST_STEPS = {
+    "corporate_actions": Provider.NSE,
+    "filings_index": Provider.NSE,
+    "xbrl_parse": Provider.NSE,
+    "pdf_gap_fill": Provider.NSE,
+    "shareholding_events": Provider.NSE,
+}
 
 
 # ───────────────────────── freshness, runs ─────────────────────────
@@ -620,10 +631,13 @@ def execute(ctx: JobContext, run_id: int) -> PipelineStatus:
     finally:
         session.close()
     st = State(symbol, run_id, trigger=trigger)
+    # a user waiting on this stock outranks background jobs for rate-limit tokens
+    priority = on_demand() if trigger in ("user", "refresh") else nullcontext()
     stop = threading.Event()
     every = ctx.config.jobs.pipeline.stale_after_s / 3
     beat = threading.Thread(target=_heartbeat, args=(ctx, run_id, every, stop), daemon=True)
     beat.start()
+    priority.__enter__()
     try:
         for i, s in enumerate(steps):
             if s["status"] in FINISHED_STEP or (s["optional"] and s["status"] == "failed"):
@@ -632,8 +646,15 @@ def execute(ctx: JobContext, run_id: int) -> PipelineStatus:
             st.notes = _notes(steps[:i])
             _save(ctx, run_id, step=(i, {"status": "running", "started_at": ctx.now().isoformat(),
                                          "message": None}))  # fmt: skip
+            host = HOST_STEPS.get(step.name)
+            until = ctx.router.breaker.paused_until(host) if host and ctx.router.breaker else None
             try:
-                result = step.fn(ctx, st)
+                if until is not None:
+                    assert host is not None
+                    why = paused_text(host.value, until)
+                    result = StepResult(StepStatus.SKIPPED, f"skipped (host paused): {why}")
+                else:
+                    result = step.fn(ctx, st)
             except StepError as exc:
                 result = StepResult(StepStatus.FAILED, str(exc))
             except Exception as exc:
@@ -661,6 +682,7 @@ def execute(ctx: JobContext, run_id: int) -> PipelineStatus:
         _save(ctx, run_id, status=PipelineStatus.DONE, finished_at=ctx.now(), error=None)
         return PipelineStatus.DONE
     finally:
+        priority.__exit__(None, None, None)
         stop.set()
 
 

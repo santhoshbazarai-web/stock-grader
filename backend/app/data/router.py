@@ -32,6 +32,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from app.core.circuit_breaker import CircuitBreaker, paused_text
 from app.core.config import Dataset, Provider, ProvidersConfig
 from app.core.rate_limiter import Limiter, RateLimitTimeout
 from app.data.gaps import GapRecord, GapRecorder
@@ -53,6 +54,7 @@ from app.data.providers.base import (
     ShareholdingProvider,
     SurveillanceProvider,
 )
+from app.data.providers.web_session import BLOCKED_MARKER
 from app.db.enums import EventKind
 
 logger = logging.getLogger(__name__)
@@ -145,15 +147,21 @@ class DataRouter:
         *,
         limiter: Limiter,
         gaps: GapRecorder,
+        breaker: CircuitBreaker | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         sleep: Callable[[float], None] = _time.sleep,
     ) -> None:
         self._providers = dict(providers)
         self._config = config
         self._limiter = limiter
+        self._breaker = breaker
         self._gaps = gaps
         self._clock = clock
         self._sleep = sleep
+
+    @property
+    def breaker(self) -> CircuitBreaker | None:
+        return self._breaker
 
     # ───────────── typed entry points ─────────────
 
@@ -451,6 +459,13 @@ class DataRouter:
         """One provider with rate limiting and retries → (outcome, data, detail, tries)."""
         retry = self._config.retry
         for attempt in range(1, retry.max_attempts + 1):
+            if self._breaker is not None and (until := self._breaker.paused_until(name)):
+                return (
+                    Outcome.UNAVAILABLE,
+                    None,
+                    paused_text(str(name), until),
+                    attempt - 1,
+                )
             try:
                 self._limiter.acquire(name, timeout=retry.rate_limit_timeout_s)
             except RateLimitTimeout as exc:
@@ -458,6 +473,8 @@ class DataRouter:
             try:
                 data = call(impl)
             except ProviderUnavailable as exc:
+                if self._breaker is not None and BLOCKED_MARKER in str(exc):
+                    self._breaker.trip(name)
                 return Outcome.UNAVAILABLE, None, str(exc) or type(exc).__name__, attempt
             except ProviderError as exc:
                 detail = str(exc) or type(exc).__name__
@@ -472,6 +489,8 @@ class DataRouter:
             except Exception as exc:  # unexpected: don't retry, but don't abort the route
                 logger.exception("%s raised unexpectedly", name)
                 return Outcome.ERROR, None, f"{type(exc).__name__}: {exc}", attempt
+            if self._breaker is not None:
+                self._breaker.success(name)
             if _is_empty(data):
                 return Outcome.EMPTY, None, None, attempt
             return Outcome.OK, data, None, attempt

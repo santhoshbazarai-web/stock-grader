@@ -114,6 +114,15 @@ class Dataset(StrEnum):
     FIN_RESULTS = "fin_results"
 
 
+class BreakerConfig(_Strict):
+    """Per-host circuit breaker: after a blocked (403) response the host is not called for
+    ``cooldown_min[level]`` minutes; each further block without a success in between moves to
+    the next level (the last one repeats). A success resets it."""
+
+    hosts: list[Provider] = Field(min_length=1)
+    cooldown_min: list[PositiveFloat] = Field(min_length=1)
+
+
 class RateLimit(_Strict):
     per_sec: PositiveFloat
     per_min: PositiveFloat
@@ -445,6 +454,9 @@ class IndianApiConfig(_Strict):
 class ProvidersConfig(_Strict):
     priority: dict[Dataset, list[Provider]]
     rate_limits: dict[Provider, RateLimit]
+    # share of each per-minute bucket background jobs leave for on-demand (user) requests
+    rate_limit_background_reserve: Fraction
+    breaker: BreakerConfig
     staleness_hours: dict[Dataset, PositiveFloat]
     retry: RetryConfig
     api_limits: dict[Provider, ApiLimits]

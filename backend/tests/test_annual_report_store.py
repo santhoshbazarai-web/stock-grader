@@ -407,6 +407,20 @@ def test_best_per_key_prefers_confidence_then_a_value() -> None:
     assert [r["n"] for r in best_per_key(rows)] == [2, 4]
 
 
+def test_best_per_key_treats_equal_keys_of_different_types_as_one() -> None:
+    import pandas as pd
+
+    from app.data.annual_report_store import best_per_key
+    from app.db.enums import LineStatement, StatementType
+
+    day = date(2024, 3, 31)
+    a = {"basis": StatementType.CONSOLIDATED, "statement": LineStatement.BS, "period_end": day,
+         "item_code": "deposits", "confidence": 0.7, "value_inr": 1.0, "n": 1}  # fmt: skip
+    b = {**a, "basis": "consolidated", "statement": "bs", "period_end": pd.Timestamp(day),
+         "confidence": 0.9, "n": 2}  # fmt: skip
+    assert [r["n"] for r in best_per_key([a, b])] == [2]
+
+
 def test_a_report_that_cannot_be_stored_does_not_hide_the_others(
     env: Env, monkeypatch: pytest.MonkeyPatch
 ) -> None:

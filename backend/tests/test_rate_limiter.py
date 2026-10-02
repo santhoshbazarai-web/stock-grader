@@ -141,3 +141,86 @@ def test_keys_expire(make_limiter: MakeLimiter, redis_client: Redis) -> None:
 def test_repo_limits_cover_network_providers() -> None:
     limits = load_config(REPO_CONFIG_DIR).providers.rate_limits
     assert {Provider.FYERS, Provider.KITE, Provider.YFINANCE, Provider.NSE} <= set(limits)
+
+
+def test_background_leaves_a_reserve_for_on_demand(redis_client: Redis, clock: FakeClock) -> None:
+    prefix = f"test-rl-{uuid.uuid4().hex}"
+    rl = RateLimiter(
+        redis_client,
+        {Provider.NSE: RateLimit(per_sec=10, per_min=10)},
+        key_prefix=prefix,
+        clock=clock,
+        sleep=clock.sleep,
+        background_reserve=0.3,
+    )
+    # burst of 10 per minute: background may take 7, the last 3 are kept for the user
+    taken = 0
+    while rl.try_acquire(Provider.NSE, priority="background") == 0:
+        taken += 1
+    assert taken == 7
+    for _ in range(3):  # the user still gets through
+        assert rl.try_acquire(Provider.NSE, priority="on_demand") == 0
+    assert rl.try_acquire(Provider.NSE, priority="on_demand") > 0
+    for k in redis_client.scan_iter(f"{prefix}:*"):
+        redis_client.delete(k)
+
+
+def test_background_yields_while_an_on_demand_caller_waits_and_the_flag_expires(
+    redis_client: Redis,
+) -> None:
+    prefix = f"test-rl-{uuid.uuid4().hex}"
+    rl = RateLimiter(redis_client, {Provider.NSE: RateLimit(per_sec=10, per_min=600)},
+                     key_prefix=prefix)  # real Redis TIME, no injected clock  # fmt: skip
+    flag = f"{prefix}:{Provider.NSE}:user_waiting"
+    redis_client.set(flag, "1", px=300)  # an on-demand waiter that then crashed
+    assert rl.try_acquire(Provider.NSE, priority="background") == 0.5  # steps aside
+    assert rl.try_acquire(Provider.NSE, priority="on_demand") == 0  # users are not held up
+    import time as _t
+
+    _t.sleep(0.4)  # the flag expired by itself: nobody holds the bucket forever
+    assert rl.try_acquire(Provider.NSE, priority="background") == 0
+    for k in redis_client.scan_iter(f"{prefix}:*"):
+        redis_client.delete(k)
+
+
+def test_on_demand_acquire_sets_and_clears_its_waiting_flag(
+    redis_client: Redis, clock: FakeClock
+) -> None:
+    prefix = f"test-rl-{uuid.uuid4().hex}"
+    seen: list[bool] = []
+
+    def sleep(s: float) -> None:
+        seen.append(bool(redis_client.exists(f"{prefix}:{Provider.NSE}:user_waiting")))
+        clock.sleep(s)
+
+    rl = RateLimiter(redis_client, {Provider.NSE: RateLimit(per_sec=1, per_min=30)},
+                     key_prefix=prefix, clock=clock, sleep=sleep)  # fmt: skip
+    rl.acquire(Provider.NSE, timeout=5, priority="on_demand")
+    rl.acquire(Provider.NSE, timeout=5, priority="on_demand")  # waits ~1 s for a token
+    assert seen == [True] and not redis_client.exists(f"{prefix}:{Provider.NSE}:user_waiting")
+    with pytest.raises(RateLimitTimeout):  # the flag is also cleared on failure
+        rl.acquire(Provider.NSE, timeout=0.1, priority="on_demand")
+    assert not redis_client.exists(f"{prefix}:{Provider.NSE}:user_waiting")
+    for k in redis_client.scan_iter(f"{prefix}:*"):
+        redis_client.delete(k)
+
+
+def test_a_skewed_clock_cannot_freeze_a_bucket(redis_client: Redis) -> None:
+    prefix = f"test-rl-{uuid.uuid4().hex}"
+    limits = {Provider.NSE: RateLimit(per_sec=10, per_min=600)}
+    ahead = RateLimiter(redis_client, limits, key_prefix=prefix, clock=lambda: 4e9)  # fmt: skip
+    assert ahead.try_acquire(Provider.NSE) == 0  # leaves ts far in the future
+    now = RateLimiter(redis_client, limits, key_prefix=prefix)  # Redis TIME
+    for _ in range(9):
+        assert now.try_acquire(Provider.NSE) == 0  # not frozen: the bucket is usable
+    for k in redis_client.scan_iter(f"{prefix}:*"):
+        redis_client.delete(k)
+
+
+def test_release_returns_a_token_for_a_request_never_sent(make_limiter: MakeLimiter) -> None:
+    rl = make_limiter()
+    rl.try_acquire(Provider.FYERS)
+    rl.try_acquire(Provider.FYERS)
+    assert rl.try_acquire(Provider.FYERS) > 0
+    rl.release(Provider.FYERS)
+    assert rl.try_acquire(Provider.FYERS) == 0

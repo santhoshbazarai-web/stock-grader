@@ -60,7 +60,12 @@ def best_per_key(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     confidence wins; at equal confidence, a value beats none, then the first one read."""
     best: dict[tuple[Any, ...], dict[str, Any]] = {}
     for r in rows:
-        key = (r["basis"], r["statement"], r["period_end"], r["item_code"])
+        # normalised like the database compares them: a Timestamp and a date for the same day,
+        # or an enum and its string, are one key
+        pe = r["period_end"]
+        key = (str(getattr(r["basis"], "value", r["basis"])),
+               str(getattr(r["statement"], "value", r["statement"])),
+               pe.date() if hasattr(pe, "hour") else pe, r["item_code"])  # fmt: skip
         cur = best.get(key)
         rank = (r["confidence"], r["value_inr"] is not None)
         if cur is None or rank > (cur["confidence"], cur["value_inr"] is not None):

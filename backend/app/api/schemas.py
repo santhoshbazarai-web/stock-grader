@@ -487,6 +487,11 @@ class PipelineRunOut(BaseModel):
     finished_at: datetime | None
 
 
+class HostPause(BaseModel):
+    until: datetime
+    text: str = Field(description="e.g. NSE paused until 14:35 IST")
+
+
 class PipelineRequest(BaseModel):
     symbol: str = Field(pattern=SYMBOL_PATTERN)
     force: bool = Field(default=False, description="Run even when the stored report is fresh")

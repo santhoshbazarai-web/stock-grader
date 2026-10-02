@@ -18,6 +18,7 @@ import {
   blockedSuffix,
   isBlocked,
 } from "@/components/blocked-notice";
+import { api } from "@/lib/api";
 import type { PipelineRun, PipelineStep } from "@/lib/types";
 
 /** Follows a run: the latest state, updated on every server event; closes when it ends. */
@@ -93,6 +94,21 @@ function StepIcon({ status }: { status: PipelineStep["status"] }) {
   }
 }
 
+/** "NSE paused until 14:35 IST" for each host whose circuit breaker is open. */
+function useHostPauses(status: PipelineRun["status"]): string[] {
+  const [texts, setTexts] = useState<string[]>([]);
+  useEffect(() => {
+    let live = true;
+    api<Record<string, { text: string }>>("/pipeline/hosts")
+      .then((h) => live && setTexts(Object.values(h).map((p) => p.text)))
+      .catch(() => live && setTexts([]));
+    return () => {
+      live = false;
+    };
+  }, [status]);
+  return texts;
+}
+
 export function PipelineProgress({
   run: initial,
   onFinished,
@@ -127,11 +143,17 @@ export function PipelineProgress({
           ? "Report updated"
           : `Failed: ${run.error ?? "see the steps"}`;
   const [open, setOpen] = useState(!compact);
+  const pauses = useHostPauses(run.status);
   return (
     <section
       aria-label={`Pipeline for ${run.symbol}`}
       className="flex flex-col gap-2 text-sm"
     >
+      {pauses.map((t) => (
+        <p key={t} role="status" className="rounded border border-dashed px-2 py-1 text-xs">
+          {t}: dependent steps are skipped until then
+        </p>
+      ))}
       <div className="flex flex-wrap items-center gap-3">
         <p aria-live="polite" className="font-medium">
           {title}

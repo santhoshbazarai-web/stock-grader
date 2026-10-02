@@ -3,6 +3,7 @@
 from redis import Redis
 
 from app.alerts.telegram import build_notifier
+from app.core.circuit_breaker import CircuitBreaker
 from app.core.config import AppConfig, Provider
 from app.core.rate_limiter import Limiter, RateLimiter
 from app.core.security import TokenCipher
@@ -28,7 +29,11 @@ from app.jobs.runner import JobContext
 def build_context(settings: Settings, config: AppConfig) -> JobContext:
     redis = Redis.from_url(settings.redis_url)
     session_factory = get_session_factory()
-    limiter = RateLimiter(redis, config.providers.rate_limits)
+    limiter = RateLimiter(
+        redis,
+        config.providers.rate_limits,
+        background_reserve=config.providers.rate_limit_background_reserve,
+    )
     tokens = BrokerTokenStore(session_factory, TokenCipher(settings.fernet_key.get_secret_value()))
     pc = config.providers
     raw_store = RawStore(settings.raw_data_dir)
@@ -70,7 +75,8 @@ def build_context(settings: Settings, config: AppConfig) -> JobContext:
             NoLimiter(),
         )
     gaps = DbGapRecorder(session_factory)
-    router = DataRouter(providers, route_cfg, limiter=route_limiter, gaps=gaps)
+    breaker = CircuitBreaker(redis, pc.breaker)
+    router = DataRouter(providers, route_cfg, limiter=route_limiter, gaps=gaps, breaker=breaker)
     notifier = build_notifier(settings, config.jobs.alerts.telegram_timeout_s)
     indianapi = None
     if not settings.offline_exchange:  # the offline exchange never calls paid APIs

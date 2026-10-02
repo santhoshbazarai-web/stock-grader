@@ -278,3 +278,46 @@ def test_start_via_api(client: TestClient, db: Session) -> None:
     forced = client.post("/api/pipeline", json={"symbol": "SYNTH", "force": True}).json()
     assert forced["run"]["id"] == run["id"]  # the queued run is joined
     assert client.post("/api/pipeline", json={"symbol": "bad sym!"}).status_code == 422
+
+
+def test_steps_of_a_paused_host_are_skipped_and_the_rest_still_run(seeded: Env) -> None:
+    import uuid
+
+    from app.core.circuit_breaker import CircuitBreaker
+    from app.core.config import Provider
+
+    prefix = f"test-br-{uuid.uuid4().hex}"
+    breaker = CircuitBreaker(seeded.ctx.redis, seeded.ctx.config.providers.breaker, prefix=prefix)
+    breaker.trip(Provider.NSE)
+    seeded.ctx.router._breaker = breaker  # the worker's router with NSE blocked
+    try:
+        run_id = queue(seeded, "SYNTH")
+        assert run_pending(seeded.ctx) == [(run_id, PipelineStatus.DONE)]
+        st = steps(load(seeded, run_id))
+    finally:
+        for k in seeded.ctx.redis.scan_iter(f"{prefix}:*"):
+            seeded.ctx.redis.delete(k)
+    for name in ("corporate_actions", "filings_index", "xbrl_parse", "pdf_gap_fill",
+                 "shareholding_events"):  # fmt: skip
+        status, message = st[name]
+        assert status == "skipped" and (message or "").startswith(
+            "skipped (host paused): NSE paused until "
+        )
+    assert all(st[n][0] == "ok" for n in ("valuation", "scoring", "report"))  # nothing is hidden
+
+
+def test_hosts_endpoint_lists_paused_hosts(client: TestClient, redis_client: Redis) -> None:
+    from app.core.circuit_breaker import CircuitBreaker
+    from app.core.config import Provider
+
+    breaker = CircuitBreaker(redis_client, get_config().providers.breaker)
+    try:
+        assert client.get("/api/pipeline/hosts").json() == {}
+        until = breaker.trip(Provider.NSE)
+        body = client.get("/api/pipeline/hosts").json()
+        assert until is not None and list(body) == ["nse"]
+        assert body["nse"]["text"].startswith("NSE paused until ") and body["nse"]["text"].endswith(
+            " IST"
+        )
+    finally:
+        redis_client.delete("breaker:nse")
