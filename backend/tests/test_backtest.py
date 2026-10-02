@@ -24,6 +24,7 @@ from app.backtest.pit import (
     PitStock,
     PitWorld,
     announced_by,
+    assume_availability,
     month_starts,
     on_asm_gsm_at,
     stock_data_at,
@@ -134,6 +135,24 @@ def test_announced_by_excludes_unknown_and_future_dates() -> None:
     )
     assert announced_by(f, pd.Timestamp("2024-05-14"))["x"].tolist() == [1]
     assert announced_by(f, pd.Timestamp("2024-05-15"))["x"].tolist() == [1, 3]
+
+
+def test_statements_without_a_date_are_public_after_the_lag() -> None:
+    # SPEC §11: an Indian API year (no announcement date) is public 75 days after Mar 31
+    cfg = load_config(REPO_CONFIG_DIR).jobs.backtest.fundamentals_availability_lag_days
+    assert (cfg.annual, cfg.quarterly) == (75, 45)
+    f = pd.DataFrame(
+        {"announcement_date": [date(2023, 5, 10), None], "x": [1, 2]},
+        index=pd.DatetimeIndex(["2023-03-31", "2024-03-31"], name="period_end"),
+    )
+    out, n = assume_availability(f, cfg.annual)
+    assert n == 1 and out["announcement_assumed"].tolist() == [False, True]
+    assert out["announcement_date"].tolist() == [date(2023, 5, 10), date(2024, 6, 14)]
+    assert announced_by(out, pd.Timestamp("2024-06-13"))["x"].tolist() == [1]
+    assert announced_by(out, pd.Timestamp("2024-06-14"))["x"].tolist() == [1, 2]
+    q, nq = assume_availability(f.iloc[1:], cfg.quarterly)
+    assert nq == 1 and q["announcement_date"].tolist() == [date(2024, 5, 15)]
+    assert assume_availability(f.iloc[0:0], 75)[1] == 0
 
 
 def test_universe_and_surveillance_at_a_date() -> None:

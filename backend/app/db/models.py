@@ -267,6 +267,10 @@ class CorporateAction(SourcedMixin, Base):
     ratio_new: Mapped[float | None]
     dividend_per_share: Mapped[float | None]
     description: Mapped[str | None] = mapped_column(Text)
+    # The owner's fix from a price anomaly (SPEC §3.2): True = the price source already has
+    # this action in its bars (never applied); False = the bars are raw (always applied);
+    # None = decided per source (providers.yaml prices_already_adjusted + the detector).
+    price_adjusted_by_source: Mapped[bool | None]
 
 
 class DeliveryDaily(SourcedMixin, Base):
@@ -292,6 +296,8 @@ class _FinancialsCommon(SourcedMixin):
     period_end: Mapped[date]
     # Rule 4: backtests read fundamentals only after this date. NULL = unknown (→ data gap).
     announcement_date: Mapped[date | None]
+    # Some figures come from a data vendor's reclassified statements (Indian API), not as filed.
+    vendor_reclassified: Mapped[bool] = mapped_column(Boolean, server_default="false")
     revenue: Mapped[float | None]
     cogs: Mapped[float | None]
     ebitda: Mapped[float | None]
@@ -432,6 +438,8 @@ class FinLineItem(Base):
     announced_at: Mapped[datetime | None]  # when the exchange published the filing
     usable_from: Mapped[date | None]  # first day a close-based signal may use it (rule 4)
     derived: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    # From a data vendor's reclassified statements (source indianapi), not as filed
+    vendor_reclassified: Mapped[bool] = mapped_column(Boolean, server_default="false")
     tag: Mapped[str | None] = mapped_column(String(512))  # the XBRL element(s) that matched
     map_version: Mapped[int | None]  # xbrl_map.yaml version (pdf_labels.yaml for PDF values)
     # Annual-report PDF values (source annual_report_pdf): the report and the read's confidence.
@@ -715,6 +723,32 @@ class Event(Base):
     fetched_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
+class PriceAnomaly(TimestampMixin, Base):
+    """An adjusted close-to-close move that looks like a split / bonus (data/adjust.py
+    ``suspicious_moves``): a missing action, one applied twice, or one not applied. Shown on
+    the stock page with a one-click suggested fix; never fixed by a job."""
+
+    __tablename__ = "price_anomalies"
+    __upsert_key__ = ("instrument_id", "day")
+    __table_args__ = (UniqueConstraint("instrument_id", "day"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    instrument_id: Mapped[int] = _instrument_fk()
+    day: Mapped[date]
+    ratio: Mapped[float]
+    candidate: Mapped[float]
+    volume_ratio: Mapped[float | None]
+    volume_confirmed: Mapped[bool]
+    kind: Mapped[str] = mapped_column(String(32))  # missing_action | double_adjusted | not_applied
+    action_ex_date: Mapped[date | None]
+    ratio_old: Mapped[int | None] = mapped_column(Integer)
+    ratio_new: Mapped[int | None] = mapped_column(Integer)
+    text: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(16))  # open | applied | dismissed | resolved
+    detected_at: Mapped[datetime]
+    resolved_at: Mapped[datetime | None]
+
+
 class ReconciliationIssue(TimestampMixin, Base):
     """A period where two sources disagree by more than ``reconciliation.tolerance_rel`` (SPEC
     v0.2 §3.9). ``values`` holds every source's figure (₹); ``cause`` is the best explanation
@@ -921,3 +955,62 @@ class Notification(Base):
     read_at: Mapped[datetime | None]
     telegram: Mapped[str] = mapped_column(String(16))  # sent | failed | disabled
     telegram_error: Mapped[str | None] = mapped_column(Text)
+
+
+# ───────────────────────── paid API usage ─────────────────────────
+
+
+class ApiUsage(Base):
+    """Calls made to a metered API per calendar month (IST), for its budget (SPEC §3.2)."""
+
+    __tablename__ = "api_usage"
+    __upsert_key__ = ("provider", "month")
+    __table_args__ = (UniqueConstraint("provider", "month"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(32))
+    month: Mapped[str] = mapped_column(String(7))  # "2026-10"
+    calls: Mapped[int] = mapped_column(Integer, server_default="0")
+    last_call_at: Mapped[datetime | None]
+
+
+class VendorResponse(Base):
+    """Every raw answer of a paid data vendor (Indian API), stored before it is mapped (SPEC
+    §3.2a): analysis reads only from our tables. ``params`` never hold the API key."""
+
+    __tablename__ = "vendor_responses"
+    __upsert_key__ = ("id",)  # append-only: every answer is kept
+    __table_args__ = (
+        Index("ix_vendor_responses_lookup", "provider", "instrument_id", "endpoint", "params_hash"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(32))
+    instrument_id: Mapped[int | None] = mapped_column(
+        ForeignKey("instruments.id", ondelete="CASCADE")
+    )
+    symbol: Mapped[str] = mapped_column(String(32))
+    endpoint: Mapped[str] = mapped_column(String(64))
+    params: Mapped[dict[str, Any]]
+    params_hash: Mapped[str] = mapped_column(String(64))
+    status: Mapped[int]
+    fetched_at: Mapped[datetime]
+    payload: Mapped[dict[str, Any] | None]
+    raw_path: Mapped[str | None] = mapped_column(String(512))
+    # /stock answers: did the company match ours (ISIN / NSE code)? None for other endpoints.
+    identity_ok: Mapped[bool | None]
+    note: Mapped[str | None] = mapped_column(Text)
+
+
+class VendorName(Base):
+    """The name a vendor knows a stock by, once an answer under it was verified (ISIN / NSE)."""
+
+    __tablename__ = "vendor_names"
+    __upsert_key__ = ("provider", "instrument_id")
+    __table_args__ = (UniqueConstraint("provider", "instrument_id"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(32))
+    instrument_id: Mapped[int] = _instrument_fk()
+    vendor_name: Mapped[str] = mapped_column(String(200))
+    verified_at: Mapped[datetime]

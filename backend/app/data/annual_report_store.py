@@ -32,6 +32,7 @@ from app.data.annual_report import (
 )
 from app.data.results_store import (
     PDF_SOURCE,
+    VENDOR_SOURCE,
     _apply_versions,
     _as_dict,
     _fy_end_month,
@@ -135,7 +136,7 @@ def _filed_keys(
             FinLineItem.instrument_id == instrument_id,
             FinLineItem.basis == basis,
             FinLineItem.period_end.in_(ends),
-            FinLineItem.source != PDF_SOURCE,
+            FinLineItem.source.not_in((PDF_SOURCE, VENDOR_SOURCE)),  # PDF beats vendor figures
             FinLineItem.derived.is_(False),
         )
     ).all()  # fmt: skip
@@ -212,7 +213,7 @@ def sync_report(
                 "usable_from": report.usable_from, "derived": False,
                 "tag": f"pdf p.{','.join(str(p) for p in c.pages)}: {c.raw_label}"[:512],
                 "map_version": labels_version, "annual_report_id": report.id,
-                "confidence": 1.0 if reviewed else c.confidence,
+                "confidence": 1.0 if reviewed else c.confidence, "vendor_reclassified": False,
             }  # fmt: skip
         stale = {k for b, k in stored_now if b == basis} - set(observations)
         _remove(session, report.instrument_id, basis, report.id, stale)

@@ -3,8 +3,10 @@
 Everything a report sees at rebalance date ``d`` is sliced to what was *known* at ``d``:
 - prices, delivery %, traded value and the benchmark: rows dated on or before ``d``;
 - annual and quarterly statements: rows whose ``announcement_date`` is on or before ``d``.
-  Rows with no announcement date are excluded (never assumed: the filing lag used by live
-  reports does not apply here). Periods with exchange line items (fin_line_items) are one row
+  Rows with no announcement date (Indian API, yfinance, Screener) are taken as public
+  ``backtest.fundamentals_availability_lag_days`` after their period end
+  (:func:`assume_availability`; marked ``announcement_assumed`` and counted in the caveats).
+  Periods with exchange line items (fin_line_items) are one row
   per date a figure of the period became public, each carrying the latest version known by
   then (:func:`versioned_frame`), so a later restatement is seen only from its own date;
 - shareholding: filings whose ``filing_date`` is on or before ``d`` (no filing date: excluded);
@@ -41,6 +43,9 @@ class PitStock:
     shareholding: pd.DataFrame  # incl. filing_date
     delivery_pct: pd.Series | None = None
     traded_value_cr: pd.Series | None = None
+    # statements dated by fundamentals_availability_lag_days (no announcement date of their own)
+    assumed_annual: int = 0
+    assumed_quarterly: int = 0
     # Weekly closes of the full history, cached for RS ranking. Each weekly bar is labelled
     # with its last session, so slicing ``<= d`` never uses data after ``d``.
     weekly_close: pd.Series | None = None
@@ -122,6 +127,24 @@ def latest_known(frame: pd.DataFrame) -> pd.DataFrame:
 
 def _upto(series: pd.Series | None, d: pd.Timestamp) -> pd.Series | None:
     return None if series is None else series.loc[series.index <= d]
+
+
+def assume_availability(frame: pd.DataFrame, lag_days: int) -> tuple[pd.DataFrame, int]:
+    """Rows without an announcement date get period end + ``lag_days`` (SPEC §11). Returns the
+    frame (with ``announcement_assumed``) and how many rows were dated so."""
+    if frame.empty:
+        return frame, 0
+    out = frame.copy()
+    known = (pd.to_datetime(out["announcement_date"], errors="coerce")
+             if "announcement_date" in out.columns
+             else pd.Series(pd.NaT, index=out.index))  # fmt: skip
+    missing = known.isna()
+    assumed = pd.DatetimeIndex(out.index) + pd.Timedelta(days=lag_days)
+    out["announcement_date"] = [
+        a.date() if m else k.date() for k, a, m in zip(known, assumed, missing, strict=True)
+    ]
+    out["announcement_assumed"] = missing.to_numpy()
+    return out, int(missing.sum())
 
 
 def announced_by(

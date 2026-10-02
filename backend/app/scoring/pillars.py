@@ -45,6 +45,9 @@ class PillarScore:
     subs: list[SubScore]
     missing: list[str] = field(default_factory=list)
     reasons: list[str] = field(default_factory=list)
+    # "reduced": scored partly from proxies standing in for reported metrics (banks: GNPA,
+    # CAR not reported) — shown with the pillar, never n/a while a proxy exists
+    confidence: Literal["full", "reduced"] = "full"
 
 
 @dataclass(frozen=True)
@@ -89,6 +92,9 @@ class PillarInputs:
     nim_pct: float | None = None
     gnpa_pct: float | None = None
     car_pct: float | None = None
+    # proxies used only in place of a missing reported metric (fundamentals/banking.PROXIES)
+    credit_cost_pct: float | None = None  # for GNPA
+    equity_to_assets_pct: float | None = None  # for CAR
 
 
 def _diff(a: float | None, b: float | None) -> float | None:
@@ -163,12 +169,9 @@ def growth(x: PillarInputs, cfg: ScoringConfig) -> PillarScore:
 
 
 def health(x: PillarInputs, cfg: ScoringConfig) -> PillarScore:
-    m, b = cfg.maps, cfg.bank_maps
+    m = cfg.maps
     if x.is_bank:
-        subs = [
-            _mapped("gnpa_pct", x.gnpa_pct, b.gnpa_pct),
-            _mapped("car_pct", x.car_pct, b.car_pct),
-        ]
+        return _bank_health(x, cfg)
     else:
         subs = [
             _mapped("debt_to_equity", x.debt_to_equity, m.debt_to_equity),
@@ -178,6 +181,37 @@ def health(x: PillarInputs, cfg: ScoringConfig) -> PillarScore:
             _mapped("altman_z2", x.altman_z2, m.altman_z2),
         ]
     return combine(Pillar.HEALTH, subs, cfg)
+
+
+def _bank_health(x: PillarInputs, cfg: ScoringConfig) -> PillarScore:
+    """GNPA and CAR as reported; a missing one is replaced by its proxy (credit cost for GNPA,
+    equity / assets for CAR). Then the pillar scores what exists, lists the missing reported
+    metrics, and its confidence is reduced instead of the pillar being n/a."""
+    b = cfg.bank_maps
+    pairs = (
+        ("gnpa_pct", x.gnpa_pct, b.gnpa_pct, "credit_cost_pct", x.credit_cost_pct,
+         b.credit_cost_pct),
+        ("car_pct", x.car_pct, b.car_pct, "equity_to_assets_pct", x.equity_to_assets_pct,
+         b.equity_to_assets_pct),
+    )  # fmt: skip
+    subs: list[SubScore] = []
+    replaced: list[str] = []
+    for name, value, points, proxy, pvalue, ppoints in pairs:
+        sub = _mapped(name, value, points)
+        if sub.score is None:
+            alt = _mapped(proxy, pvalue, ppoints)
+            if alt.score is not None:
+                sub = SubScore(alt.name, alt.value, alt.score,
+                               f"{alt.reason} (proxy: {name} not reported)")  # fmt: skip
+                replaced.append(name)
+        subs.append(sub)
+    out = combine(Pillar.HEALTH, subs, cfg)
+    if not replaced:
+        return out
+    reasons = [*out.reasons, f"health: {', '.join(replaced)} not reported; scored from proxies "
+               "(reduced confidence)"]  # fmt: skip
+    return PillarScore(out.pillar, out.score, out.subs, [*replaced, *out.missing], reasons,
+                       confidence="reduced")  # fmt: skip
 
 
 def governance(x: PillarInputs, cfg: ScoringConfig) -> PillarScore:

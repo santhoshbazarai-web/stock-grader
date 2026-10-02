@@ -2,7 +2,7 @@
 
 import logging
 from collections.abc import Iterable, Mapping
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Any
 
 import numpy as np
@@ -12,7 +12,8 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.core.config import AdjustmentConfig
-from app.data.adjust import AdjustmentResult, adjust_prices
+from app.data.adjust import AdjustmentResult, adjust_prices, suspicious_moves
+from app.data.price_anomalies import save_anomalies
 from app.db.models import CorporateAction, IndexMembership, Instrument, PriceDaily, WatchlistItem
 from app.jobs.runner import JobContext, JobOptions
 
@@ -126,12 +127,14 @@ def readjust(
                 PriceDaily.volume,
                 PriceDaily.adj_factor,
                 PriceDaily.adj_close,
+                PriceDaily.source,
             )
             .where(PriceDaily.instrument_id == instrument_id)
             .order_by(PriceDaily.date)
         ).all(),
-        columns=["date", "open", "high", "low", "close", "volume", "old_factor", "old_close"],
-    )
+        columns=["date", "open", "high", "low", "close", "volume", "old_factor", "old_close",
+                 "source"],
+    )  # fmt: skip
     actions = pd.DataFrame(
         session.execute(
             select(
@@ -139,16 +142,22 @@ def readjust(
                 CorporateAction.action_type,
                 CorporateAction.ratio_old,
                 CorporateAction.ratio_new,
+                CorporateAction.price_adjusted_by_source,
             ).where(CorporateAction.instrument_id == instrument_id)
         ).all(),
-        columns=["ex_date", "action_type", "ratio_old", "ratio_new"],
+        columns=["ex_date", "action_type", "ratio_old", "ratio_new", "price_adjusted_by_source"],
     )
     if raw.empty:
         return AdjustmentResult(raw, True)
     raw["date"] = pd.to_datetime(raw["date"])
     raw = raw.set_index("date")
-    result = adjust_prices(raw[["open", "high", "low", "close", "volume"]], actions, config)
+    result = adjust_prices(raw[["open", "high", "low", "close", "volume"]], actions, config,
+                           sources=raw["source"])  # fmt: skip
     adj = result.prices
+    if config is not None:  # SPEC §3.2: moves that look like a missing / doubled action
+        result.suspicious = suspicious_moves(adj, actions, config.suspicious)
+        save_anomalies(session, instrument_id, result.suspicious,
+                       datetime.now(UTC))  # fmt: skip
     new_factor = adj["adj_factor"].astype(float)
     old_factor = raw["old_factor"].astype(float)
     same_factor = np.isclose(new_factor.to_numpy(), old_factor.to_numpy(), equal_nan=True)
@@ -164,6 +173,7 @@ def readjust(
     ]
     if rows:
         session.execute(update(PriceDaily), rows)
+    result.changed = len(rows)
     return result
 
 

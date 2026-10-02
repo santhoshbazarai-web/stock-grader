@@ -63,6 +63,7 @@ def test_config_files_split() -> None:
         "technical",
         "jobs",
         "industries",
+        "structural_events",
     }
     for name in CONFIG_FILES:
         assert (REPO_CONFIG_DIR / f"{name}.yaml").is_file()

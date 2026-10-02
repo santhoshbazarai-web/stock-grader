@@ -90,6 +90,7 @@ class Provider(StrEnum):
     BSE = "bse"
     MARKET_LENS = "market_lens"  # NSE Market Lens (beta): reconciliation only, off by default
     OFFLINE = "offline"  # development only: the synthetic offline exchange (app.devtools)
+    INDIANAPI = "indianapi"  # stock.indianapi.in: bulk fundamentals (paid key, optional)
 
 
 class Dataset(StrEnum):
@@ -109,6 +110,8 @@ class Dataset(StrEnum):
     EVENTS = "events"  # exchange feeds: announcements, results, board meetings, pledge, deals ...
     REFERENCE_FINANCIALS = "reference_financials"  # other sources the reconciliation checks
     INDUSTRY = "industry"  # per-symbol industry classification → sector model (industries.yaml)
+    # Which stored source's fundamentals the report uses, best first (nse = exchange XBRL).
+    FIN_RESULTS = "fin_results"
 
 
 class RateLimit(_Strict):
@@ -369,6 +372,22 @@ class BrokerConfig(_Strict):
     morning_reminder: bool  # broker_token_check notifies when its token has expired
 
 
+class SuspiciousMovesConfig(_Strict):
+    """Overnight moves that look like a missing or doubled split/bonus (data/adjust.py)."""
+
+    # adjusted close ratios that look like a corporate action (1/2, 1/3, 1/4, 2/3, 3/2, 2)
+    ratios: list[PositiveFloat] = Field(min_length=1)
+    ratio_tolerance: Fraction  # |ratio / candidate - 1|
+    # the volume must move the other way by at least this factor (median of N days each side)
+    volume_confirmation: Annotated[float, Field(gt=1)]
+    volume_days: PositiveInt
+    # an action on record this close to the move explains it (or was applied twice)
+    action_window_days: Annotated[int, Field(ge=0)]
+    # the regression check: no overnight gap above this multiple of ATR / close
+    atr_period: PositiveInt
+    atr_multiple: PositiveFloat
+
+
 class AdjustmentConfig(_Strict):
     """Split / bonus price adjustment (data/adjust.py)."""
 
@@ -378,6 +397,41 @@ class AdjustmentConfig(_Strict):
     detect_preadjusted: bool
     # an adjusted close-to-close move larger than this is reported (missing/doubled action)
     abnormal_gap: Fraction
+    # Per price source: are its stored bars already split/bonus adjusted? yes | no | detect.
+    # The detector (the raw move at each ex-date) checks the flag; when it is conclusive it
+    # wins, with a warning if it disagrees. Unlisted sources are "detect".
+    prices_already_adjusted: dict[str, Literal["yes", "no", "detect"]] = Field(default_factory=dict)
+    suspicious: SuspiciousMovesConfig
+
+
+class IndianApiEndpoint(_Strict):
+    """One call made per stock: ``path`` relative to base_url, plus fixed query params (the
+    stock's vendor name is added as ``name_param``)."""
+
+    path: str
+    name_param: str
+    params: dict[str, str] = Field(default_factory=dict)
+
+
+class IndianApiConfig(_Strict):
+    """stock.indianapi.in (SPEC §3.2): the bulk fundamentals source when NSE is unavailable.
+    Needs INDIANAPI_KEY (sent as the ``X-Api-Key`` header, never logged or stored)."""
+
+    enabled: bool
+    base_url: str
+    request_timeout_s: PositiveFloat
+    monthly_request_budget: PositiveInt
+    # calls stop once this share of the month's budget is used (headroom for manual checks)
+    stop_at_fraction: Fraction
+    refresh_days: PositiveInt  # a stock's cached responses are re-fetched after this
+    user_refresh_min_age_hours: PositiveFloat  # Refresh button: only if the cache is older
+    calls_per_stock: list[IndianApiEndpoint] = Field(min_length=1)
+    # vendor names to try after the symbol master's name and the NSE symbol, per NSE symbol
+    name_fallbacks: dict[str, list[str]] = Field(default_factory=dict)
+
+    @property
+    def stop_at(self) -> int:
+        return int(self.monthly_request_budget * self.stop_at_fraction)
 
 
 class ProvidersConfig(_Strict):
@@ -393,6 +447,7 @@ class ProvidersConfig(_Strict):
     bse: BseConfig
     symbols: SymbolsConfig
     market_lens: MarketLensConfig
+    indianapi: IndianApiConfig
     brokers: dict[Broker, BrokerConfig]
     bhavcopy: BhavcopyHistoryConfig
     oauth_state_ttl_s: PositiveInt
@@ -802,11 +857,28 @@ class DecisionConfig(_Strict):
         return self
 
 
+class DataDepthConfig(_Strict):
+    """Fiscal years of P&L for the report's data-depth levels (SPEC §7.3)."""
+
+    provisional_min_years: PositiveInt
+    full_min_years: PositiveInt
+    valuation_steps_down: Annotated[int, Field(ge=0, le=2)]  # below full
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        if self.provisional_min_years >= self.full_min_years:
+            raise ValueError("provisional_min_years must be < full_min_years")
+        return self
+
+
 class BankMaps(_Strict):
     gnpa_pct: PiecewiseLinearMap
     nim_pct: PiecewiseLinearMap
     car_pct: PiecewiseLinearMap
     roa_pct: PiecewiseLinearMap
+    # proxies, used only when the reported metric is missing (health pillar)
+    credit_cost_pct: PiecewiseLinearMap  # for GNPA
+    equity_to_assets_pct: PiecewiseLinearMap  # for CAR
 
 
 class FundamentalsConfig(_Strict):
@@ -839,6 +911,7 @@ class ScoringConfig(_Strict):
     earned_premium: EarnedPremiumConfig
     decision: DecisionConfig
     bank_maps: BankMaps
+    data_depth: DataDepthConfig
     fundamentals: FundamentalsConfig
     forensic: ForensicConfig
 
@@ -926,6 +999,7 @@ class JobName(StrEnum):
     BROKER_TOKEN_CHECK = "broker_token_check"
     THESIS = "thesis"
     INDUSTRY_CLASSIFICATION = "industry_classification"
+    FUNDAMENTALS_INDIANAPI = "fundamentals_indianapi"
 
 
 class Season(_Strict):
@@ -982,6 +1056,13 @@ class CatchUpConfig(_Strict):
         if unknown:
             raise ValueError(f"catch_up.skip: unknown jobs {sorted(unknown)}")
         return self
+
+
+class FundamentalsIndianApiConfig(_Strict):
+    """fundamentals_indianapi job: bulk statements from the Indian API (paid, metered)."""
+
+    max_stocks_per_run: PositiveInt  # scheduled runs; --symbols / --all-universe ignore it
+    max_name_attempts: PositiveInt  # vendor names tried per stock (each costs a call)
 
 
 class IndustryClassificationConfig(_Strict):
@@ -1137,7 +1218,7 @@ class ResultsWatchJobConfig(_Strict):
     notify: ResultsNotifyConfig
 
 
-ReconSource = Literal["nse_xbrl", "annual_report_pdf", "yfinance", "market_lens"]
+ReconSource = Literal["nse_xbrl", "annual_report_pdf", "indianapi", "yfinance", "market_lens"]
 
 
 class ReconciliationConfig(_Strict):
@@ -1157,10 +1238,11 @@ class ReconciliationConfig(_Strict):
     @model_validator(mode="after")
     def _check(self) -> Self:
         from app.data.canonical import fields_for
+        from app.fundamentals.xbrl_map import get_xbrl_map
 
-        unknown = set(self.items) - set(fields_for("fin_annual"))
+        unknown = set(self.items) - set(fields_for("fin_annual")) - set(get_xbrl_map().items)
         if unknown:
-            raise ValueError(f"items not in fin_annual: {sorted(unknown)}")
+            raise ValueError(f"items not in fin_annual or xbrl_map: {sorted(unknown)}")
         if len(set(self.sources)) != len(self.sources):
             raise ValueError("sources lists a source twice")
         return self
@@ -1180,6 +1262,14 @@ class PipelineConfig(_Strict):
     sse_max_minutes: PositiveFloat  # a progress stream ends after this long
 
 
+class AvailabilityLag(_Strict):
+    """Days after the period end a statement without an announcement date is taken as public
+    in backtests (SEBI LODR: quarterly results within 45 days, annual within 60, plus margin)."""
+
+    annual: Annotated[int, Field(ge=0, le=366)]
+    quarterly: Annotated[int, Field(ge=0, le=366)]
+
+
 class BacktestConfig(_Strict):
     benchmark: str
     benchmark_tri: str | None = None
@@ -1188,6 +1278,7 @@ class BacktestConfig(_Strict):
     stt_sell: Fraction
     execution_lag_days: Annotated[int, Field(ge=0, le=5)]
     equity_curve_points: Literal["daily", "weekly"]
+    fundamentals_availability_lag_days: AvailabilityLag
 
 
 class JobsConfig(_Strict):
@@ -1204,6 +1295,7 @@ class JobsConfig(_Strict):
     telegram_bot: TelegramBotConfig
     thesis: ThesisConfig
     industry_classification: IndustryClassificationConfig
+    fundamentals_indianapi: FundamentalsIndianApiConfig
     catch_up: CatchUpConfig
     doctor: DoctorConfig
     backtest: BacktestConfig
@@ -1259,6 +1351,24 @@ class IndustriesConfig(_Strict):
         return {normalise_label(k): v for k, v in raw.items()}
 
 
+class StructuralEvent(_Strict):
+    """A merger, demerger or large acquisition: the company before and after differ, so growth
+    across it is measured per share (SPEC §4)."""
+
+    date: date
+    kind: Literal["merger", "demerger", "acquisition", "other"]
+    description: str = Field(min_length=1)
+
+
+class StructuralEventsConfig(_Strict):
+    """``structural_events.yaml``: NSE symbol → its structural breaks."""
+
+    events: dict[str, list[StructuralEvent]] = Field(default_factory=dict)
+
+    def for_symbol(self, symbol: str) -> list[StructuralEvent]:
+        return sorted(self.events.get(symbol.upper(), []), key=lambda e: e.date)
+
+
 class AppConfig(_Strict):
     providers: ProvidersConfig
     valuation: ValuationConfig
@@ -1267,6 +1377,7 @@ class AppConfig(_Strict):
     technical: TechnicalConfig
     jobs: JobsConfig
     industries: IndustriesConfig
+    structural_events: StructuralEventsConfig
 
     @model_validator(mode="after")
     def _industries_map_to_sectors(self) -> Self:

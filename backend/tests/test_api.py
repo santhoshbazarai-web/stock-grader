@@ -394,6 +394,7 @@ def test_config_view(client: TestClient) -> None:
     body = client.get("/api/config").json()
     assert [f["name"] for f in body["files"]] == [
         "providers", "valuation", "sectors", "scoring", "technical", "jobs", "industries",
+        "structural_events",
     ]  # fmt: skip
     assert body["parsed"]["scoring"]["weights"]["quality"] == 25
 

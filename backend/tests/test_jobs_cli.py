@@ -78,6 +78,26 @@ def test_verify_adjustment(env: Env, capsys: pytest.CaptureFixture[str]) -> None
     assert "largest overnight move: raw 50.0%, adjusted 1.0%" in out
 
 
+def test_verify_adjustment_readjust_and_raw_window(
+    env: Env, capsys: pytest.CaptureFixture[str]
+) -> None:
+    env.prices.bars["SAMPLE"] = ohlcv(
+        {"2024-06-03": 1000, "2024-06-04": 1000, "2024-06-05": 500, "2024-06-06": 505}
+    )
+    env.nse.actions["SAMPLE"] = pd.DataFrame([action("2024-06-05", "bonus", 1, 2)])
+    cli(env, "run", "eod_prices", "--symbols", "SAMPLE")
+    capsys.readouterr()
+
+    argv = ("verify-adjustment", "--symbol", "SAMPLE", "--readjust",
+            "--around", "2024-06-04:2024-06-05")  # fmt: skip
+    assert cli(env, *argv) == 0
+    out = capsys.readouterr().out
+    assert "re-adjusted: 0 bar(s) changed" in out  # already adjusted by eod_prices
+    assert "raw bars 2024-06-04 .. 2024-06-05" in out and "source" in out
+    assert "overnight gaps above 3x ATR(14)/close: 0" in out
+    assert "open price anomalies: 0" in out
+
+
 def test_verify_adjustment_unknown_symbol(env: Env, capsys: pytest.CaptureFixture[str]) -> None:
     assert cli(env, "verify-adjustment", "--symbol", "NOPE") == 1
 

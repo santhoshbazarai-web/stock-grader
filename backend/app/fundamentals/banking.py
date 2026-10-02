@@ -15,9 +15,23 @@ Definitions:
 - CAR/CRAR   = reported ``crar_pct`` (risk-weighted assets are not in the statements)
 - Cost/income= operating_expenses / (NII + other_income)
 - RoA        = pat / average(total_assets);  RoE = pat / average(total_equity)
-- Loan growth= advances / previous advances - 1
+- Loan growth= advances / previous advances - 1;  deposit growth likewise
+- CD ratio   = advances / deposits
+- Equity/assets = total_equity / total_assets
+- Payout     = dividends_paid / pat
+
+Proxies (``PROXIES``): every metric derived here from statement lines rather than reported by
+the bank is a *proxy* (e.g. the bank's own NIM uses average interest-earning assets; ours uses
+advances + investments). GNPA, NNPA, CAR and CASA are the reported figures. The report labels
+proxies, and the health pillar uses a proxy only in place of a missing reported metric
+(``scoring.pillars.health``).
+
+Per-share (``bank_per_share``): BVPS = equity / year-end shares, P/B = price / BVPS, and EPS
+growth per share = growth of PAT per year-end share (weighted-average EPS when no year-end
+count), so mergers do not inflate it (SPEC §4 structural breaks).
 """
 
+from collections.abc import Mapping
 from typing import Any
 
 import pandas as pd
@@ -52,7 +66,28 @@ BANK_METRICS = (
     "roa_pct",
     "roe_pct",
     "loan_growth_pct",
+    "deposit_growth_pct",
+    "cd_ratio_pct",
+    "equity_to_assets_pct",
+    "payout_pct",
 )
+
+# metric → what it is a proxy for / how it is derived (not reported by the bank)
+PROXIES: dict[str, str] = {
+    "nim_pct": "NII / average(advances + investments): earning-assets proxy",
+    "credit_cost_pct": "loan-loss provisions / average advances",
+    "cost_to_income_pct": "operating expenses / (NII + other income)",
+    "roa_pct": "PAT / average total assets",
+    "roe_pct": "PAT / average equity",
+    "loan_growth_pct": "advances / previous advances - 1",
+    "deposit_growth_pct": "deposits / previous deposits - 1",
+    "cd_ratio_pct": "advances / deposits",
+    "equity_to_assets_pct": "equity / total assets: capital proxy (CAR not reported)",
+    "payout_pct": "dividends paid / PAT",
+    "bvps": "equity / year-end shares",
+    "pb": "price / BVPS",
+    "eps_growth_ps_pct": "growth of PAT per year-end share",
+}
 
 
 def bank_frame(annual: pd.DataFrame) -> pd.DataFrame:
@@ -86,6 +121,12 @@ def bank_metrics(annual: pd.DataFrame) -> pd.DataFrame:
     out["roa_pct"] = ratio(column(df, "pat"), average(column(df, "total_assets"))) * 100
     out["roe_pct"] = ratio(column(df, "pat"), average(column(df, "total_equity"))) * 100
     out["loan_growth_pct"] = (ratio(advances, advances.shift(1)) - 1) * 100
+    deposits = column(df, "deposits")
+    out["deposit_growth_pct"] = (ratio(deposits, deposits.shift(1)) - 1) * 100
+    out["cd_ratio_pct"] = ratio(advances, deposits) * 100
+    equity, assets = column(df, "total_equity"), column(df, "total_assets")
+    out["equity_to_assets_pct"] = ratio(equity, assets) * 100
+    out["payout_pct"] = ratio(column(df, "dividends_paid"), column(df, "pat")) * 100
     return out
 
 
@@ -102,6 +143,10 @@ _BANK_INPUTS: dict[str, tuple[str, ...]] = {
     "roa_pct": ("pat", "total_assets"),
     "roe_pct": ("pat", "total_equity"),
     "loan_growth_pct": ("advances",),
+    "deposit_growth_pct": ("deposits",),
+    "cd_ratio_pct": ("advances", "deposits"),
+    "equity_to_assets_pct": ("total_equity", "total_assets"),
+    "payout_pct": ("dividends_paid", "pat"),
 }  # fmt: skip
 
 
@@ -127,4 +172,51 @@ def bank_summary(annual: pd.DataFrame, year: int | None = None) -> dict[str, Met
             out[name] = Metric(None, reason)
         else:
             out[name] = Metric(float(v))
+    return out
+
+
+def bank_per_share(
+    annual: pd.DataFrame,
+    *,
+    price: float | None,
+    shares_year_end: Mapping[int, float] | None = None,
+    year: int | None = None,
+) -> dict[str, Metric]:
+    """BVPS, P/B and EPS growth per share for fiscal ``year`` (default latest); all proxies.
+    Shares in crore; equity and PAT in ₹ crore."""
+    df = by_year(annual)
+    if df.empty:
+        return {}
+    y = int(year if year is not None else df.index.max())
+    ye = {int(k): float(v) for k, v in (shares_year_end or {}).items() if v and v > 0}
+
+    def shares(fy: int) -> tuple[float | None, str]:
+        if fy in ye:
+            return ye[fy], "year-end shares"
+        w = column(df, "shares_diluted_cr").get(fy)
+        if w is None or pd.isna(w) or w <= 0:
+            return None, "weighted-average diluted shares"
+        return float(w), "weighted-average diluted shares"
+
+    out: dict[str, Metric] = {}
+    sh, basis = shares(y)
+    eq = column(df, "total_equity").get(y)
+    if sh is None or eq is None or pd.isna(eq):
+        out["bvps"] = Metric(None, f"missing total_equity or shares (FY{y})")
+    else:
+        out["bvps"] = Metric(float(eq) / sh, f"proxy: equity / {basis}")
+    bvps = out["bvps"].value
+    if price is None or not bvps or bvps <= 0:
+        out["pb"] = Metric(None, "needs a price and a positive BVPS")
+    else:
+        out["pb"] = Metric(price / bvps, "proxy: price / BVPS")
+    pat = column(df, "pat")
+    sh0, _ = shares(y - 1)
+    now, prev = pat.get(y), pat.get(y - 1)
+    if sh is None or sh0 is None or now is None or prev is None or pd.isna(now) \
+            or pd.isna(prev) or prev <= 0:  # fmt: skip
+        out["eps_growth_ps_pct"] = Metric(None, f"needs PAT and shares for FY{y - 1} and FY{y}")
+    else:
+        g = (float(now) / sh) / (float(prev) / sh0) - 1
+        out["eps_growth_ps_pct"] = Metric(g * 100, f"proxy: PAT per {basis}")
     return out

@@ -1,0 +1,227 @@
+# indianapi_map.yaml — stock.indianapi.in responses → canonical line items (SPEC §3.2, §3.6).
+#
+# Built from the recorded responses in backend/tests/fixtures/indianapi (HDFCBANK, TCS, ITC,
+# TATASTEEL), not from documentation. Bump `version` whenever a mapping changes: every stored
+# value records it, and cached responses can be re-mapped without new calls.
+#
+# Two endpoints carry statements:
+#   /stock               `financials`: Annual entries (about 7 fiscal years) and Interim
+#                        (3-month) entries, each with INC / BAL / CAS lists of {key, value}.
+#                        Interim cash flows are year-to-date (periodLength 3/6/9/12), so only
+#                        12-month cash flows are read.
+#   /historical_stats    {"<Screener-style label>": {"Mar 2015": v, ..., "TTM": v}}: about 12
+#                        fiscal years (yoy_results, balancesheet, cashflow) or 13 quarters
+#                        (quarter_results). TTM is not read.
+# /stock is the primary source for a year it covers; /historical_stats extends the history.
+# Both are vendor-reclassified, consolidated statements (stored with vendor_reclassified=true).
+#
+# Units are declared per section here and VERIFIED on every response (app/data/indianapi_parse):
+#   stock_financials   ₹ crore: in each annual entry, net income ≈ diluted EPS × diluted shares
+#                      (shares in crore) puts the amounts in crore (ratio ≈ 1; ≈ 10 = millions).
+#   historical_stats   ₹ crore: must agree with /stock on overlapping years.
+#   key_metrics        amounts in ₹ million (e.g. HDFCBANK earningsBeforTaxesMostRecentFiscalYear
+#                      1,021,415 vs PBT 102,141 crore), per-share values in ₹, market cap in
+#                      ₹ crore. Read only for cross-checks, never stored as statements.
+# A response whose unit check fails is not stored (data gap), never guessed.
+#
+# Per item: statement pl|bs|cf, unit amount|per_share|shares, and where it comes from:
+#   stock:  {section: INC|BAL|CAS, keys: [first present wins] | sum_of: [...], sign: -1,
+#            magnitude: true (stored as a positive amount)}
+#   hist:   {stats: yoy_results|balancesheet|cashflow, labels: [...] | sum_of: [...]}
+#           (quarter_results reuses the yoy_results labels of the P&L items)
+#   compare: false   the two sources define the item differently: no 2% check
+# Item codes that are xbrl_map.yaml codes fill fin_annual / fin_quarterly; others are
+# fin_line_items rows only. An item no source gives is left empty (a data gap), never 0.
+
+version: 1
+
+units:
+  stock_financials: crore
+  historical_stats: crore
+  shares: crore
+  key_metrics_amounts: million
+  unit_check_tolerance: 0.2        # |ratio - expected| / expected
+  consistency_tolerance: 0.02      # /stock vs /historical_stats, same year and item
+  quarter_sum_tolerance: 0.01      # four quarters vs the fiscal year
+
+# A /stock payload with any of these INC/BAL keys, or a /historical_stats one with these
+# labels, is in the banking layout.
+bank_markers:
+  stock: [InterestIncomeBank, NetInterestIncome, TotalDeposits, NetLoans]
+  hist: [Financing Profit, Deposits]
+
+# The vendor writes 0 where it has no figure for these (e.g. bank quarterly depreciation,
+# TTM depreciation): a 0 is read as missing.
+zero_means_missing: [depreciation, capital_work_in_progress]
+
+models:
+  general:
+    revenue: {statement: pl, unit: amount, stock: {section: INC, keys: [Revenue, TotalRevenue]},
+              hist: {stats: yoy_results, labels: [Sales]}}
+    total_expenses: {statement: pl, unit: amount, hist: {stats: yoy_results, labels: [Expenses]}}
+    operating_profit: {statement: pl, unit: amount,
+                       hist: {stats: yoy_results, labels: [Operating Profit]}}
+    other_income: {statement: pl, unit: amount, hist: {stats: yoy_results, labels: [Other Income]}}
+    interest: {statement: pl, unit: amount, hist: {stats: yoy_results, labels: [Interest]}}
+    depreciation: {statement: pl, unit: amount,
+                   stock: {section: INC, keys: [Depreciation/Amortization]},
+                   hist: {stats: yoy_results, labels: [Depreciation]}}
+    pbt: {statement: pl, unit: amount, stock: {section: INC, keys: [NetIncomeBeforeTaxes]},
+          hist: {stats: yoy_results, labels: [Profit before tax]}}
+    tax: {statement: pl, unit: amount, stock: {section: INC, keys: [ProvisionforIncomeTaxes]}}
+    # after tax, including minority interest: the vendor's "Net Profit"
+    profit_after_tax: {statement: pl, unit: amount,
+                       stock: {section: INC, keys: [NetIncomeAfterTaxes]},
+                       hist: {stats: yoy_results, labels: [Net Profit]}}
+    # attributable to the owners (canonical pat); /historical_stats has only profit_after_tax
+    pat: {statement: pl, unit: amount, stock: {section: INC, keys: [NetIncome]}}
+    minority_interest_pl: {statement: pl, unit: amount,
+                           stock: {section: INC, keys: [MinorityInterest], sign: -1}}
+    eps_diluted: {statement: pl, unit: per_share,
+                  stock: {section: INC, keys: [DilutedEPSExcludingExtraOrdItems]},
+                  hist: {stats: yoy_results, labels: [EPS in Rs]}}
+    dps: {statement: pl, unit: per_share, stock: {section: INC, keys: [DPS-CommonStockPrimaryIssue]}}
+    equity_share_capital: {statement: bs, unit: amount, stock: {section: BAL, keys: [CommonStockTotal]},
+                           hist: {stats: balancesheet, labels: [Equity Capital]}}
+    reserves: {statement: bs, unit: amount, hist: {stats: balancesheet, labels: [Reserves]}}
+    total_equity: {statement: bs, unit: amount, stock: {section: BAL, keys: [TotalEquity]},
+                   hist: {stats: balancesheet, sum_of: [Equity Capital, Reserves]}}
+    retained_earnings: {statement: bs, unit: amount,
+                        stock: {section: BAL, keys: ["RetainedEarnings(AccumulatedDeficit)"]}}
+    minority_interest_bs: {statement: bs, unit: amount, stock: {section: BAL, keys: [MinorityInterest]}}
+    total_debt: {statement: bs, unit: amount, stock: {section: BAL, keys: [TotalDebt]},
+                 hist: {stats: balancesheet, labels: [Borrowings, Borrowing]}}
+    total_assets: {statement: bs, unit: amount, stock: {section: BAL, keys: [TotalAssets]},
+                   hist: {stats: balancesheet, labels: [Total Assets]}}
+    current_assets: {statement: bs, unit: amount, stock: {section: BAL, keys: [TotalCurrentAssets]}}
+    current_liabilities: {statement: bs, unit: amount,
+                          stock: {section: BAL, keys: [TotalCurrentLiabilities]}}
+    cash_and_equivalents: {statement: bs, unit: amount,
+                           stock: {section: BAL, sum_of: [Cash, CashEquivalents]}}
+    receivables: {statement: bs, unit: amount, stock: {section: BAL, keys: [AccountsReceivable-TradeNet]}}
+    inventory: {statement: bs, unit: amount, stock: {section: BAL, keys: [TotalInventory]}}
+    payables: {statement: bs, unit: amount, stock: {section: BAL, keys: [AccountsPayable]}}
+    net_block: {statement: bs, unit: amount,
+                stock: {section: BAL, keys: [Property/Plant/EquipmentTotal-Net]}}
+    # Screener's "Fixed Assets" includes intangibles and right-of-use assets: not net_block
+    fixed_assets: {statement: bs, unit: amount, hist: {stats: balancesheet, labels: [Fixed Assets]}}
+    capital_work_in_progress: {statement: bs, unit: amount, hist: {stats: balancesheet, labels: [CWIP]}}
+    non_operating_investments: {statement: bs, unit: amount,
+                                hist: {stats: balancesheet, labels: [Investments]}}
+    shares_outstanding: {statement: bs, unit: shares,
+                         stock: {section: BAL, keys: [TotalCommonSharesOutstanding]}}
+    cfo: {statement: cf, unit: amount, stock: {section: CAS, keys: [CashfromOperatingActivities]},
+          hist: {stats: cashflow, labels: [Cash from Operating Activity]}}
+    cfi: {statement: cf, unit: amount, stock: {section: CAS, keys: [CashfromInvestingActivities]},
+          hist: {stats: cashflow, labels: [Cash from Investing Activity]}}
+    cff: {statement: cf, unit: amount, stock: {section: CAS, keys: [CashfromFinancingActivities]},
+          hist: {stats: cashflow, labels: [Cash from Financing Activity]}}
+    net_cash_flow: {statement: cf, unit: amount, stock: {section: CAS, keys: [NetChangeinCash]},
+                    hist: {stats: cashflow, labels: [Net Cash Flow]}}
+    purchase_of_fixed_assets: {statement: cf, unit: amount,
+                               stock: {section: CAS, keys: [CapitalExpenditures], magnitude: true}}
+    dividends_paid: {statement: cf, unit: amount,
+                     stock: {section: CAS, keys: [TotalCashDividendsPaid], magnitude: true}}
+    # the vendor's free cash flow (CFO - capex as it defines it): reported, not recomputed
+    free_cash_flow: {statement: cf, unit: amount, hist: {stats: cashflow, labels: [Free Cash Flow]}}
+
+  bank:
+    revenue: {statement: pl, unit: amount, stock: {section: INC, keys: [InterestIncomeBank]},
+              hist: {stats: yoy_results, labels: [Revenue]}}
+    interest_earned: {statement: pl, unit: amount, stock: {section: INC, keys: [InterestIncomeBank]},
+                      hist: {stats: yoy_results, labels: [Revenue]}}
+    interest: {statement: pl, unit: amount, stock: {section: INC, keys: [TotalInterestExpense]},
+               hist: {stats: yoy_results, labels: [Interest]}}
+    interest_expended: {statement: pl, unit: amount,
+                        stock: {section: INC, keys: [TotalInterestExpense]},
+                        hist: {stats: yoy_results, labels: [Interest]}}
+    net_interest_income: {statement: pl, unit: amount, stock: {section: INC, keys: [NetInterestIncome]}}
+    other_income: {statement: pl, unit: amount, stock: {section: INC, keys: [Non-InterestIncomeBank]},
+                   hist: {stats: yoy_results, labels: [Other Income]}}
+    # /stock's non-interest expense excludes provisions; Screener's "Expenses" is wider
+    operating_expenses: {statement: pl, unit: amount,
+                         stock: {section: INC, keys: [Non-InterestExpenseBank], magnitude: true}}
+    total_expenses: {statement: pl, unit: amount, hist: {stats: yoy_results, labels: [Expenses]}}
+    loan_loss_provisions: {statement: pl, unit: amount, stock: {section: INC, keys: [LoanLossProvision]}}
+    depreciation: {statement: pl, unit: amount, hist: {stats: yoy_results, labels: [Depreciation]}}
+    pbt: {statement: pl, unit: amount, stock: {section: INC, keys: [NetIncomeBeforeTaxes]},
+          hist: {stats: yoy_results, labels: [Profit before tax]}}
+    tax: {statement: pl, unit: amount, stock: {section: INC, keys: [ProvisionforIncomeTaxes]}}
+    profit_after_tax: {statement: pl, unit: amount,
+                       stock: {section: INC, keys: [NetIncomeAfterTaxes]},
+                       hist: {stats: yoy_results, labels: [Net Profit]}}
+    pat: {statement: pl, unit: amount, stock: {section: INC, keys: [NetIncome]}}
+    minority_interest_pl: {statement: pl, unit: amount,
+                           stock: {section: INC, keys: [MinorityInterest], sign: -1}}
+    eps_diluted: {statement: pl, unit: per_share,
+                  stock: {section: INC, keys: [DilutedEPSExcludingExtraOrdItems]},
+                  hist: {stats: yoy_results, labels: [EPS in Rs]}}
+    dps: {statement: pl, unit: per_share, stock: {section: INC, keys: [DPS-CommonStockPrimaryIssue]}}
+    equity_share_capital: {statement: bs, unit: amount, stock: {section: BAL, keys: [CommonStockTotal]},
+                           hist: {stats: balancesheet, labels: [Equity Capital]}}
+    reserves: {statement: bs, unit: amount, hist: {stats: balancesheet, labels: [Reserves]}}
+    total_equity: {statement: bs, unit: amount, stock: {section: BAL, keys: [TotalEquity]},
+                   hist: {stats: balancesheet, sum_of: [Equity Capital, Reserves]}}
+    minority_interest_bs: {statement: bs, unit: amount, stock: {section: BAL, keys: [MinorityInterest]}}
+    advances: {statement: bs, unit: amount, stock: {section: BAL, keys: [NetLoans]}}
+    deposits: {statement: bs, unit: amount, stock: {section: BAL, keys: [TotalDeposits]},
+               hist: {stats: balancesheet, labels: [Deposits]}}
+    # /stock TotalDebt adds short-term borrowings to the long-term debt Screener lists
+    total_debt: {statement: bs, unit: amount, stock: {section: BAL, keys: [TotalDebt]},
+                 hist: {stats: balancesheet, labels: [Borrowing]}, compare: false}
+    investments: {statement: bs, unit: amount, hist: {stats: balancesheet, labels: [Investments]}}
+    total_assets: {statement: bs, unit: amount, stock: {section: BAL, keys: [TotalAssets]},
+                   hist: {stats: balancesheet, labels: [Total Assets]}}
+    cash_and_equivalents: {statement: bs, unit: amount, stock: {section: BAL, keys: [CashDuefromBanks]}}
+    net_block: {statement: bs, unit: amount,
+                stock: {section: BAL, keys: [Property/Plant/EquipmentTotal-Net]}}
+    fixed_assets: {statement: bs, unit: amount, hist: {stats: balancesheet, labels: [Fixed Assets]}}
+    shares_outstanding: {statement: bs, unit: shares,
+                         stock: {section: BAL, keys: [TotalCommonSharesOutstanding]}}
+    cfo: {statement: cf, unit: amount, stock: {section: CAS, keys: [CashfromOperatingActivities]},
+          hist: {stats: cashflow, labels: [Cash from Operating Activity]}}
+    cfi: {statement: cf, unit: amount, stock: {section: CAS, keys: [CashfromInvestingActivities]},
+          hist: {stats: cashflow, labels: [Cash from Investing Activity]}}
+    cff: {statement: cf, unit: amount, stock: {section: CAS, keys: [CashfromFinancingActivities]},
+          hist: {stats: cashflow, labels: [Cash from Financing Activity]}}
+    net_cash_flow: {statement: cf, unit: amount, stock: {section: CAS, keys: [NetChangeinCash]},
+                    hist: {stats: cashflow, labels: [Net Cash Flow]}}
+    purchase_of_fixed_assets: {statement: cf, unit: amount,
+                               stock: {section: CAS, keys: [CapitalExpenditures], magnitude: true}}
+    dividends_paid: {statement: cf, unit: amount,
+                     stock: {section: CAS, keys: [TotalCashDividendsPaid], magnitude: true}}
+    free_cash_flow: {statement: cf, unit: amount, hist: {stats: cashflow, labels: [Free Cash Flow]}}
+
+# A year with no figure for the key item uses the value item instead, labelled in the stored
+# tag. /historical_stats gives only profit after tax including minority interest ("Net
+# Profit"); before /stock's years that is the PAT used (minority shares are small for most
+# companies; the tag and a report note say so).
+fallbacks:
+  pat: profit_after_tax
+
+# keyMetrics read for cross-checks against our own derived values (never stored). The keys are
+# the vendor's own spelling, typos included ("MostRecenFiscalYear", "FiscalYear)").
+key_metrics:
+  book_value_per_share: {group: persharedata, key: bookValuePerShareMostRecentFiscalYear}
+  price_to_book: {group: valuation, key: priceToBookMostRecentFiscalYear}
+  roa_pct: {group: mgmtEffectiveness, key: returnOnAverageAssetsMostRecenFiscalYear}
+  roe_pct: {group: mgmtEffectiveness, key: returnOnAverageEquityMostRecentFiscalYear)}
+  market_cap_cr: {group: priceandVolume, key: marketCap}
+
+checks:
+  # keyMetrics vs ours: BVPS and market cap agree to <0.2% on the fixtures; P/B and ROA differ
+  # by the vendor's price date and profit definition (~2%), so 5% before it is listed
+  key_metric_tolerance: 0.05
+  corporate_action_window_days: 3   # vendor and exchange ex-dates this close: the same action
+
+# The vendor gives no sale of fixed assets: /stock has gross CapitalExpenditures, the history
+# has CFO and Free Cash Flow (= CFO - net capex). Net capex = CFO - FCF (history) is split:
+#   /stock purchase present: sale = purchase - net capex (TCS FY26: 4,700 - 4,081 = 619)
+#   history only:            purchase = net capex, sale = 0, both tagged "net capex"
+# A purchase below net capex by more than the tolerance is inconsistent: nothing derived.
+net_capex:
+  cfo: cfo
+  free_cash_flow: free_cash_flow
+  purchase: purchase_of_fixed_assets
+  sale: sale_of_fixed_assets
+  tolerance: 0.02

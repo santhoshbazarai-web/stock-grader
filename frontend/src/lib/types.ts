@@ -78,6 +78,22 @@ export type Pillar = {
   subs: SubScore[];
   missing: string[];
   reasons: string[];
+  confidence?: "full" | "reduced"; // reduced: scored partly from proxies (absent before Prompt B)
+};
+
+export type DataDepth = {
+  level: "technical_only" | "provisional" | "full";
+  pl_years: number;
+  reason: string;
+};
+
+export type BankMetric = {
+  name: string;
+  value: number | null;
+  unit: "pct" | "inr" | "x";
+  proxy: boolean; // derived from the statements, not the figure the bank reports
+  definition: string | null;
+  reason: string | null;
 };
 
 export type Condition = { code: string; met: boolean | null; reason: string };
@@ -105,6 +121,10 @@ export type StockReport = {
   data_gaps: string[];
   thesis: string | null;
   shareholding?: ShareholdingSummary | null; // absent in reports built before Prompt A
+  analyst_consensus?: AnalystConsensus | null; // informational only, never scored
+  bank_metrics?: BankMetric[]; // banks only (absent before Prompt B)
+  grade_confidence?: "full" | "reduced"; // reduced below full data depth (grade provisional)
+  data_depth?: DataDepth | null; // header badge (absent before Prompt B)
   reconciliation_issues?: string[]; // SPEC v0.2 §3.9 (absent in reports built before P21)
   provisional_grade: Grade | null;
   mos_grade: Grade | null;
@@ -210,6 +230,14 @@ export type ShareholdingSummary = {
   promoter_change_pp: number | null;
   pledge_prev_pct: number | null;
   quarters: number;
+};
+
+export type AnalystConsensus = {
+  source: string;
+  as_of: string;
+  recommendations: number;
+  mean_rating: number | null; // 1 Strong Buy … 5 Strong Sell
+  ratings: Record<string, number>;
 };
 
 export type FundamentalsHistory = {
@@ -397,7 +425,7 @@ export type UploadedDataset = {
   uploaded_at: string;
 };
 
-export type ConfigFileName = "providers" | "valuation" | "sectors" | "scoring" | "technical" | "jobs" | "industries";
+export type ConfigFileName = "providers" | "valuation" | "sectors" | "scoring" | "technical" | "jobs" | "industries" | "structural_events";
 
 export type ConfigView = {
   files: { name: ConfigFileName; yaml: string }[];
@@ -618,7 +646,14 @@ export type PdfCandidate = {
 
 export type ReviewSummary = { pending: number; reports_parsed: number; reports_failed: number };
 
-export type CoverageSource = "xbrl" | "pdf" | "derived" | "screener" | "yfinance" | "nse";
+export type CoverageSource =
+  | "xbrl"
+  | "pdf"
+  | "derived"
+  | "indianapi"
+  | "screener"
+  | "yfinance"
+  | "nse";
 
 export type CoverageCell = {
   fiscal_year: number;
@@ -715,7 +750,13 @@ export type ReconciliationIssue = {
   reference_value_inr: number;
   diff_rel: number;
   values: Record<string, number>;
-  cause: "units" | "basis" | "restatement" | null;
+  cause:
+    | "units"
+    | "basis"
+    | "restatement"
+    | "vendor_internal"
+    | "key_metric"
+    | null;
   reasons: string[];
   status: "open" | "resolved" | "ignored";
   detected_at: string;
@@ -765,8 +806,43 @@ export type SiteDiag = {
   rows: DiagRow[];
 };
 
+export type IndianApiStatus = {
+  enabled: boolean;
+  configured: boolean; // enabled and INDIANAPI_KEY set (the key is never sent to the browser)
+  used: number; // calls this month (IST)
+  budget: number;
+  stop_at: number;
+  month: string;
+  message: string; // e.g. "Indian API: 123/500 calls this month" or "Add INDIANAPI_KEY in .env"
+};
+
 export type DataSources = {
   running: boolean;
   nse: SiteDiag | null;
   bse: SiteDiag | null;
+  indianapi?: IndianApiStatus | null;
+};
+
+export type PriceAnomaly = {
+  id: number;
+  day: string;
+  ratio: number;
+  candidate: number;
+  volume_ratio: number | null;
+  volume_confirmed: boolean; // a fix is offered only when the volume confirms it
+  kind: "missing_action" | "double_adjusted" | "not_applied";
+  action_ex_date: string | null;
+  ratio_old: number | null;
+  ratio_new: number | null;
+  text: string;
+  status: "open" | "applied" | "dismissed" | "resolved";
+};
+
+export type PriceAnomalies = { symbol: string; open: PriceAnomaly[] };
+
+export type PriceFix = {
+  anomaly: PriceAnomaly;
+  done: string;
+  readjusted_bars: number;
+  remaining: PriceAnomaly[];
 };

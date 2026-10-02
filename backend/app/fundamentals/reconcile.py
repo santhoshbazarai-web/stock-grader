@@ -14,7 +14,7 @@ finding. Each finding gets the likeliest cause, checked in this order:
 - otherwise no cause is named ("unexplained").
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
 
@@ -26,6 +26,7 @@ SOURCE_LABELS = {
     "nse_xbrl": "NSE XBRL",
     "bse_xbrl": "BSE XBRL",
     "annual_report_pdf": "annual report (PDF)",
+    "indianapi": "Indian API",
     "market_lens": "Market Lens",
     "yfinance": "yfinance",
 }
@@ -36,6 +37,9 @@ ITEM_LABELS = {
     "cfo": "CFO",
     "total_assets": "Total assets",
     "total_equity": "Equity",
+    "deposits": "Deposits",
+    "advances": "Advances (loans)",
+    "eps_diluted": "Diluted EPS",
 }
 
 
@@ -65,8 +69,8 @@ def _near(a: float, b: float, tol: float) -> bool:
     return b != 0 and abs(a / b - 1) <= tol
 
 
-def _cr(v: float) -> str:
-    return f"₹{v / CRORE:,.2f} cr"
+def _cr(v: float, per_share: bool = False) -> str:
+    return f"₹{v:,.2f}" if per_share else f"₹{v / CRORE:,.2f} cr"
 
 
 def _period(end: date, ptype: str) -> str:
@@ -87,9 +91,11 @@ def reconcile(
     other_basis: Mapping[Key, float] | None = None,
     earlier_versions: Mapping[Key, Sequence[float]] | None = None,
     basis: str = "consolidated",
+    per_share: Collection[str] = (),
 ) -> Reconciliation:
     """``values[key][source]`` in rupees. ``other_basis[key]``: the reference source's figure
-    for the other basis; ``earlier_versions[key]``: its superseded (restated) figures."""
+    for the other basis; ``earlier_versions[key]``: its superseded (restated) figures.
+    ``per_share`` items (EPS) are in ₹ per share: ``min_diff_inr`` does not apply to them."""
     other = "standalone" if basis == "consolidated" else "consolidated"
     order = {s: i for i, s in enumerate(sources)}
     findings: list[Finding] = []
@@ -107,10 +113,11 @@ def reconcile(
             compared.append((key, src))
             diff = abs(v - ref)
             rel = diff / abs(ref) if ref else float("inf")
-            if rel <= tolerance_rel or diff <= min_diff_inr:
+            ps = item in per_share
+            if rel <= tolerance_rel or (not ps and diff <= min_diff_inr):
                 continue
             what = (f"{ITEM_LABELS.get(item, item)} ({_period(end, ptype)}, {basis}): "
-                    f"{label(src)} {_cr(v)} vs {label(ref_src)} {_cr(ref)}, "
+                    f"{label(src)} {_cr(v, ps)} vs {label(ref_src)} {_cr(ref, ps)}, "
                     + (f"{rel:.1%} apart" if ref else "reference is zero"))  # fmt: skip
             cause, why = None, "no cause found (unexplained difference)"
             ratio = v / ref if ref else None
@@ -126,11 +133,11 @@ def reconcile(
                        "(e.g. lakh vs crore)")  # fmt: skip
             elif ob is not None and _near(v, ob, tolerance_rel):
                 cause = "basis"
-                why = (f"{label(src)} matches the {other} figure ({_cr(ob)}): consolidated / "
+                why = (f"{label(src)} matches the {other} figure ({_cr(ob, ps)}): consolidated / "
                        "standalone mix-up")  # fmt: skip
             elif old:
                 cause = "restatement"
-                why = (f"{label(src)} matches the figure first filed ({_cr(old[0])}), since "
+                why = (f"{label(src)} matches the figure first filed ({_cr(old[0], ps)}), since "
                        f"restated by {label(ref_src)}")  # fmt: skip
             findings.append(Finding(end, ptype, item, src, ref_src, ref, v, rel, cause,
                                     dict(by_source), [what, why]))  # fmt: skip

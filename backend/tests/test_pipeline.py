@@ -65,9 +65,9 @@ def steps(run: PipelineRun) -> dict[str, tuple[str, str | None]]:
 
 def test_steps_follow_the_spec_order() -> None:
     assert STEP_NAMES == [
-        "symbol", "prices", "corporate_actions", "filings_index", "xbrl_parse", "pdf_gap_fill",
-        "shareholding_events", "reconcile", "metrics", "valuation", "technical", "scoring",
-        "report",
+        "symbol", "indianapi", "prices", "corporate_actions", "filings_index", "xbrl_parse",
+        "pdf_gap_fill", "shareholding_events", "reconcile", "metrics", "valuation", "technical",
+        "scoring", "report",
     ]  # fmt: skip
     required = {s.name for s in STEPS if not s.optional}
     # metrics fails loudly but optionally: the report (prices, technicals) is still built
@@ -121,7 +121,8 @@ def test_required_step_failure_fails_the_run(seeded: Env) -> None:
     run = load(seeded, run_id)
     st = steps(run)
     assert st["prices"][0] == "failed" and "no prices for NOPRICES" in (st["prices"][1] or "")
-    assert all(st[n] == ("skipped", "an earlier step failed") for n in STEP_NAMES[2:])
+    after = STEP_NAMES[STEP_NAMES.index("prices") + 1 :]
+    assert all(st[n] == ("skipped", "an earlier step failed") for n in after)
     assert run.error and run.error.startswith("Prices: no prices")
     with seeded.session() as s:
         assert latest_report(s, "NOPRICES") is None
@@ -134,7 +135,7 @@ def test_an_interrupted_run_resumes_from_its_first_unfinished_step(
     done = new_steps()
     for s in done[:5]:
         s.update(status="ok", message="done before the crash")
-    done[5].update(status="running")  # the worker died during the PDF step
+    done[5].update(status="running")  # the worker died during the XBRL step
     stale = NOW - timedelta(seconds=seeded.ctx.config.jobs.pipeline.stale_after_s + 1)
     with seeded.session() as s:
         s.execute(update(PipelineRun).where(PipelineRun.id == run_id).values(

@@ -1,0 +1,19 @@
+# Structural breaks (SPEC §4 "Structural breaks"): a merger, demerger or large acquisition
+# makes the company before and after different businesses. Aggregate growth across one (sales,
+# EBITDA, PAT, loans, deposits) compares the two, so any growth window that contains the
+# break's fiscal year is measured per share instead: earnings and book value per year-end
+# share, sales / EBITDA per share. The report says so in its reasons.
+#
+#   SYMBOL:
+#     - date: YYYY-MM-DD        effective date (its fiscal year is the break year)
+#       kind: merger | demerger | acquisition | other
+#       description: what changed, with the figures that show it
+
+structural_events:
+  events:
+    HDFCBANK:
+      - date: 2023-07-01
+        kind: merger
+        description: >-
+          HDFC Ltd merged into HDFC Bank (effective 1 Jul 2023): FY24 revenue +66% and equity
+          share capital ₹558 cr → ₹760 cr

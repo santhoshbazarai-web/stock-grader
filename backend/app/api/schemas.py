@@ -207,8 +207,9 @@ class FilingsSummary(BaseModel):
 
 
 ConfigFileName = Literal[
-    "providers", "valuation", "sectors", "scoring", "technical", "jobs", "industries"
-]
+    "providers", "valuation", "sectors", "scoring", "technical", "jobs", "industries",
+    "structural_events",
+]  # fmt: skip
 
 
 class ConfigFile(BaseModel):
@@ -505,7 +506,9 @@ class IssueOut(BaseModel):
     reference_value_inr: float
     diff_rel: float
     values: dict[str, float]
-    cause: Literal["units", "basis", "restatement"] | None
+    # units | basis | restatement (cross-source); vendor_internal (Indian API /stock vs its own
+    # history); key_metric (Indian API keyMetrics vs our derived value)
+    cause: Literal["units", "basis", "restatement", "vendor_internal", "key_metric"] | None
     reasons: list[str]
     status: IssueStatus
     detected_at: datetime
@@ -534,3 +537,32 @@ class ThesisOut(BaseModel):
     attempts: int
     problems: list[str] = Field(description="Why the last draft was rejected / the model failed")
     reasons: list[str]
+
+
+class PriceAnomalyOut(BaseModel):
+    """A move that looks like a missing / doubled split or bonus (SPEC §3.2)."""
+
+    id: int
+    day: date
+    ratio: float = Field(description="Adjusted close / previous adjusted close")
+    candidate: float = Field(description="The action-like ratio it is near")
+    volume_ratio: float | None
+    volume_confirmed: bool = Field(description="Volume moved the other way: a fix is offered")
+    kind: Literal["missing_action", "double_adjusted", "not_applied"]
+    action_ex_date: date | None
+    ratio_old: int | None
+    ratio_new: int | None
+    text: str
+    status: Literal["open", "applied", "dismissed", "resolved"]
+
+
+class PriceAnomaliesOut(BaseModel):
+    symbol: str
+    open: list[PriceAnomalyOut]
+
+
+class PriceFixOut(BaseModel):
+    anomaly: PriceAnomalyOut
+    done: str = Field(description="The corporate-actions change made")
+    readjusted_bars: int
+    remaining: list[PriceAnomalyOut] = Field(description="Open anomalies after re-adjusting")

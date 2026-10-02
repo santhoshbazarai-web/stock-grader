@@ -25,6 +25,11 @@ export const SOURCE_STYLE: Record<
     short: "Σ Qtr",
     color: "var(--viz-s4)",
   },
+  indianapi: {
+    label: "Indian API (vendor-reclassified)",
+    short: "API",
+    color: "var(--viz-div-neg-3)",
+  },
   screener: { label: "Screener upload", short: "Scr", color: "var(--viz-s2)" },
   yfinance: { label: "yfinance", short: "yf", color: "var(--viz-s2)" },
   nse: { label: "Exchange (wide row)", short: "NSE", color: "var(--viz-s3)" },

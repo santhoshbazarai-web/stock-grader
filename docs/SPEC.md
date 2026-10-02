@@ -92,6 +92,7 @@ class FundamentalsProvider(Protocol):
 | Industry classification | NSE 4-level (macro/sector/industry/basic industry) | config override | — | — | Drives sector model + peers |
 | ASM/GSM/F&O ban | NSE | — | — | — | Daily knock-out |
 | Quarterly & annual results | **NSE XBRL** | **BSE XBRL** | — | Market Lens, yfinance | Keyed by announcement date |
+| Bulk fundamentals (10+ yr, when NSE is blocked) | **Indian API** (stock.indianapi.in, `INDIANAPI_KEY`) | — | yfinance | NSE XBRL | Vendor-reclassified, consolidated; identity-checked by ISIN; monthly call budget |
 | Balance sheet / cash flow (historic years XBRL lacks) | Annual-report PDFs from NSE/BSE | — | — | XBRL totals | Semi-automated, see §3.6 |
 | Shareholding (promoter, pledge, FII, DII, MF) | NSE shareholding XBRL | BSE | — | — | Quarterly |
 | Pledge / SAST / insider trades (PIT) | NSE | BSE | — | — | Governance pillar |
@@ -104,6 +105,16 @@ class FundamentalsProvider(Protocol):
 - the same split/bonus from two sources with ex-dates up to `duplicate_window_days` apart (yfinance reports a bonus as a split, sometimes a day off NSE) counts once, on the ex-date the raw closes confirm;
 - with `detect_preadjusted`, an event whose ex-date shows no matching move in the raw closes (the price source already adjusted its history) is not applied again;
 - after adjustment, a close-to-close move above `abnormal_gap` is reported as a possible missing or doubled event (a `corporate_actions` data gap on `adj_close`).
+- **source-aware:** each stored bar keeps its provider, and the adjustment is decided **per source**, so a history stitched from an already-adjusted source (e.g. Fyers) and a raw one (NSE bhavcopy) is adjusted exactly once.
+  - `prices_already_adjusted` (per provider: `yes` / `no` / `detect`) gives the expected state.
+  - The detector compares a source's last bar before the ex-date with the first bar on or after it. When the result is conclusive it wins, with a warning if it disagrees with the flag.
+- **price anomalies** (`suspicious`): after adjustment, an adjusted close-to-close ratio within `ratio_tolerance` of 1/2, 1/3, 1/4, 2/3, 3/2 or 2 is stored in `price_anomalies`. It is listed in the report's data gaps and in a stock-page banner. Its kind is one of:
+  - `missing_action`: no split or bonus is on record within `action_window_days`; the suggested fix adds one with the implied ratio (`source='owner'`);
+  - `double_adjusted`: the ratio is above 1 at an action on record; the fix marks that action `price_adjusted_by_source = true`, so it is never applied;
+  - `not_applied`: the ratio is below 1 at an action on record; the fix marks it `false`, so it is always applied.
+- A fix is offered only when the median volume over `volume_days` moves the other way by `volume_confirmation`. It is applied only by the owner (`POST /api/stocks/{symbol}/price-anomalies/{id}/apply`, or `/dismiss` for a genuine move), never by a job, and the prices are re-adjusted at once.
+- **Check:** `python -m app.jobs verify-adjustment --symbol HDFCBANK --readjust --around 2025-08-22:2025-08-29 --around 2019-09-10:2019-09-20` prints the raw bars with their source, the overnight gaps above `atr_multiple` × ATR(`atr_period`)/close, and the open anomalies.
+  - The regression test (`tests/test_adjust_sources.py`) holds at 0 such gaps across HDFCBANK's 2019 split and 2025 bonus.
 
 The corporate-actions job reads `lookback_days` incrementally, but a stock with no actions on file gets its full history (`nse.corporate_actions_from_years`). Every provider answering "no actions" is an answer, not a failure (no data gap).
 
@@ -297,9 +308,13 @@ Implementation notes (annual-report PDFs, §3.6 steps 3-4: `data/annual_report.p
 ### 3.7 On-demand pipeline (when you type a stock)
 1. The user selects a symbol. If `reports` holds a result that is fresher than both the latest price date and the latest filing date, return it instantly.
 2. Otherwise, enqueue a `pipeline_run` with these steps:
-   - `symbol` → `prices` → `corporate_actions/adjust` → `filings index` → `xbrl parse` → `pdf gap-fill` → `shareholding/events` → `reconcile` → `metrics` → `valuation` → `technical` → `scoring` → `report`
+   - `symbol` → `indianapi` → `prices` → `corporate_actions/adjust` → `filings index` → `xbrl parse` → `pdf gap-fill` → `shareholding/events` → `reconcile` → `metrics` → `valuation` → `technical` → `scoring` → `report`
 3. The frontend subscribes to `/api/pipeline/{run_id}/events` (Server-Sent Events) and shows a step-by-step progress list. Each step shows success, warning or failure with its message.
 4. Steps are idempotent and resumable. A failure in an optional step (e.g. PDF gap-fill) still produces a report, with its `data_gaps` listed.
+   - The optional `indianapi` step runs before every NSE step, so that 10+ years of statements exist even when NSE is blocked (§3.2).
+   - It fetches only when the cache is due: a refresh-triggered run is a user refresh.
+   - Its message gives the years per statement, the model and the month's quota, e.g. "P&L 12 yr, BS 12 yr, CF 12 yr (bank model; fetched) · Indian API: 5/500 calls this month".
+   - A missing key or an exhausted budget is a warning, never a failure.
 5. Nifty 500 is pre-computed nightly, so it normally loads instantly.
 
 Implementation notes (`pipeline/runner.py`, `api/pipeline.py`, `pipeline_runs`; parameters in `jobs.yaml` → `pipeline`):
@@ -368,8 +383,14 @@ Implementation notes (`fundamentals/reconcile.py` (pure), `data/reconcile_store.
   - `nse_xbrl`: latest line-item versions, excluding summed quarters. EBITDA = PBT + interest + depreciation − other income, as in the canonical tables.
   - `annual_report_pdf`: auto-accepted, accepted or corrected PDF values; values still in the review queue are not compared.
   - `market_lens`: only when `providers.market_lens.enabled`.
-  - `yfinance`: its EBITDA includes other income, so it is not compared (`exclude`).
+  - `indianapi`: the Indian API's statements, re-mapped from its cached answers (no call). They are compared even where a filed figure has replaced them in `fin_line_items`.
+    - Compared only for consolidated companies (the vendor is consolidated).
+    - Its EBITDA is not compared (`exclude`).
+    - Its EPS is on today's share basis, so EPS of periods ending before the latest split or bonus is not compared with the as-filed figure.
+  - `yfinance`: its EBITDA includes other income, and its EPS basis is unknown, so neither is compared (`exclude`).
   - BSE XBRL is not ingested yet, so it is not a source.
+- **Items** (`items`): sales, EBITDA, PAT, CFO, total assets, equity (net worth), and for banks deposits and advances (loans), plus diluted EPS.
+  - EPS is per share, so the ₹50-lakh floor does not apply to it.
 - **Issue:** a source differing from the reference by more than `tolerance_rel` (2%) **and** `min_diff_inr` (₹50 lakh, the lakh-vs-crore rounding gap). Its cause is checked in this order:
   - **units:** the ratio is within tolerance of 100, 1,000, 1 lakh or 1 crore, or their inverse.
   - **basis:** the figure matches the reference source's other-basis figure.
@@ -384,6 +405,47 @@ Implementation notes (`fundamentals/reconcile.py` (pure), `data/reconcile_store.
   - The valuation confidence drops `valuation.yaml` → `confidence.reconciliation_steps_down` levels (1, floored at low), with a reason in the valuation reasons.
   - The stock page shows a banner with each difference, its likely cause and an Ignore button (`POST /api/stocks/{symbol}/reconciliation/{id}/ignore`, `/reopen`; `GET …/reconciliation`).
 - **Market Lens** (`data/providers/market_lens.py`): disabled by default. It reads the page's JSON with every field name in `providers.market_lens`. Periods whose type or basis is not recognised are skipped, and non-numeric values are left out (never 0).
+
+### 3.9a Indian API (stock.indianapi.in)
+The bulk fundamentals source when NSE is blocked: 10+ years of statements per stock in five calls. Files: `data/providers/indianapi.py` (client), `data/indianapi_parse.py` (pure mapping), `data/indianapi_checks.py` (pure cross-checks), `data/indianapi_store.py`, `jobs/indianapi.py`; config in `providers.yaml` → `indianapi` and `config/indianapi_map.yaml`.
+
+- **Calls:** `/stock?name=` plus `/historical_stats?stats=` for `yoy_results`, `balancesheet`, `cashflow` and `quarter_results`. `ratios` is never called.
+  - Auth is the `X-Api-Key` header from `INDIANAPI_KEY`. Without a key the source shows "not configured: add INDIANAPI_KEY in .env" and nothing is called.
+  - The key is never logged or stored; stored request parameters and error texts never contain it.
+- **Budget:** `monthly_request_budget` (500) per IST calendar month, counted in `api_usage` with one atomic reservation per call.
+  - Calls stop at `stop_at_fraction` (90%) of the budget.
+  - Usage is shown on the Data sources page and in the pipeline panel ("Indian API: 123/500 calls this month").
+  - 429 / 5xx / network errors are retried with backoff (`providers.retry`) under the per-provider rate limit.
+- **Identity:** the vendor looks stocks up by name. Candidates are tried in this order:
+  - the name that last answered;
+  - the master name with and without "Limited";
+  - the symbol;
+  - `indianapi.name_fallbacks`.
+
+  An answer counts only if its ISIN (`companyProfile.isInId`) or NSE code matches ours. A different company is stored for audit but never used, and is recorded as the data gap "vendor returned a different company".
+- **Raw cache:** every answer goes into `vendor_responses` (and `data/raw/indianapi/yyyy/mm/dd/`) before it is read. Analysis reads only our tables.
+  - A stock is fetched again only when: results were announced after the last fetch; the cache is older than `refresh_days` (30); or the user presses Refresh and the cache is older than `user_refresh_min_age_hours` (24).
+- **Units:** `/stock` financials and `/historical_stats` are in ₹ crore, and share counts in crore. keyMetrics amounts are in ₹ million, and its market cap is in crore.
+  - These were read from the fixtures (NetIncome = EPS × diluted shares) and are re-checked on every answer. An answer whose unit check fails is not stored.
+- **Mapping** (`indianapi_map.yaml`, `general` and `bank` models):
+  - Values go to `fin_line_items` with `source='indianapi'`, consolidated basis and `vendor_reclassified=true`. "Mar 2026" is FY2026.
+  - `/stock` is primary; the history extends it to older years. Where both have a figure and they differ by more than 2%, the `/stock` figure is kept and the difference is an open reconciliation issue (`cause='vendor_internal'`).
+  - Quarters come from `quarter_results`. The four quarters must sum to the year within 1%.
+  - An item no source gives is None plus a data gap, never 0. NIM, GNPA, NNPA and CAR are not in the vendor's data and stay gaps.
+  - `/stock` shareholding is stale and is not used; shareholding stays NSE-sourced.
+- **Capex split** (`net_capex` in `indianapi_map.yaml`): the vendor reports no sale of fixed assets. Net capex = the history's Cash from Operating Activity − Free Cash Flow.
+  - Where `/stock` gives gross CapitalExpenditures, sale = gross − net (TCS FY26: 4,700 − 4,081 = 619).
+  - In history-only years, purchase = net capex and sale = 0, both tagged "net capex".
+  - A gross figure below net capex (beyond `tolerance`) is inconsistent: nothing is derived, and a note says so.
+- **Priority** (`priority.fin_results`: nse > indianapi > yfinance): a vendor value fills only a key that no exchange-filed or annual-report figure covers. It is removed when a filed figure arrives, and the wide row keeps the better source's label.
+- **Cross-checks** (`checks` in `indianapi_map.yaml`):
+  - keyMetrics (BVPS, P/B, ROA, market cap) are compared with our values for the latest fiscal year: equity / shares, price / BVPS, profit (including minority interest) / average total assets, and price × shares.
+    - Our latest stored close is used, or the vendor's NSE price when none is stored.
+    - A difference above `key_metric_tolerance` (5%) is an open issue (`cause='key_metric'`), and is resolved when they agree again. keyMetrics are never stored as data or scored.
+  - The vendor's bonus and split list (`stockCorporateActionData`) is compared with our corporate actions: ex-dates within `corporate_action_window_days`, and the ratio ("1:1" bonus = 2 for 1; a split of face value 10 → 1 = 10 for 1).
+    - A vendor action we lack, ours missing from the vendor's window, or a different ratio is a corporate-actions data gap. Nothing is written to `corporate_actions`.
+- **Events:** `boardMeetings` become board-meeting events (`exchange='indianapi'`), so the results watcher's board calendar knows the next results date without NSE.
+- **Analyst consensus** (`recosBar`) is shown in the report as informational only and is never part of a score, zone or action.
 
 ### 3.10 Home deployment
 - Runs with Docker Desktop (WSL2 on Windows). `restart: unless-stopped` on all services, and Postgres data on a named volume with a nightly `pg_dump` to a separate drive.
@@ -486,6 +548,22 @@ Implementation notes (`fundamentals/`, pure functions; windows and thresholds in
 - Beneish: PP&E = net block, securities = non-operating investments. LVGI = (current liabilities + total debt) / total assets. Coefficients are Beneish (1999). A value above `forensic.beneish_flag_above` is flagged.
 - Altman Z″ = 6.56·X1 + 3.26·X2 + 6.72·X3 + 1.05·X4, where X1 = working capital / TA, X2 = retained earnings / TA, X3 = EBIT / TA, X4 = book equity / (TA − equity). Zones come from `forensic.altman_*`. Not computed for financials.
 - Banks: NIM = NII / average(advances + investments); GNPA uses gross advances; NNPA uses net advances; PCR = (GNPA − NNPA) / GNPA; credit cost = provisions / average advances. CRAR is taken as reported.
+- Bank proxies (`banking.PROXIES`): these are derived from statement lines rather than reported by the bank, and the report labels them "proxy" with their definition (`bank_metrics`). GNPA, NNPA, CAR and CASA are the reported figures. The proxies are:
+  - NIM, credit cost, cost-to-income, RoA, RoE;
+  - loan and deposit growth, CD ratio (advances / deposits), equity / assets, payout (dividends paid / PAT);
+  - BVPS (equity / year-end shares), P/B (price / BVPS), and EPS growth per share (PAT per year-end share).
+- When the latest year comes from the Indian API, NIM is a data gap (as are GNPA, NNPA and CAR, which the vendor does not report). It is never estimated from the vendor's lines.
+
+**Structural breaks** (`fundamentals/structural.py`; `config/structural_events.yaml`): a merger, demerger or large acquisition makes the company before and after different businesses.
+- The break's fiscal year is the one containing its effective date (HDFCBANK, 1 Jul 2023 → FY2024).
+- A growth window whose base year is before that year and whose end year is at or after it is measured **per share**:
+  - the sales / EBITDA / EPS CAGRs use sales, EBITDA and PAT per year-end share;
+  - year-on-year growth in the break year uses the same measures (book value: equity per year-end share).
+- Year-end shares are the reported share count at the fiscal-year end (today the Indian API's `shares_outstanding`).
+  - Without it, the weighted-average diluted count (PAT / EPS) is used, and the note says so.
+  - Without either, the metric is None with its reason.
+- Example (fixture-checked): HDFCBANK FY24 net profit rose 42% (46,149 → 65,446 cr, the vendor's history) and owners' PAT 39%. Profit per year-end share rose 2.3% (41.22 → 42.16).
+- Every switch is listed first in the report's `reasons`, e.g. "Structural break FY2024 (merger): … Growth across it is per share (year-end shares): sales_cagr_3y, …".
 
 ---
 
@@ -659,8 +737,23 @@ A stock is capped at grade C if any of these apply:
 
 Banks use a bank-specific Quality and Health map (asset quality, NIM, CAR).
 
+- **Bank health with proxies:** GNPA and CAR are scored as reported. A missing one is replaced by its proxy, mapped by `scoring.yaml` → `bank_maps`: credit cost for GNPA, equity / assets for CAR.
+  - The pillar then scores what exists and lists the missing reported metrics in `missing`.
+  - It has `confidence: reduced`, shown as a tag in the scorecard, instead of being n/a. With neither the metric nor its proxy, the sub-metric is unavailable as before.
+
 ### 7.3 Grade
 A+ ≥ 85, A ≥ 75, B ≥ 60, C ≥ 45, D < 45, then apply knock-out caps. Note the circular dependency: the grade decides the MoS, which decides the zone, which feeds the valuation pillar. Resolve it by computing a **provisional grade that excludes the Valuation pillar** to pick the MoS, then compute the final grade.
+
+**Data depth** (`fundamentals/depth.py`; `scoring.yaml` → `data_depth`): the number of fiscal years with a P&L (revenue or PAT) behind the report.
+- **full:** at least `full_min_years` (8).
+- **provisional:** at least `provisional_min_years` (3).
+- **technical_only:** fewer than that; the technical analysis stands on its own.
+- The report's `data_depth` drives a header badge ("Full data · 12 yr", "Provisional data", "Technical only").
+- Below full:
+  - `grade_confidence` is `reduced`, and the header shows the grade as provisional;
+  - the valuation confidence drops `valuation_steps_down` levels (1);
+  - the first reason says why.
+- This is separate from the provisional grade above, which only breaks the MoS circularity.
 
 ### 7.4 Earned-premium score (`earned_premium.py`, 0–8)
 One point for each condition met:
@@ -908,7 +1001,11 @@ Implementation notes (P15, `backend/app/backtest/`, parameters in `jobs.backtest
   - If membership history starts after `start`, the earlier months have no universe, and a caveat says so. An empty membership table gives an explicit caveat, not a silent 0%.
 - **Point in time, at each rebalance date d:**
   - Prices, benchmark and delivery data up to d.
-  - Annual and quarterly statements with `announcement_date ≤ d`. Rows without an announcement date are excluded and counted in a caveat; the live report's assumed lag (§8 notes) is never used.
+  - Annual and quarterly statements with `announcement_date ≤ d`.
+  - Rows without an announcement date (Indian API, yfinance, Screener) are taken as public `jobs.backtest.fundamentals_availability_lag_days` after their period end: **annual 75, quarterly 45**.
+    - These follow the SEBI LODR limits of 60 and 45 days, with a margin for the year.
+    - They are marked `announcement_assumed` and counted in a caveat.
+    - Exchange filings always use their own announcement date.
   - Shareholding with `filing_date ≤ d`.
   - ASM/GSM rows effective at d, or "unknown" when no surveillance history is stored.
   - RS percentile: Mansfield RS on weekly closes to d, ranked across that month's universe.

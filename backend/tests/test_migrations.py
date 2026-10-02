@@ -79,4 +79,8 @@ def test_spec_tables_present() -> None:
         "bhavcopy_days",  # SPEC v0.2 §3.2: NSE bhavcopy OHLCV history (price fallback)
         "report_theses",  # SPEC §8a: LLM thesis per exact fact sheet (P26)
         "bhavcopy_prices",
+        "api_usage",  # SPEC §3.9a: metered API calls per month (Indian API budget)
+        "vendor_responses",  # ... every raw vendor answer, stored before it is read
+        "vendor_names",  # ... the vendor name that last gave a verified answer
+        "price_anomalies",  # SPEC §3.2: moves that look like a missing / doubled split
     } == MODEL_TABLES

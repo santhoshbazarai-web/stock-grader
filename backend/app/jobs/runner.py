@@ -45,6 +45,7 @@ class JobContext:
     notifier: TelegramNotifier | None = None  # alerts: optional Telegram delivery
     raw_store: RawStore | None = None  # raw-file cache (SPEC §3.2a); None only in tests
     thesis_model: Any = None  # TextModel for the thesis job; None = built from the settings
+    indianapi: Any = None  # IndianApiClient (app/data/providers/indianapi.py); None in tests
 
     def now(self) -> datetime:
         return self.clock().astimezone(ZoneInfo(self.config.jobs.timezone))
@@ -60,6 +61,7 @@ class JobOptions:
     full: bool = False  # full-history backfill instead of the incremental window
     day: date | None = None  # for date-keyed jobs (bhavcopy); default: today
     force: bool = False  # run seasonal jobs outside their season
+    all_universe: bool = False  # metered jobs: the whole universe (quota guard still applies)
 
     def as_params(self) -> dict[str, Any]:
         return {

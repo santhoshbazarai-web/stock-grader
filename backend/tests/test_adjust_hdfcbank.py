@@ -159,3 +159,15 @@ def test_per_share_figures_are_restated_to_todays_share_basis() -> None:
     # no announcement date: the period end decides
     out2, _ = restate_per_share(fin.drop(columns="announcement_date"), nse_actions(), ADJ)
     assert out2["eps_diluted"].tolist() == [20.0, 20.0, 10.0, 10.0]
+
+
+def test_rows_already_on_todays_share_basis_are_not_restated() -> None:
+    """The Indian API reports HDFC Bank's FY2015 EPS as 10.66 on PAT 10,703 crore: ~1,004 crore
+    shares, i.e. already after the 2019 split and 2025 bonus. Restating it would quarter it."""
+    idx = pd.DatetimeIndex(["2015-03-31", "2026-03-31"], name="period_end")
+    fin = pd.DataFrame({"eps_diluted": [10.66, 49.39]}, index=idx)
+    out, notes = restate_per_share(fin, nse_actions(), ADJ, current={date(2015, 3, 31)})
+    assert out["eps_diluted"].tolist() == [10.66, 49.39] and notes == []
+    # the same row from a filing (as reported then) is restated: x4 shares, EPS / 4
+    filed, _ = restate_per_share(fin, nse_actions(), ADJ)
+    assert filed["eps_diluted"].tolist() == [pytest.approx(2.665), 49.39]

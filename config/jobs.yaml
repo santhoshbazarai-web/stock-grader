@@ -27,6 +27,7 @@ jobs:
     broker_token_check: "45 8 * * mon-fri"   # morning reminder when a broker token expired
     thesis: "15 0 * * *"                     # LLM thesis for watchlist reports (after valuation_scores)
     industry_classification: "40 7 * * 6"    # industry → sector model (industries.yaml), Saturdays
+    fundamentals_indianapi: "50 6 * * *"     # Indian API statements, a few stocks a night (budget)
   universe_index: NIFTY500    # symbols = current members of this index + watchlist
   constituent_indices: [NIFTY500, NIFTY50, NIFTYBANK, NIFTYIT, NIFTYPHARMA, NIFTYFMCG,
                         NIFTYAUTO, NIFTYMETAL, NIFTYREALTY]
@@ -67,6 +68,9 @@ jobs:
     status_jobs: [eod_prices, nse_bhavcopy, technicals, valuation_scores, results_watch, events,
                   alerts_intraday]
     max_reply_chars: 3900
+  fundamentals_indianapi:     # bulk statements from the Indian API (needs INDIANAPI_KEY)
+    max_stocks_per_run: 10    # 5 calls each: ~50 calls a night stays inside a 500/month budget
+    max_name_attempts: 3      # vendor names tried per stock (cached name, master name, symbol)
   industry_classification:    # basic industry → sectors.yaml model (banks, NBFCs, insurers...)
     refresh_days: 90          # classifications rarely change; unclassified stocks go first
     max_per_run: 200          # ~200 s at NSE's 1 request/s
@@ -118,6 +122,12 @@ jobs:
     stt_sell: 0.001
     execution_lag_days: 1     # signals use data to the rebalance close; trade N sessions later
     equity_curve_points: weekly
+    # Statements with no announcement date (Indian API, yfinance, Screener) are taken as public
+    # this many days after their period end (SEBI LODR: quarterly results within 45 days,
+    # annual within 60; 75 leaves margin). Exchange filings use their own announcement date.
+    fundamentals_availability_lag_days:
+      annual: 75
+      quarterly: 45
   results_backfill:              # exchange results filings (XBRL) → fin_quarterly / fin_annual
     max_downloads_per_run: 300  # XBRL documents per run; a 10-year backfill spreads over nights
     index_recheck_days: 7       # outside results_season, re-read each symbol's filing list weekly
@@ -161,11 +171,14 @@ jobs:
     min_diff_inr: 5000000       # ... and more than ₹50 lakh (lakh vs crore rounding)
     years: 3                    # the latest three fiscal years
     quarters: 4                 # and the latest four quarters (P&L items)
-    items: [revenue, ebitda, pat, cfo, total_assets, total_equity]
-    sources: [nse_xbrl, annual_report_pdf, market_lens, yfinance]   # first with a value = reference
+    # deposits / advances: banks only; eps_diluted is compared without the rupee floor
+    items: [revenue, ebitda, pat, cfo, total_assets, total_equity, deposits, advances,
+            eps_diluted]
+    sources: [nse_xbrl, annual_report_pdf, indianapi, market_lens, yfinance]   # first with a value = reference
     unit_factors: [100, 1000, 100000, 10000000]   # a ratio near one of these → units mix-up
     exclude:                    # defined differently at the source: not compared
-      yfinance: [ebitda]        # yfinance EBITDA includes other income
+      yfinance: [ebitda, eps_diluted]   # yfinance EBITDA includes other income
+      indianapi: [ebitda]       # the vendor's operating profit is not the canonical EBITDA
   pipeline:                   # on-demand per-symbol pipeline (SPEC §3.7)
     poll_interval_s: 1          # the worker picks up a queued run within a second
     stale_after_s: 300          # no heartbeat for 5 min: the worker died, another resumes it
