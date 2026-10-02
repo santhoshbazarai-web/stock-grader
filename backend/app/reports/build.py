@@ -14,7 +14,7 @@ import pandas as pd
 
 from app.core.config import AppConfig, Dataset, SectorModel
 from app.data.gaps import GapRecord
-from app.fundamentals.banking import PROXIES, bank_per_share, bank_summary
+from app.fundamentals.banking import PROXIES, bank_metrics, bank_per_share, bank_summary
 from app.fundamentals.depth import DataDepth, data_depth
 from app.fundamentals.forensic import altman_z2, beneish, piotroski
 from app.fundamentals.metrics import Metric, annual_metrics, by_year, summary_metrics
@@ -335,6 +335,12 @@ def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> B
             # estimated from its lines
             bank["nim_pct"] = Metric(None, "not reported by the Indian API (data gap)")
 
+    bm = bank_metrics(annual) if is_financial and not annual.empty else pd.DataFrame()
+
+    def bank_value(key: str) -> float | None:
+        m = bank.get(key)
+        return m.value if m is not None else None
+
     def am_at(col: str, year: int | None) -> float | None:
         if year is None or col not in am.columns:
             return None
@@ -502,6 +508,13 @@ def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> B
             rs_percentile=data.rs_percentile,
             stage=stage,
             from_52w_high=t.momentum.from_52w_high,
+            bank=is_financial,
+            roe_pct=_at(bm["roe_pct"], y) if y is not None and not bm.empty else None,
+            roe_pct_prior=_at(bm["roe_pct"], y - n) if y is not None and not bm.empty else None,
+            roa_pct=bank_value("roa_pct"),
+            loan_growth_pct=bank_value("loan_growth_pct"),
+            deposit_growth_pct=bank_value("deposit_growth_pct"),
+            nim_pct=bank_value("nim_pct"),
         ),
         sc,
     )
@@ -528,6 +541,7 @@ def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> B
             zone=val.zone if val else None,
             cmp=cmp,
             earned_premium=ep.score,
+            earned_premium_out_of=ep.out_of,
             stage=stage,
             trend=trend,
             buy_zone=(bz.low, bz.high)
@@ -739,6 +753,7 @@ def _assemble(
         earned_premium_detail=EarnedPremiumDto(
             score=ep.score,
             max_possible=ep.max_possible,
+            out_of=ep.out_of,
             conditions=[
                 ConditionDto(code=c.code, met=c.met, reason=c.reason) for c in ep.conditions
             ],

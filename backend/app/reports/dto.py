@@ -140,6 +140,7 @@ class ConditionDto(_Dto):
 class EarnedPremiumDto(_Dto):
     score: int
     max_possible: int
+    out_of: int = Field(8, description="Conditions scored: 8, or 10 for banks / insurers")
     conditions: list[ConditionDto]
 
 

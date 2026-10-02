@@ -456,6 +456,33 @@ def test_earned_premium_unknowns_are_listed_not_scored() -> None:
     assert "stage2_near_high" in earned_premium(EarnedPremiumInputs(stage=2), S).unknown
 
 
+def test_bank_earned_premium_uses_bank_criteria() -> None:
+    bank = replace(EP_ALL, bank=True, roe_pct=16.0, roe_pct_prior=14.0, roa_pct=1.8,
+                   loan_growth_pct=15.0, deposit_growth_pct=13.0, nim_pct=None)  # fmt: skip
+    ep = earned_premium(bank, S)
+    codes = [c.code for c in ep.conditions]
+    assert codes == [
+        "eps_acceleration", "roe_up", "roa_strong", "loan_growth", "deposit_growth",
+        "nim_strong", "institutions_up", "promoter_steady", "rs_leader", "stage2_near_high",
+    ]  # fmt: skip
+    assert not {"implied_growth", "roce_up", "operating_leverage"} & set(codes)
+    assert ep.out_of == 10 and ep.score == 9 and ep.unknown == ["nim_strong"]
+    assert ep.reasons[-1] == "earned premium 9/10 (1 unknown: up to 10)"
+    roa = next(c for c in ep.conditions if c.code == "roa_strong")
+    assert roa.reason == "ROA 1.8% (>= 1.5%)"
+    slow = earned_premium(replace(bank, loan_growth_pct=8.0, roe_pct=13.7), S)
+    assert {c.code: c.met for c in slow.conditions}["loan_growth"] is False
+    assert {c.code: c.met for c in slow.conditions}["roe_up"] is False
+
+
+def test_momentum_threshold_scales_with_the_number_of_conditions() -> None:
+    # 6 of 8 → ceil(6 x 10 / 8) = 8 of 10 for a bank
+    base = replace(BASE, grade=A, zone=Zone.PREMIUM, earned_premium_out_of=10)
+    assert decide(replace(base, earned_premium=8), S).action is Action.MOMENTUM_ENTRY
+    d = decide(replace(base, earned_premium=7), S)
+    assert d.action is Action.WAIT and "premium not earned: EP 7 < 8" in d.reasons
+
+
 # ───────────────────────── decision matrix ─────────────────────────
 
 A, AP, B, C, D = Grade.A, Grade.A_PLUS, Grade.B, Grade.C, Grade.D

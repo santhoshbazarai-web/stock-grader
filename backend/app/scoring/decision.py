@@ -19,6 +19,7 @@ Entry) becomes Wait with the reason "downtrend — wait for Stage 1 base". Check
 No grade → no action. No zone → an action only when the grade's whole row is one rule (D).
 """
 
+import math
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -62,6 +63,7 @@ class DecisionInputs:
     zone: Zone | None
     cmp: float
     earned_premium: int | None = None
+    earned_premium_out_of: int = 8  # conditions scored (banks: 10)
     stage: int | None = None
     trend: str | None = None
     buy_zone: tuple[float, float] | None = None  # (low, high) when there is a technical zone
@@ -102,7 +104,7 @@ def apply_rule(
             target = f"the {_zone_text(x.buy_zone)}" if x.buy_zone else "support (no zone yet)"
             return Action.BUY_ON_PULLBACK, [], [f"fairly valued: buy on a pullback to {target}"]
         case DecisionRule.MOMENTUM_OR_WAIT:
-            need = cfg.earned_premium.momentum_entry_min
+            need = math.ceil(cfg.earned_premium.momentum_entry_min * x.earned_premium_out_of / 8)
             ep = x.earned_premium
             if ep is not None and ep >= need:
                 return Action.MOMENTUM_ENTRY, [], [f"premium is earned: EP {ep} >= {need}"]

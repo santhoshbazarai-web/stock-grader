@@ -36,7 +36,7 @@ test("report page renders every SPEC §9 section", async ({ page }) => {
   await expect(page.locator("[data-testid=price-chart] canvas").first()).toBeVisible();
 
   await page.getByRole("button", { name: "Table" }).click();
-  await expect(page.getByLabel("10-year fundamentals")).toContainText("FY24");
+  await expect(page.getByLabel("Fundamentals by year")).toContainText("FY24");
   expect(errors).toEqual([]);
 });
 

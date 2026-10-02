@@ -54,6 +54,9 @@ scoring:
     rs_percentile_min: 80
     near_52w_high_pct: 0.10
     operating_leverage_min_sales_growth: 0.15
+    # banks / insurers: implied growth, ROCE up and operating leverage do not apply; these do
+    # (ROE up over trend_years, ROA, loan growth, deposit growth, NIM when available)
+    bank: {roa_min_pct: 1.5, loan_growth_min_pct: 12.0, deposit_growth_min_pct: 12.0, nim_min_pct: 3.5}
   # SPEC §7.5. Rows = grade, columns = zone, cells = rule (see scoring/decision.py):
   #   strong_buy            Strong Buy + "Why is it cheap?" checklist
   #   buy_or_accumulate     Buy inside the technical buy zone, else Accumulate

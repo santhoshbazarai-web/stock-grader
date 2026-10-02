@@ -656,7 +656,9 @@ def run_valuation(
                 shares_cr=bal.shares,
             )
             single, mr["sotp"] = sv.value, sv.reasons
-    if bal_nil and sector.model not in DCF_MODELS:
+    # banks and insurers are valued on equity: net debt / non-operating assets do not apply
+    equity_models = (SectorModel.BANK, SectorModel.INSURANCE)
+    if bal_nil and sector.model not in DCF_MODELS and sector.model not in equity_models:
         assumed_nil += bal_nil
 
     # Only the sector's weighted methods are blended; the rest stay informational.

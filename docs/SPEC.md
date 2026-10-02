@@ -773,6 +773,8 @@ One point for each condition met:
 7. RS percentile ≥ 80
 8. Stage 2 and within 10% of the 52-wk high
 
+**Banks and insurers** (sector model bank / insurance): conditions 1, 3 and 4 do not apply (no reverse DCF, ROCE or OPM). They are replaced by five bank criteria (`earned_premium.bank`, percent): ROE up versus `trend_years` ago; ROA ≥ `roa_min_pct`; loan growth ≥ `loan_growth_min_pct`; deposit growth ≥ `deposit_growth_min_pct`; NIM ≥ `nim_min_pct` (unknown when NIM is not reported). A bank is scored out of 10 (`out_of`), and the Momentum Entry threshold scales: ceil(`momentum_entry_min` × 10 / 8).
+
 ### 7.5 Decision matrix (`decision.py`)
 | Grade \ Zone | Deep Discount | Discount | Fair | Premium | Extreme Premium |
 |---|---|---|---|---|---|
@@ -952,6 +954,8 @@ An optional paragraph explaining the report, written by a local model from the r
 ---
 
 ## 9. Frontend pages
+
+Fundamentals section (`GET /stocks/{symbol}/fundamentals`): titled with the real number of fiscal years in the window (`years_available`), not a fixed "10 years". Banks and insurers show NII, PAT, ROE, ROA, loans, deposits, credit-deposit ratio, credit cost and BVPS; Sales, EBITDA, OPM, ROCE, ROIC, CCC and the FCF / CFO charts are hidden for them (`model: bank`). Net debt / non-operating assets are not listed as "taken as nil" gaps for equity-valued (bank / insurance) models.
 1. **Dashboard:** broker connection status, data freshness, top A-grade stocks in the buy zone, triggered alerts.
 2. **Screener:** a sortable table (symbol, sector, grade, zone, CMP, FV, % to buy zone, EP score, RS). Filters are saved as presets.
 3. **Stock report**, the core page:

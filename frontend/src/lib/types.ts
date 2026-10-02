@@ -134,7 +134,7 @@ export type StockReport = {
   mos_grade: Grade | null;
   pillars: Pillar[];
   knockouts: { cap: Grade | null; triggered: string[]; unknown: string[]; reasons: string[] };
-  earned_premium_detail: { score: number; max_possible: number; conditions: Condition[] };
+  earned_premium_detail: { score: number; max_possible: number; out_of?: number; conditions: Condition[] };
   decision: {
     action: string | null;
     rule: string | null;
@@ -208,6 +208,14 @@ export type YearPoint = {
   fcf: number | null;
   roce: number | null;
   ccc_days: number | null;
+  nii?: number | null;
+  roe?: number | null;
+  roa?: number | null;
+  advances?: number | null;
+  deposits?: number | null;
+  cd_ratio?: number | null;
+  credit_cost?: number | null;
+  bvps?: number | null;
 };
 
 export type ShareholdingPoint = {
@@ -252,6 +260,9 @@ export type FundamentalsHistory = {
   years: YearPoint[];
   shareholding: ShareholdingPoint[];
   missing: string[];
+  model?: "general" | "bank";
+  series?: string[];
+  years_available?: number;
 };
 
 // ── technical debug payload (chart overlays) ──

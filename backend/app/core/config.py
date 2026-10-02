@@ -833,11 +833,23 @@ class ScoringMaps(_Strict):
         return self
 
 
+class BankEarnedPremiumConfig(_Strict):
+    """Bank criteria replacing the reverse-DCF, ROCE and OPM / sales conditions (percent)."""
+
+    roa_min_pct: PositiveFloat
+    loan_growth_min_pct: float
+    deposit_growth_min_pct: float
+    nim_min_pct: PositiveFloat
+
+
 class EarnedPremiumConfig(_Strict):
+    # out of 8 conditions; with a different number of conditions (banks) it scales: need
+    # ceil(momentum_entry_min x conditions / 8)
     momentum_entry_min: Annotated[int, Field(ge=0, le=8)]
     rs_percentile_min: Score
     near_52w_high_pct: Fraction
     operating_leverage_min_sales_growth: float
+    bank: BankEarnedPremiumConfig
 
 
 class DecisionRule(StrEnum):

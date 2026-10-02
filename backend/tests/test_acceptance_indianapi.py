@@ -173,3 +173,27 @@ def test_bank_report_lists_only_metrics_that_apply(reports: dict[str, StockRepor
     assert "beneish" not in r.knockouts.unknown
     assert not any("ebitda_cagr" in x for x in r.reasons)
     assert "roe_latest" in r.fundamentals  # the rest is unchanged
+
+
+def test_bank_fundamentals_charts_and_earned_premium(
+    env: Env, reports: dict[str, StockReport]
+) -> None:
+    from app.reports.history import BANK_SERIES, load_history
+
+    with env.session() as s:
+        h = load_history(s, "HDFCBANK", get_config())
+    assert h is not None and h.model == "bank" and h.series == list(BANK_SERIES)
+    assert h.years_available == len(h.years) == 10  # the window; 12 years on file
+    last = h.years[-1]
+    assert last.revenue is None and last.ebitda is None and last.fcf is None  # not shown
+    assert last.nii and last.advances and last.deposits and last.pat
+    assert last.roe == pytest.approx(0.137, abs=0.01) and last.bvps == pytest.approx(381, rel=0.01)
+    assert last.cd_ratio is not None and 0.5 < last.cd_ratio < 1.5
+    assert not {"revenue", "ebitda", "roce", "ccc_days"} & set(h.missing)
+    r = reports["HDFCBANK"]
+    codes = {c.code for c in r.earned_premium_detail.conditions}
+    assert r.earned_premium_detail.out_of == 10
+    assert {"roe_up", "roa_strong", "loan_growth", "deposit_growth", "nim_strong"} <= codes
+    assert not {"roce_up", "operating_leverage", "implied_growth"} & codes
+    # equity-valued: no "taken as nil" EV inputs among the gaps
+    assert not [g for g in r.data_gaps if g.startswith("non_operating_investments")]

@@ -9,6 +9,17 @@
     7 rs_leader          RS percentile >= rs_percentile_min
     8 stage2_near_high   Stage 2 and within near_52w_high_pct of the 52-week high
 
+Banks and insurers (``bank=True``) replace 1, 3 and 4 with (thresholds in
+``earned_premium.bank``, percent):
+
+    roe_up               ROE now > ROE ``trend_years`` ago
+    roa_strong           ROA >= roa_min_pct
+    loan_growth          loan (advances) growth YoY >= loan_growth_min_pct
+    deposit_growth       deposit growth YoY >= deposit_growth_min_pct
+    nim_strong           NIM >= nim_min_pct (unknown when NIM is not reported)
+
+so a bank is scored out of 10; ``out_of`` carries the count.
+
 A condition without data is *unknown*: it earns no point and is listed, so the score is a
 lower bound (``max_possible`` = score + unknown).
 """
@@ -36,6 +47,13 @@ class EarnedPremiumInputs:
     rs_percentile: float | None = None
     stage: int | None = None
     from_52w_high: float | None = None  # close / 52w high - 1 (<= 0)
+    bank: bool = False
+    roe_pct: float | None = None
+    roe_pct_prior: float | None = None  # trend_years ago
+    roa_pct: float | None = None
+    loan_growth_pct: float | None = None
+    deposit_growth_pct: float | None = None
+    nim_pct: float | None = None
 
 
 @dataclass(frozen=True)
@@ -55,6 +73,10 @@ class EarnedPremium:
     @property
     def max_possible(self) -> int:
         return self.score + len(self.unknown)
+
+    @property
+    def out_of(self) -> int:
+        return len(self.conditions)
 
 
 def _implied_growth(x: EarnedPremiumInputs) -> Condition:
@@ -145,13 +167,46 @@ def _stage2_near_high(x: EarnedPremiumInputs, near: float) -> Condition:
     )
 
 
+def _at_least(code: str, label: str, value: float | None, minimum: float) -> Condition:
+    if value is None:
+        return Condition(code, None, f"{label} unavailable")
+    ok = value >= minimum
+    return Condition(code, ok, f"{label} {value:.1f}% ({'>=' if ok else '<'} {minimum:g}%)")
+
+
+def _roe_up(x: EarnedPremiumInputs, years: int) -> Condition:
+    code, now, prior = "roe_up", x.roe_pct, x.roe_pct_prior
+    if now is None or prior is None:
+        return Condition(code, None, f"ROE now or {years}y ago unavailable")
+    ok = now > prior
+    return Condition(
+        code, ok, f"ROE {now:.1f}% vs {prior:.1f}% {years}y ago ({'up' if ok else 'not up'})"
+    )
+
+
 def earned_premium(x: EarnedPremiumInputs, cfg: ScoringConfig) -> EarnedPremium:
     ep = cfg.earned_premium
+    if x.bank:
+        b = ep.bank
+        business = [
+            _eps_acceleration(x),
+            _roe_up(x, cfg.trend_years),
+            _at_least("roa_strong", "ROA", x.roa_pct, b.roa_min_pct),
+            _at_least("loan_growth", "loan growth", x.loan_growth_pct, b.loan_growth_min_pct),
+            _at_least(
+                "deposit_growth", "deposit growth", x.deposit_growth_pct, b.deposit_growth_min_pct
+            ),
+            _at_least("nim_strong", "NIM", x.nim_pct, b.nim_min_pct),
+        ]
+    else:
+        business = [
+            _implied_growth(x),
+            _eps_acceleration(x),
+            _roce_up(x, cfg.trend_years),
+            _operating_leverage(x, ep.operating_leverage_min_sales_growth),
+        ]
     conditions = [
-        _implied_growth(x),
-        _eps_acceleration(x),
-        _roce_up(x, cfg.trend_years),
-        _operating_leverage(x, ep.operating_leverage_min_sales_growth),
+        *business,
         _institutions_up(x),
         _promoter_steady(x),
         _rs_leader(x, ep.rs_percentile_min),

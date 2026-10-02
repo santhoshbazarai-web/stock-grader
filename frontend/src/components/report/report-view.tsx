@@ -45,6 +45,7 @@ function Section({
 
 export function ReportView({ symbol }: { symbol: string }) {
   const [report, setReport] = useState<StockReport | null>(null);
+  const [fundYears, setFundYears] = useState<number | null>(null);
   const [error, setError] = useState<{ status: number; detail: string } | null>(
     null,
   );
@@ -168,8 +169,8 @@ export function ReportView({ symbol }: { symbol: string }) {
           <Section title="Corporate events">
             <EventsCard symbol={report.symbol} />
           </Section>
-          <Section title="Fundamentals (10 years)">
-            <FundamentalsCharts symbol={report.symbol} />
+          <Section title={fundYears ? `Fundamentals (${fundYears} year${fundYears === 1 ? "" : "s"})` : "Fundamentals"}>
+            <FundamentalsCharts symbol={report.symbol} onYears={setFundYears} />
           </Section>
           <Section title="Data coverage">
             <CoverageGrid symbol={report.symbol} />

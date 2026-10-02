@@ -120,7 +120,7 @@ export function DecisionPanel({ report }: { report: StockReport }) {
       </section>
       <section className="flex flex-col gap-1">
         <h3 className="font-semibold">
-          Earned premium {ep.score}/8{" "}
+          Earned premium {ep.score}/{ep.out_of ?? 8}{" "}
           {ep.max_possible > ep.score && <span className="text-muted-foreground text-xs font-normal">(up to {ep.max_possible} with missing data)</span>}
         </h3>
         <ul className="flex flex-col gap-1 text-xs">

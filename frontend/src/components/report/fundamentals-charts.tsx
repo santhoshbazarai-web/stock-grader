@@ -1,7 +1,8 @@
 "use client";
 
-// 10-year fundamentals (SPEC §9) as small multiples, one measure per chart on its own axis
-// (never a dual axis): sales, EBITDA, PAT, CFO, FCF as bars; ROCE and CCC as lines. Plus the
+// Fundamentals (SPEC §9, up to 10 years) as small multiples, one measure per chart on its own
+// axis (never a dual axis): sales, EBITDA, PAT, CFO, FCF as bars; ROCE and CCC as lines. Banks
+// and insurers get NII, PAT, ROE, ROA, loans, deposits, CD ratio, credit cost and BVPS instead. Plus the
 // shareholding trend (4 series, with a legend). Missing years are gaps, never zeros. A table
 // view carries every number.
 import { useEffect, useState } from "react";
@@ -41,6 +42,20 @@ export const METRICS: Metric[] = [
   { key: "roce", title: "ROCE", unit: "%", kind: "line", scale: 100 },
   { key: "ccc_days", title: "Cash conversion cycle", unit: "days", kind: "line", scale: 1 },
 ];
+
+export const BANK_METRICS: Metric[] = [
+  { key: "nii", title: "Net interest income", unit: "₹ Cr", kind: "bar", scale: 1 },
+  { key: "pat", title: "PAT", unit: "₹ Cr", kind: "bar", scale: 1 },
+  { key: "roe", title: "ROE", unit: "%", kind: "line", scale: 100 },
+  { key: "roa", title: "ROA", unit: "%", kind: "line", scale: 100 },
+  { key: "advances", title: "Loans (advances)", unit: "₹ Cr", kind: "bar", scale: 1 },
+  { key: "deposits", title: "Deposits", unit: "₹ Cr", kind: "bar", scale: 1 },
+  { key: "cd_ratio", title: "Credit-deposit ratio", unit: "%", kind: "line", scale: 100 },
+  { key: "credit_cost", title: "Credit cost", unit: "%", kind: "line", scale: 100 },
+  { key: "bvps", title: "Book value per share", unit: "₹", kind: "bar", scale: 1 },
+];
+
+export const metricsFor = (h: FundamentalsHistory): Metric[] => (h.model === "bank" ? BANK_METRICS : METRICS);
 
 const SHP = [
   { key: "promoter_pct", label: "Promoter", color: "var(--viz-s1)" },
@@ -120,7 +135,7 @@ function SmallMultiple({ years, m }: { years: YearPoint[]; m: Metric }) {
 function FundamentalsTable({ h }: { h: FundamentalsHistory }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-xs tabular-nums" aria-label="10-year fundamentals">
+      <table className="w-full text-xs tabular-nums" aria-label="Fundamentals by year">
         <thead className="text-muted-foreground">
           <tr>
             <th className="py-1 pr-2 text-left font-normal">Metric</th>
@@ -132,7 +147,7 @@ function FundamentalsTable({ h }: { h: FundamentalsHistory }) {
           </tr>
         </thead>
         <tbody>
-          {METRICS.map((m) => (
+          {metricsFor(h).map((m) => (
             <tr key={m.key} className="border-t">
               <th scope="row" className="py-1 pr-2 text-left font-normal whitespace-nowrap">
                 {m.title} ({m.unit})
@@ -223,7 +238,7 @@ function Shareholding({ h, table }: { h: FundamentalsHistory; table: boolean }) 
   );
 }
 
-export function FundamentalsCharts({ symbol }: { symbol: string }) {
+export function FundamentalsCharts({ symbol, onYears }: { symbol: string; onYears?: (n: number) => void }) {
   const [h, setH] = useState<FundamentalsHistory | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [table, setTable] = useState(false);
@@ -231,11 +246,16 @@ export function FundamentalsCharts({ symbol }: { symbol: string }) {
   useEffect(() => {
     let live = true;
     api<FundamentalsHistory>(`/stocks/${symbol}/fundamentals`)
-      .then((d) => live && setH(d))
+      .then((d) => {
+        if (!live) return;
+        setH(d);
+        onYears?.(d.years_available ?? d.years.length);
+      })
       .catch((e) => live && setError(e instanceof ApiError ? e.detail : "unavailable"));
     return () => {
       live = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol]);
 
   if (error) return <p className="text-destructive text-sm">Fundamentals unavailable: {error}</p>;
@@ -257,7 +277,7 @@ export function FundamentalsCharts({ symbol }: { symbol: string }) {
         <FundamentalsTable h={h} />
       ) : (
         <div className="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2 lg:grid-cols-4">
-          {METRICS.map((m) => (
+          {metricsFor(h).map((m) => (
             <SmallMultiple key={m.key} years={h.years} m={m} />
           ))}
         </div>
