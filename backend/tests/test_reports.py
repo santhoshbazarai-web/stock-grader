@@ -130,8 +130,8 @@ def test_report_is_internally_consistent(seeded: Session) -> None:
 def test_missing_inputs_are_data_gaps_not_defaults(seeded: Session) -> None:
     r = build_for(seeded, "SYNTH", CFG).report
     # No delivery data, no surveillance lists, no RS percentile, no auditor record in the fixture
-    assert "knockout:liquidity: knock-out check not evaluated" in r.data_gaps
-    assert "knockout:asm_gsm: knock-out check not evaluated" in r.data_gaps
+    assert "knockout:liquidity: liquidity / size knock-out check not evaluated" in r.data_gaps
+    assert "knockout:asm_gsm: ASM / GSM surveillance knock-out check not evaluated" in r.data_gaps
     assert "rs_percentile: missing: technical sub-metric not scored" in r.data_gaps
     technical = next(p for p in r.pillars if p.pillar == "technical")
     assert technical.missing == ["rs_percentile", "delivery_ratio"]

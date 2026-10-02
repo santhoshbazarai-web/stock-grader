@@ -47,7 +47,13 @@ from app.scoring.common import Grade, Pillar
 from app.scoring.decision import Decision, DecisionInputs, decide
 from app.scoring.earned_premium import EarnedPremium, EarnedPremiumInputs, earned_premium
 from app.scoring.grade import Grading, resolve_grade
-from app.scoring.knockouts import KnockoutInputs, KnockoutResult, knockouts, recent_resignations
+from app.scoring.knockouts import (
+    KnockoutInputs,
+    KnockoutResult,
+    knockouts,
+    ko_label,
+    recent_resignations,
+)
 from app.scoring.pillars import PillarInputs, PillarScore, non_valuation_pillars, valuation_pillar
 from app.technical.buy_zone import BuyZone, buy_zone
 from app.technical.engine import TechnicalAnalysis, analyze
@@ -599,7 +605,7 @@ def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> B
         gap(
             _GAP_DATASET.get(code, Dataset.FIN_ANNUAL),
             f"knockout:{code}",
-            "knock-out check not evaluated",
+            f"{ko_label(code)} knock-out check not evaluated",
         )
 
     report = _assemble(

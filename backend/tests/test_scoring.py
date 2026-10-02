@@ -141,7 +141,7 @@ def test_negative_cfo_with_partial_history(
 def test_negative_cfo_does_not_apply_to_lenders() -> None:
     r = knockouts(replace(CLEAN, cfo_history=None, cfo_applies=False), KO)
     assert "negative_cfo" not in r.unknown and "negative_cfo" not in r.triggered
-    assert "knock-out check 'negative_cfo' not applicable to a lender / insurer" in r.reasons
+    assert "negative operating cash flow check: not applicable to a lender / insurer" in r.reasons
     hit = knockouts(replace(CLEAN, cfo_history=[-1, -1, -1, -1, -1], cfo_applies=False), KO)
     assert hit.triggered == []
 
@@ -627,3 +627,11 @@ def test_missing_grade_or_zone() -> None:
     ]
     d = decide(replace(BASE, grade=D, zone=None), S)  # the whole D row is Avoid
     assert d.action is AV and "every zone" in d.reasons[0]
+
+
+def test_confirmation_conditions_read_as_text() -> None:
+    d = decide(replace(BASE, grade=B, zone=Zone.DEEP_DISCOUNT, stage=3, trend="down"), S)
+    assert d.action is Action.WAIT
+    assert "deep discount, awaiting technical confirmation (now Stage 3, a downtrend): needs " \
+        "Stage 2 or an uptrend" in d.reasons  # fmt: skip
+    assert not any("[" in r for r in d.reasons)

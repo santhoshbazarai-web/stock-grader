@@ -20,6 +20,7 @@ No grade → no action. No zone → an action only when the grade's whole row is
 """
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -123,8 +124,8 @@ def apply_rule(
                 Action.WAIT,
                 [],
                 [
-                    f"deep discount, awaiting technical confirmation (Stage {x.stage}, "
-                    f"trend {x.trend}; needs stage in {conf.stages} or trend in {conf.trends})"
+                    f"deep discount, awaiting technical confirmation (now {_now(x)}): needs "
+                    f"{_needs(conf.stages, conf.trends)}"
                 ],
             )
         case DecisionRule.ACCUMULATE_SLOWLY:
@@ -143,6 +144,28 @@ def apply_rule(
             return Action.AVOID, [], ["grade and zone do not justify a position: avoid"]
         case DecisionRule.BOOK_PROFITS:
             return Action.BOOK_PROFITS, [], ["extreme premium on a mid grade: book profits"]
+
+
+_TREND = {"up": "an uptrend", "down": "a downtrend", "range": "a trading range"}
+
+
+def _or(parts: list[str]) -> str:
+    return parts[0] if len(parts) == 1 else f"{', '.join(parts[:-1])} or {parts[-1]}"
+
+
+def _needs(stages: Sequence[int], trends: Sequence[str]) -> str:
+    """``[2], ["up"]`` → "Stage 2 or an uptrend"."""
+    parts = []
+    if stages:
+        parts.append("Stage " + _or([str(s) for s in stages]))
+    parts += [_TREND.get(t, f"a {t} trend") for t in trends]
+    return _or(parts) if parts else "nothing configured"
+
+
+def _now(x: "DecisionInputs") -> str:
+    stage = f"Stage {x.stage}" if x.stage is not None else "stage unknown"
+    trend = _TREND.get(x.trend, x.trend) if x.trend is not None else "trend unknown"
+    return f"{stage}, {trend}"
 
 
 def decide(x: DecisionInputs, cfg: ScoringConfig) -> Decision:

@@ -161,6 +161,16 @@ export function DecisionPanel({ report }: { report: StockReport }) {
   );
 }
 
+const KO_LABEL: Record<string, string> = {
+  pledge: "promoter pledge",
+  negative_cfo: "negative operating cash flow",
+  auditor: "auditor resignation",
+  asm_gsm: "ASM / GSM surveillance",
+  liquidity: "liquidity / size",
+  beneish: "Beneish M-score",
+};
+const koLabel = (code: string) => KO_LABEL[code] ?? code.replace(/_/g, " ");
+
 export function FlagsPanel({ report }: { report: StockReport }) {
   const ko = report.knockouts;
   return (
@@ -181,8 +191,8 @@ export function FlagsPanel({ report }: { report: StockReport }) {
         )}
         <p className="text-muted-foreground text-xs">
           Knock-outs:{" "}
-          {ko.triggered.length ? `${ko.triggered.join(", ")} → grade capped at ${ko.cap}` : "none triggered"}
-          {ko.unknown.length > 0 && ` · not evaluated: ${ko.unknown.join(", ")}`}
+          {ko.triggered.length ? `${ko.triggered.map(koLabel).join(", ")} → grade capped at ${ko.cap}` : "none triggered"}
+          {ko.unknown.length > 0 && ` · not evaluated: ${ko.unknown.map(koLabel).join(", ")}`}
         </p>
       </section>
       <section className="flex flex-col gap-1">

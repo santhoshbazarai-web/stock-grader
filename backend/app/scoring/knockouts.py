@@ -63,6 +63,21 @@ def _negative_cfo(
     return None, f"CFO negative in {negative} known years, {unknown} of the last {n} missing"
 
 
+# knock-out codes as the report shows them
+KO_LABEL = {
+    "pledge": "promoter pledge",
+    "negative_cfo": "negative operating cash flow",
+    "auditor": "auditor resignation",
+    "asm_gsm": "ASM / GSM surveillance",
+    "liquidity": "liquidity / size",
+    "beneish": "Beneish M-score",
+}
+
+
+def ko_label(code: str) -> str:
+    return KO_LABEL.get(code, code.replace("_", " "))
+
+
 def recent_resignations(dates: list[date], as_of: date, years: int) -> list[date]:
     """Auditor resignations within ``years`` up to ``as_of``."""
     cutoff = as_of.replace(
@@ -79,7 +94,7 @@ def knockouts(inputs: KnockoutInputs, cfg: KnockoutsConfig) -> KnockoutResult:
     def check(code: str, hit: bool | None, hit_reason: str, missing_reason: str) -> None:
         if hit is None:
             unknown.append(code)
-            reasons.append(f"knock-out check '{code}' not evaluated: {missing_reason}")
+            reasons.append(f"{ko_label(code)} check not evaluated: {missing_reason}")
         elif hit:
             triggered.append(code)
             reasons.append(f"knock-out: {hit_reason}")
@@ -96,7 +111,7 @@ def knockouts(inputs: KnockoutInputs, cfg: KnockoutsConfig) -> KnockoutResult:
         hit, why = _negative_cfo(inputs.cfo_history, cfg)
         check("negative_cfo", hit, why, why)
     else:
-        reasons.append("knock-out check 'negative_cfo' not applicable to a lender / insurer")
+        reasons.append(f"{ko_label('negative_cfo')} check: not applicable to a lender / insurer")
 
     if inputs.auditor_resignations is None:
         check("auditor", None, "", "auditor-resignation record unavailable")
@@ -145,7 +160,7 @@ def knockouts(inputs: KnockoutInputs, cfg: KnockoutsConfig) -> KnockoutResult:
             "Beneish M-score unavailable",
         )
     else:
-        reasons.append("knock-out check 'beneish' not applicable to a lender / insurer")
+        reasons.append(f"{ko_label('beneish')} check: not applicable to a lender / insurer")
 
     cap = Grade(cfg.cap_grade) if triggered else None
     if cap is not None:
