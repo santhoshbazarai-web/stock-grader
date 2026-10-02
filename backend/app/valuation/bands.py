@@ -39,8 +39,10 @@ class Band:
 
 def _step(series: pd.Series, index: pd.DatetimeIndex) -> pd.Series:
     """Carry a step series (keyed by effective date) forward onto trading days."""
-    s = series.dropna().sort_index()
+    s = series.dropna()
     s.index = pd.DatetimeIndex(s.index)
+    s = s.sort_index(kind="stable")
+    s = s[~s.index.duplicated(keep="last")]  # one value per effective date
     return s.reindex(s.index.union(index)).ffill().reindex(index)
 
 
