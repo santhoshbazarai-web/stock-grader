@@ -136,3 +136,25 @@ def test_stock_only_companies_name_their_gaps(
     gaps = [*r.valuation.reasons, *r.data_gaps]
     assert any("interest" in x for x in gaps), gaps
     assert r.levels.top_band is not None or r.levels.fair_value is None  # never a made-up FV
+
+
+def test_periods_known_on_the_same_day_do_not_break_the_report(
+    env: Env, reports: dict[str, StockReport]
+) -> None:
+    """A filing's comparatives (or Q4 with the full year, or a vendor year dated by the assumed
+    lag) make several periods known on one day: the report still builds, using the latest."""
+    from app.db.models import FinAnnual, FinQuarterly
+
+    with env.session() as s:
+        iid = s.scalar(select(Instrument.id).where(Instrument.symbol == "HDFCBANK"))
+        # FY2026 filed with FY2025 as its comparative; Q4 and the year on the same day
+        s.execute(update(FinAnnual).where(FinAnnual.instrument_id == iid,
+                                          FinAnnual.fiscal_year.in_([2025, 2026]))
+                  .values(announcement_date=date(2026, 4, 18)))  # fmt: skip
+        s.execute(update(FinQuarterly).where(FinQuarterly.instrument_id == iid,
+                                             FinQuarterly.period_end >= date(2025, 12, 31))
+                  .values(announcement_date=date(2026, 4, 18)))  # fmt: skip
+        s.commit()
+        r = build_for(s, "HDFCBANK", get_config()).report
+    assert r.grade is not None and r.levels.fair_value is not None
+    assert any("band" in m.name and m.value is not None for m in r.valuation.methods)

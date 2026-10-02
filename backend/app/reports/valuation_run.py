@@ -22,6 +22,7 @@ import statistics
 from dataclasses import dataclass, field
 from datetime import date
 from itertools import pairwise
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -160,6 +161,24 @@ def effective_dates(frame: pd.DataFrame, lag_days: int) -> tuple[pd.DatetimeInde
     return pd.DatetimeIndex(ann.fillna(fallback)), assumed
 
 
+def known_series(values: Any, periods: pd.DatetimeIndex, known: pd.DatetimeIndex) -> pd.Series:
+    """A point-in-time step series: on each date, the value of the latest *period* known by
+    then. Rows are keyed by the date they became known; several periods known the same day
+    (a filing's comparatives, Q4 with the full year, a vendor year dated by the assumed lag)
+    keep only the latest period, and a period older than one already known never replaces it.
+    """
+    frame = pd.DataFrame({"value": pd.to_numeric(pd.Series(values), errors="coerce").to_numpy(),
+                          "period": periods, "known": known}).dropna()  # fmt: skip
+    if frame.empty:
+        return pd.Series(dtype=float, index=pd.DatetimeIndex([]))
+    frame = frame.sort_values(["known", "period"], kind="stable")
+    newer = frame["period"] > frame["period"].cummax().shift(1)
+    frame = frame[newer | (frame.index == frame.index[0])]
+    frame = frame.drop_duplicates("known", keep="last")
+    return pd.Series(frame["value"].to_numpy(), index=pd.DatetimeIndex(frame["known"]),
+                     dtype=float)  # fmt: skip
+
+
 def ttm_by_quarter(quarterly: pd.DataFrame, col: str) -> pd.Series:
     """TTM sum of ``col`` keyed by quarter-end period, only over 4 consecutive quarters."""
     if quarterly.empty or col not in quarterly.columns:
@@ -259,8 +278,8 @@ def run_valuation(
     q_eff, q_assumed = effective_dates(q, lag.quarterly)
 
     def annual_series(values: pd.Series) -> pd.Series:
-        s = pd.Series(pd.to_numeric(values, errors="coerce").to_numpy(), index=a_eff, dtype=float)
-        return s.dropna()
+        return known_series(pd.to_numeric(values, errors="coerce").to_numpy(),
+                            pd.DatetimeIndex(annual.index), a_eff)  # fmt: skip
 
     def acol(name: str) -> pd.Series:
         return annual[name] if name in annual.columns else pd.Series(np.nan, index=annual.index)
@@ -269,8 +288,10 @@ def run_valuation(
     ttm_eps = ttm_by_quarter(q, "eps_diluted")
     if len(ttm_eps):
         period_eff = dict(zip(pd.DatetimeIndex(q.index).to_period("Q"), q_eff, strict=True))
-        eps_series = pd.Series(
-            ttm_eps.to_numpy(), index=pd.DatetimeIndex([period_eff[p] for p in ttm_eps.index])
+        eps_series = known_series(
+            ttm_eps.to_numpy(),
+            pd.DatetimeIndex([p.end_time.normalize() for p in ttm_eps.index]),
+            pd.DatetimeIndex([period_eff[p] for p in ttm_eps.index]),
         )
         eps_label = "TTM EPS"
     else:
