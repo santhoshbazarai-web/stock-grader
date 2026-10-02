@@ -822,3 +822,27 @@ export type DataSources = {
   bse: SiteDiag | null;
   indianapi?: IndianApiStatus | null;
 };
+
+export type PriceAnomaly = {
+  id: number;
+  day: string;
+  ratio: number;
+  candidate: number;
+  volume_ratio: number | null;
+  volume_confirmed: boolean; // a fix is offered only when the volume confirms it
+  kind: "missing_action" | "double_adjusted" | "not_applied";
+  action_ex_date: string | null;
+  ratio_old: number | null;
+  ratio_new: number | null;
+  text: string;
+  status: "open" | "applied" | "dismissed" | "resolved";
+};
+
+export type PriceAnomalies = { symbol: string; open: PriceAnomaly[] };
+
+export type PriceFix = {
+  anomaly: PriceAnomaly;
+  done: string;
+  readjusted_bars: number;
+  remaining: PriceAnomaly[];
+};

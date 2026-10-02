@@ -16,6 +16,7 @@ import { EventsCard } from "./events-card";
 import { DecisionPanel, FlagsPanel, ReportHeader } from "./panels";
 import { PipelineProgress } from "./pipeline-progress";
 import { PriceChart } from "./price-chart";
+import { PriceAnomalyBanner } from "./price-anomaly-banner";
 import { ReconciliationBanner } from "./reconciliation-banner";
 import { Scorecard } from "./scorecard";
 import { SourcesPanel } from "./sources-panel";
@@ -131,6 +132,7 @@ export function ReportView({ symbol }: { symbol: string }) {
         <>
           <ReportHeader report={report} onRun={setRun} />
           <ReconciliationBanner symbol={report.symbol} />
+          <PriceAnomalyBanner symbol={report.symbol} />
           <Section title="Valuation zone">
             <ZoneGauge report={report} />
           </Section>

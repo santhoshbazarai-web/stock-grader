@@ -372,6 +372,22 @@ class BrokerConfig(_Strict):
     morning_reminder: bool  # broker_token_check notifies when its token has expired
 
 
+class SuspiciousMovesConfig(_Strict):
+    """Overnight moves that look like a missing or doubled split/bonus (data/adjust.py)."""
+
+    # adjusted close ratios that look like a corporate action (1/2, 1/3, 1/4, 2/3, 3/2, 2)
+    ratios: list[PositiveFloat] = Field(min_length=1)
+    ratio_tolerance: Fraction  # |ratio / candidate - 1|
+    # the volume must move the other way by at least this factor (median of N days each side)
+    volume_confirmation: Annotated[float, Field(gt=1)]
+    volume_days: PositiveInt
+    # an action on record this close to the move explains it (or was applied twice)
+    action_window_days: Annotated[int, Field(ge=0)]
+    # the regression check: no overnight gap above this multiple of ATR / close
+    atr_period: PositiveInt
+    atr_multiple: PositiveFloat
+
+
 class AdjustmentConfig(_Strict):
     """Split / bonus price adjustment (data/adjust.py)."""
 
@@ -381,6 +397,11 @@ class AdjustmentConfig(_Strict):
     detect_preadjusted: bool
     # an adjusted close-to-close move larger than this is reported (missing/doubled action)
     abnormal_gap: Fraction
+    # Per price source: are its stored bars already split/bonus adjusted? yes | no | detect.
+    # The detector (the raw move at each ex-date) checks the flag; when it is conclusive it
+    # wins, with a warning if it disagrees. Unlisted sources are "detect".
+    prices_already_adjusted: dict[str, Literal["yes", "no", "detect"]] = Field(default_factory=dict)
+    suspicious: SuspiciousMovesConfig
 
 
 class IndianApiEndpoint(_Strict):

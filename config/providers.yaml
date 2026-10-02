@@ -228,3 +228,19 @@ providers:
     duplicate_window_days: 5   # same split/bonus from 2 sources ≤ 5 days apart → applied once
     detect_preadjusted: true   # raw closes show no move at the ex-date → source already adjusted
     abnormal_gap: 0.35         # adjusted close moving > 35% in a day is reported
+    # Are a source's stored bars already split/bonus adjusted? yes | no | detect. The detector
+    # (raw move at each ex-date, per source) checks this and wins when conclusive.
+    prices_already_adjusted:
+      nse: "no"                # bhavcopy / historical: as traded
+      yfinance: "no"           # the provider undoes Yahoo's split adjustment before storing
+      offline: "no"
+      fyers: detect            # history has been seen both ways: decide per ex-date
+      kite: detect
+    suspicious:                # moves that look like a missing / doubled split or bonus
+      ratios: [0.5, 0.3333, 0.25, 0.6667, 1.5, 2.0]
+      ratio_tolerance: 0.04    # within 4% of one of the ratios
+      volume_confirmation: 1.4 # volume moves the other way by >= 1.4x (median of volume_days)
+      volume_days: 5
+      action_window_days: 5    # an action on record within 5 days explains the move
+      atr_period: 14
+      atr_multiple: 3          # regression check: no overnight gap > 3x ATR/close

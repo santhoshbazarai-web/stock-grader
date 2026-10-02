@@ -537,3 +537,32 @@ class ThesisOut(BaseModel):
     attempts: int
     problems: list[str] = Field(description="Why the last draft was rejected / the model failed")
     reasons: list[str]
+
+
+class PriceAnomalyOut(BaseModel):
+    """A move that looks like a missing / doubled split or bonus (SPEC §3.2)."""
+
+    id: int
+    day: date
+    ratio: float = Field(description="Adjusted close / previous adjusted close")
+    candidate: float = Field(description="The action-like ratio it is near")
+    volume_ratio: float | None
+    volume_confirmed: bool = Field(description="Volume moved the other way: a fix is offered")
+    kind: Literal["missing_action", "double_adjusted", "not_applied"]
+    action_ex_date: date | None
+    ratio_old: int | None
+    ratio_new: int | None
+    text: str
+    status: Literal["open", "applied", "dismissed", "resolved"]
+
+
+class PriceAnomaliesOut(BaseModel):
+    symbol: str
+    open: list[PriceAnomalyOut]
+
+
+class PriceFixOut(BaseModel):
+    anomaly: PriceAnomalyOut
+    done: str = Field(description="The corporate-actions change made")
+    readjusted_bars: int
+    remaining: list[PriceAnomalyOut] = Field(description="Open anomalies after re-adjusting")

@@ -5,6 +5,8 @@
     python -m app.jobs run nse_bhavcopy --date 2024-03-28
     python -m app.jobs run shareholding --force
     python -m app.jobs verify-adjustment --symbol INFY
+    python -m app.jobs verify-adjustment --symbol HDFCBANK --readjust \
+        --around 2025-08-22:2025-08-29 --around 2019-09-10:2019-09-20
     python -m app.jobs xbrl-inspect path/to/results.xml   # check the XBRL element mapping
     python -m app.jobs xbrl-reparse [--symbols TCS]       # re-apply xbrl_map.yaml to cached files
     python -m app.jobs xbrl-coverage --symbols TCS,INFY   # years parsed per statement
@@ -66,6 +68,12 @@ def _parser() -> argparse.ArgumentParser:
         "verify-adjustment", help="check stored prices of a symbol around its splits/bonuses"
     )
     verify.add_argument("--symbol", required=True)
+    verify.add_argument("--around", action="append", default=None, metavar="START:END",
+                        help="also print the raw bars (with their source) from START to END "
+                             "(YYYY-MM-DD:YYYY-MM-DD); repeatable")  # fmt: skip
+    verify.add_argument("--readjust", action="store_true",
+                        help="re-run the source-aware adjustment first (writes adj_* and the "
+                             "price anomalies; never changes corporate actions)")  # fmt: skip
     inspect = sub.add_parser(
         "xbrl-inspect", help="show what the results XBRL parser reads from a filing (no DB)"
     )
@@ -334,23 +342,42 @@ def _run(ctx: JobContext, args: argparse.Namespace) -> int:
     return 1 if record.status is JobStatus.FAILED else 0
 
 
-def verify_adjustment(ctx: JobContext, symbol: str) -> int:
-    """Print raw vs adjusted closes around each split/bonus and the largest overnight move of
-    each series. A correct adjustment removes the ex-date jump from the adjusted series."""
+def verify_adjustment(ctx: JobContext, symbol: str, *, around: Sequence[str] | None = None,
+                      readjust_first: bool = False) -> int:  # fmt: skip
+    """Print raw vs adjusted closes (and each bar's source) around each split/bonus and any
+    ``around`` window, the largest overnight move of each series, the overnight gaps above
+    ``suspicious.atr_multiple`` x ATR/close, and the open price anomalies. A correct
+    adjustment removes the ex-date jump from the adjusted series."""
+    from app.data.adjust import abnormal_gaps
+    from app.data.price_anomalies import open_anomalies
+    from app.jobs.common import readjust
+
+    adj_cfg = ctx.config.providers.adjustment
     session = ctx.session_factory()
     try:
         iid = session.scalar(select(Instrument.id).where(Instrument.symbol == symbol.upper()))
         if iid is None:
             print(f"{symbol}: not in instruments", file=sys.stderr)
             return 1
+        if readjust_first:
+            result = readjust(session, iid, adj_cfg)
+            session.commit()
+            print(f"re-adjusted: {result.changed} bar(s) changed")
+            for w in result.warnings:
+                print(f"  {w}")
         prices = pd.DataFrame(
             session.execute(
-                select(PriceDaily.date, PriceDaily.close, PriceDaily.adj_close)
+                select(PriceDaily.date, PriceDaily.source, PriceDaily.open, PriceDaily.high,
+                       PriceDaily.low, PriceDaily.close, PriceDaily.volume,
+                       PriceDaily.adj_factor, PriceDaily.adj_open, PriceDaily.adj_high,
+                       PriceDaily.adj_low, PriceDaily.adj_close)
                 .where(PriceDaily.instrument_id == iid)
                 .order_by(PriceDaily.date)
             ).all(),
-            columns=["date", "close", "adj_close"],
-        ).set_index("date")
+            columns=["date", "source", "open", "high", "low", "close", "volume", "adj_factor",
+                     "adj_open", "adj_high", "adj_low", "adj_close"],
+        ).set_index("date")  # fmt: skip
+        anomalies = open_anomalies(session, iid)
         actions = session.execute(
             select(
                 CorporateAction.ex_date,
@@ -370,15 +397,32 @@ def verify_adjustment(ctx: JobContext, symbol: str) -> int:
         print(f"{symbol}: no stored prices; run eod_prices first", file=sys.stderr)
         return 1
     prices.index = pd.DatetimeIndex(pd.to_datetime(prices.index), name="date")
-    print(f"{symbol}: {len(prices)} bars, {len(actions)} split/bonus action(s)")
+    shown = ["source", "close", "volume", "adj_factor", "adj_close"]
+    print(f"{symbol}: {len(prices)} bars, {len(actions)} split/bonus action(s); sources: "
+          + ", ".join(f"{k} {v}" for k, v in prices["source"].value_counts().items()))  # fmt: skip
     for ex_date, kind, old, new in actions:
         ex = pd.Timestamp(ex_date)
         window = prices.loc[ex - pd.Timedelta(days=5) : ex + pd.Timedelta(days=5)]
         print(f"\n{kind} {old:g}:{new:g} ex {ex_date}")
-        print(window.to_string())
+        print(window[shown].to_string())
+    for span in around or []:
+        start, _, end = span.partition(":")
+        print(f"\nraw bars {start} .. {end}")
+        print(prices.loc[pd.Timestamp(start) : pd.Timestamp(end),
+                         ["source", "open", "high", "low", "close", "volume", "adj_factor",
+                          "adj_close"]].to_string())  # fmt: skip
     raw_gap = largest_overnight_gap(prices["close"])
     adj_gap = largest_overnight_gap(prices["adj_close"].dropna())
     print(f"\nlargest overnight move: raw {raw_gap:.1%}, adjusted {adj_gap:.1%}")
+    sus = adj_cfg.suspicious
+    gaps = abnormal_gaps(prices.dropna(subset=["adj_close"]), sus.atr_period, sus.atr_multiple)
+    print(f"overnight gaps above {sus.atr_multiple:g}x ATR({sus.atr_period})/close: {len(gaps)}")
+    for day, row in gaps.iterrows():
+        print(f"  {pd.Timestamp(str(day)).date()}: gap {row['gap']:.1%}, normal "
+              f"{row['normal']:.2%}")  # fmt: skip
+    print(f"open price anomalies: {len(anomalies)}")
+    for a in anomalies:
+        print(f"  [{a.id}] {a.text}")
     return 0
 
 
@@ -423,4 +467,4 @@ def main(argv: Sequence[str] | None = None, context_factory: ContextFactory | No
         return telegram_bot(ctx)
     if args.command in ("nse-diagnose", "bse-diagnose"):
         return site_diagnose(ctx, args.command.split("-")[0], args)
-    return verify_adjustment(ctx, args.symbol)
+    return verify_adjustment(ctx, args.symbol, around=args.around, readjust_first=args.readjust)

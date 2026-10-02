@@ -105,6 +105,16 @@ class FundamentalsProvider(Protocol):
 - the same split/bonus from two sources with ex-dates up to `duplicate_window_days` apart (yfinance reports a bonus as a split, sometimes a day off NSE) counts once, on the ex-date the raw closes confirm;
 - with `detect_preadjusted`, an event whose ex-date shows no matching move in the raw closes (the price source already adjusted its history) is not applied again;
 - after adjustment, a close-to-close move above `abnormal_gap` is reported as a possible missing or doubled event (a `corporate_actions` data gap on `adj_close`).
+- **source-aware:** each stored bar keeps its provider, and the adjustment is decided **per source**, so a history stitched from an already-adjusted source (e.g. Fyers) and a raw one (NSE bhavcopy) is adjusted exactly once.
+  - `prices_already_adjusted` (per provider: `yes` / `no` / `detect`) gives the expected state.
+  - The detector compares a source's last bar before the ex-date with the first bar on or after it. When the result is conclusive it wins, with a warning if it disagrees with the flag.
+- **price anomalies** (`suspicious`): after adjustment, an adjusted close-to-close ratio within `ratio_tolerance` of 1/2, 1/3, 1/4, 2/3, 3/2 or 2 is stored in `price_anomalies`. It is listed in the report's data gaps and in a stock-page banner. Its kind is one of:
+  - `missing_action`: no split or bonus is on record within `action_window_days`; the suggested fix adds one with the implied ratio (`source='owner'`);
+  - `double_adjusted`: the ratio is above 1 at an action on record; the fix marks that action `price_adjusted_by_source = true`, so it is never applied;
+  - `not_applied`: the ratio is below 1 at an action on record; the fix marks it `false`, so it is always applied.
+- A fix is offered only when the median volume over `volume_days` moves the other way by `volume_confirmation`. It is applied only by the owner (`POST /api/stocks/{symbol}/price-anomalies/{id}/apply`, or `/dismiss` for a genuine move), never by a job, and the prices are re-adjusted at once.
+- **Check:** `python -m app.jobs verify-adjustment --symbol HDFCBANK --readjust --around 2025-08-22:2025-08-29 --around 2019-09-10:2019-09-20` prints the raw bars with their source, the overnight gaps above `atr_multiple` × ATR(`atr_period`)/close, and the open anomalies.
+  - The regression test (`tests/test_adjust_sources.py`) holds at 0 such gaps across HDFCBANK's 2019 split and 2025 bonus.
 
 The corporate-actions job reads `lookback_days` incrementally, but a stock with no actions on file gets its full history (`nse.corporate_actions_from_years`). Every provider answering "no actions" is an answer, not a failure (no data gap).
 

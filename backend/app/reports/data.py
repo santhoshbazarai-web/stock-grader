@@ -19,6 +19,7 @@ from app.data.canonical import fields_for
 from app.data.indianapi_checks import analyst_consensus
 from app.data.indianapi_parse import SHARES_PER_CRORE
 from app.data.indianapi_store import cached_answers
+from app.data.price_anomalies import open_anomalies
 from app.data.reconcile_store import issue_text, open_issues
 from app.db.enums import EventKind, PeriodType, StatementType, SurveillanceList, Timeframe
 from app.db.models import (
@@ -308,6 +309,8 @@ def load_stock_data(
     shares_ye = load_shares_year_end(session, inst.id, annual)
     resignations, flags = load_events(session, inst.id, last_day, config)
     issues = [issue_text(i) for i in open_issues(session, inst.id)]
+    # SPEC §3.2: price moves that look like a missing / doubled split or bonus
+    notes += [f"price data: {a.text}" for a in open_anomalies(session, inst.id)]
     sector_key = overrides.sector or inst.sector or "default"
     if benchmark_close is None:
         benchmark_close = prices.close_series(session, config.jobs.universe_index)

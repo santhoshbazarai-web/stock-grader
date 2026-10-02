@@ -267,6 +267,10 @@ class CorporateAction(SourcedMixin, Base):
     ratio_new: Mapped[float | None]
     dividend_per_share: Mapped[float | None]
     description: Mapped[str | None] = mapped_column(Text)
+    # The owner's fix from a price anomaly (SPEC §3.2): True = the price source already has
+    # this action in its bars (never applied); False = the bars are raw (always applied);
+    # None = decided per source (providers.yaml prices_already_adjusted + the detector).
+    price_adjusted_by_source: Mapped[bool | None]
 
 
 class DeliveryDaily(SourcedMixin, Base):
@@ -717,6 +721,32 @@ class Event(Base):
         ForeignKey("pipeline_runs.id", ondelete="SET NULL")
     )
     fetched_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class PriceAnomaly(TimestampMixin, Base):
+    """An adjusted close-to-close move that looks like a split / bonus (data/adjust.py
+    ``suspicious_moves``): a missing action, one applied twice, or one not applied. Shown on
+    the stock page with a one-click suggested fix; never fixed by a job."""
+
+    __tablename__ = "price_anomalies"
+    __upsert_key__ = ("instrument_id", "day")
+    __table_args__ = (UniqueConstraint("instrument_id", "day"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    instrument_id: Mapped[int] = _instrument_fk()
+    day: Mapped[date]
+    ratio: Mapped[float]
+    candidate: Mapped[float]
+    volume_ratio: Mapped[float | None]
+    volume_confirmed: Mapped[bool]
+    kind: Mapped[str] = mapped_column(String(32))  # missing_action | double_adjusted | not_applied
+    action_ex_date: Mapped[date | None]
+    ratio_old: Mapped[int | None] = mapped_column(Integer)
+    ratio_new: Mapped[int | None] = mapped_column(Integer)
+    text: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(16))  # open | applied | dismissed | resolved
+    detected_at: Mapped[datetime]
+    resolved_at: Mapped[datetime | None]
 
 
 class ReconciliationIssue(TimestampMixin, Base):
