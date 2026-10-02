@@ -75,6 +75,12 @@ class ValuationDto(_Dto):
     dcf_inputs: dict[str, float] | None = Field(
         None, description="Base DCF assumptions used (after overrides): g1, ebit_margin, ..."
     )
+    justified_pb_inputs: dict[str, float | None] | None = Field(
+        None, description="Banks: ROE, normalised ROE, Ke, terminal g, retention, stage-1 years"
+    )
+    justified_pb_grid: list[dict[str, float | None]] = Field(
+        default_factory=list, description="Banks: value for normalised ROE x g x Ke"
+    )
     reasons: list[str]
 
 

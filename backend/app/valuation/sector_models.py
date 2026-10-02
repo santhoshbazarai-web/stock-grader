@@ -2,8 +2,14 @@
 Banks, NBFCs and insurers never use FCFF DCF (AGENTS.md rule 10). Pure functions.
 
 Banks / NBFCs
-    justified P/B = (ROE - g) / (Ke - g)                   g = sector ``long_run_growth``
-    value         = justified P/B x BVPS
+    two-stage justified P/B (valuation.justified_pb):
+      stage 1, t = 1..n: ROE_t moves linearly from the latest ROE to the normalised ROE;
+                         RI_t = (ROE_t - Ke) x BV_{t-1}; BV_t = BV_{t-1} x (1 + ROE_t x b)
+                         (b = retention = 1 - payout; unknown payout: book grows at g)
+      terminal:          (ROE_norm - Ke) x BV_n / (Ke - g) / (1 + Ke)^n
+                         g = valuation.dcf.terminal_growth, capped at max_terminal_growth
+      value = BVPS + sum RI_t / (1 + Ke)^t + terminal
+      (with ROE flat at ROE_norm and book growing at g this is (ROE - g)/(Ke - g) x BVPS)
     residual income: BV_0 = BVPS, BV_t = BV_{t-1} x (1 + ROE x (1 - payout))
                      RI_t = (ROE - Ke) x BV_{t-1}
                      value = BV_0 + sum RI_t/(1+Ke)^t + RI_{N+1}/(Ke - g)/(1+Ke)^N
@@ -39,6 +45,57 @@ def justified_pb(*, roe: float | None, ke: float, g: float, bvps: float | None) 
     if pb <= 0:
         return ModelValue(None, [f"ROE {roe:.1%} <= growth {g:.1%}: justified P/B not positive"])
     return ModelValue(pb * bvps, [f"justified P/B {pb:.2f}x = (ROE {roe:.1%} - g)/(Ke - g)"])
+
+
+def justified_pb_two_stage(
+    *,
+    roe: float | None,
+    roe_norm: float | None,
+    ke: float,
+    g: float,
+    bvps: float | None,
+    retention: float | None,
+    years: int,
+) -> ModelValue:
+    if roe is None or roe_norm is None or bvps is None or bvps <= 0:
+        return ModelValue(None, ["justified P/B needs ROE, a normalised ROE and positive book "
+                                 "value"])  # fmt: skip
+    if ke <= g:
+        return ModelValue(None, [f"Ke {ke:.2%} <= terminal growth {g:.2%}"])
+    bv, pv = bvps, 0.0
+    for t in range(1, years + 1):
+        roe_t = roe + (roe_norm - roe) * t / years
+        pv += (roe_t - ke) * bv / (1 + ke) ** t
+        bv *= 1 + (roe_t * retention if retention is not None else g)
+    terminal = (roe_norm - ke) * bv / (ke - g) / (1 + ke) ** years
+    value = bvps + pv + terminal
+    if value <= 0:
+        return ModelValue(None, [f"normalised ROE {roe_norm:.1%} too far below Ke {ke:.2%}: "
+                                 "justified P/B not positive"])  # fmt: skip
+    book = (f"book grows by retained earnings ({retention:.0%} retained)" if retention is not None
+            else f"payout unknown: book grows at g {g:.1%}")  # fmt: skip
+    return ModelValue(value, [
+        f"two-stage justified P/B {value / bvps:.2f}x: ROE {roe:.1%} -> normalised "
+        f"{roe_norm:.1%} over {years}y, then g {g:.1%} (terminal), Ke {ke:.2%}; {book}",
+    ])  # fmt: skip
+
+
+def justified_pb_grid(*, roe: float | None, roe_norm: float | None, ke: float, g: float,
+                      bvps: float | None, retention: float | None, years: int,
+                      roe_steps: list[float], g_steps: list[float],
+                      ke_steps: list[float]) -> list[dict[str, float | None]]:  # fmt: skip
+    """Value per share for normalised ROE x terminal g x Ke around the base case."""
+    if roe is None or roe_norm is None or bvps is None:
+        return []
+    out = []
+    for dr in roe_steps:
+        for dg in g_steps:
+            for dk in ke_steps:
+                mv = justified_pb_two_stage(roe=roe, roe_norm=roe_norm + dr, ke=ke + dk,
+                                            g=g + dg, bvps=bvps, retention=retention,
+                                            years=years)  # fmt: skip
+                out.append({"roe": roe_norm + dr, "g": g + dg, "ke": ke + dk, "value": mv.value})
+    return out
 
 
 def residual_income(

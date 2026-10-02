@@ -594,6 +594,21 @@ class ConfidenceConfig(_Strict):
         return self
 
 
+class JustifiedPbGrid(_Strict):
+    roe_steps: list[float] = Field(min_length=1)
+    g_steps: list[float] = Field(min_length=1)
+    ke_steps: list[float] = Field(min_length=1)
+
+
+class JustifiedPbConfig(_Strict):
+    """Two-stage justified P/B for banks / NBFCs (SPEC §5.6)."""
+
+    stage1_years: PositiveInt  # ROE converges to the normalised ROE over this many years
+    normalised_roe_years: PositiveInt  # normalised ROE = median ROE over the last N years
+    max_terminal_growth: Fraction  # terminal g = dcf.terminal_growth, never above this
+    grid: JustifiedPbGrid
+
+
 class ValuationConfig(_Strict):
     risk_free_rate: Fraction
     # Where / when the risk-free rate was read (10-year G-sec yield). A rate older than
@@ -606,6 +621,7 @@ class ValuationConfig(_Strict):
     beta: BetaConfig
     tax_rate_default: Fraction
     dcf: DcfConfig
+    justified_pb: JustifiedPbConfig
     bands: BandsConfig
     epv: EpvConfig
     graham_multiplier: PositiveFloat
@@ -683,8 +699,6 @@ class SectorConfig(_Strict):
                 raise ValueError(f"weights must sum to 1.0, got {total:.6f}")
         if m in _NO_DCF_MODELS and self.weights and ValuationMethod.DCF_BASE in self.weights:
             raise ValueError(f"model {m} must not use FCFF DCF (dcf_base)")
-        if m is SectorModel.BANK and self.long_run_growth is None:
-            raise ValueError("bank model requires long_run_growth (justified P/B)")
         if m is SectorModel.CYCLICAL and self.normalise_years is None:
             raise ValueError("cyclical model requires normalise_years")
         if m is SectorModel.NAV and self.nav_discount is None:

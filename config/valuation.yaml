@@ -26,6 +26,14 @@ valuation:
       bear: {g1_delta: -0.05, margin_delta: -0.02, wacc_delta: 0.01}
       base: {g1_delta: 0.0,   margin_delta: 0.0,   wacc_delta: 0.0}
       bull: {g1_delta: 0.04,  margin_delta: 0.015, wacc_delta: -0.005}
+  justified_pb:                  # banks / NBFCs (SPEC §5.6): two-stage justified P/B
+    stage1_years: 5              # ROE moves linearly from the latest to the normalised ROE
+    normalised_roe_years: 10     # normalised ROE = median ROE of the last N fiscal years
+    max_terminal_growth: 0.065   # terminal g = dcf.terminal_growth (5%), never above 6.5%
+    grid:                        # sensitivity: normalised ROE x terminal g x Ke around the base
+      roe_steps: [-0.02, 0.0, 0.02]
+      g_steps: [-0.01, 0.0, 0.01]
+      ke_steps: [-0.01, 0.0, 0.01]
   bands:
     lookback_years: [5, 10]
     multiples: [pe, ev_ebitda, pb]

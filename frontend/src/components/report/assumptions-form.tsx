@@ -17,6 +17,7 @@ export const FIELDS = [
   { key: "g_terminal", label: "Terminal growth" },
   { key: "tax_rate", label: "Tax rate" },
   { key: "capex_pct", label: "Capex / sales" },
+  { key: "normalised_roe", label: "Normalised ROE (banks)" },
 ] as const;
 
 type Key = (typeof FIELDS)[number]["key"];
@@ -43,7 +44,10 @@ export function AssumptionsForm({
   onSaved: (r: StockReport | null) => void;
 }) {
   const saved = report.overrides;
-  const computed = report.valuation.dcf_inputs ?? {};
+  const computed: Record<string, number | null> = {
+    ...(report.valuation.dcf_inputs ?? {}),
+    normalised_roe: report.valuation.justified_pb_inputs?.normalised_roe ?? null,
+  };
   const [values, setValues] = useState<Record<Key, string>>(() => initial());
   const [sector, setSector] = useState<string>(saved.sector ?? "");
   const [busy, setBusy] = useState(false);

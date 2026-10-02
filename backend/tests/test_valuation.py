@@ -448,6 +448,41 @@ def test_justified_pb_worked_example() -> None:
     assert justified_pb(roe=0.08, ke=0.135, g=0.10, bvps=200).value is None  # ROE <= g
 
 
+def test_two_stage_justified_pb_hdfcbank() -> None:
+    from app.valuation.sector_models import justified_pb_grid, justified_pb_two_stage
+
+    # HDFCBANK: ROE 13.7%, Ke 12.25%, BVPS 381, terminal g 5% (valuation.dcf.terminal_growth)
+    # flat ROE and book growing at g: the single-stage formula, (13.7 - 5)/(12.25 - 5) = 1.20x
+    flat = justified_pb_two_stage(roe=0.137, roe_norm=0.137, ke=0.1225, g=0.05, bvps=381,
+                                  retention=None, years=5)  # fmt: skip
+    assert flat.value == pytest.approx(381 * 0.087 / 0.0725, rel=1e-9)  # 457.20
+    # one stage-1 year, ROE -> 15%, 72.8% retained:
+    #   RI_1 = (15% - 12.25%) x 381 = 10.4775, PV 9.334076
+    #   BV_1 = 381 x (1 + 15% x 72.8%) = 422.6052
+    #   terminal = 2.75% x 422.6052 / 7.25% / 1.1225 = 142.804921
+    #   value = 381 + 9.334076 + 142.804921 = 533.138997
+    one = justified_pb_two_stage(roe=0.137, roe_norm=0.15, ke=0.1225, g=0.05, bvps=381,
+                                 retention=0.728, years=1)  # fmt: skip
+    assert one.value == pytest.approx(533.138997, rel=1e-8)
+    # the old perpetual g = 10% (banks.long_run_growth) gave 1.64x = 626.5: far richer
+    assert flat.value < justified_pb(roe=0.137, ke=0.1225, g=0.10, bvps=381).value  # type: ignore[operator]
+    assert (
+        justified_pb_two_stage(
+            roe=0.137, roe_norm=0.137, ke=0.05, g=0.05, bvps=381, retention=None, years=5
+        ).value
+        is None
+    )  # Ke <= g
+    grid = justified_pb_grid(roe=0.137, roe_norm=0.137, ke=0.1225, g=0.05, bvps=381,
+                             retention=None, years=5, roe_steps=[-0.02, 0.0, 0.02],
+                             g_steps=[-0.01, 0.0, 0.01], ke_steps=[-0.01, 0.0, 0.01])  # fmt: skip
+    assert len(grid) == 27
+    base = next(c for c in grid if c["roe"] == 0.137 and c["g"] == 0.05 and c["ke"] == 0.1225)
+    assert base["value"] == pytest.approx(457.2, rel=1e-9)
+    hi_ke = next(c for c in grid if c["roe"] == 0.137 and c["g"] == 0.05
+                 and c["ke"] == pytest.approx(0.1325))  # fmt: skip
+    assert hi_ke["value"] < base["value"]  # type: ignore[operator]
+
+
 def test_residual_income_worked_example() -> None:
     # BVPS 100, ROE 15%, Ke 12%, g 5%, payout 40% (BV grows 15% x 60% = 9%/yr), 3 years:
     #   t1  BV 100.00  RI 3.0000  PV 2.678571

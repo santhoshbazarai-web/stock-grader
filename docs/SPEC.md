@@ -612,7 +612,7 @@ Driven by `config/sectors.yaml`. A stock's sector key comes from its industry cl
 - **Unmapped labels:** the default model is used, with a "sector unmapped" data gap naming the label. A per-stock sector override still wins.
 
 The sector models:
-- **Banks/NBFC:** justified P/B = (ROE − g)/(Ke − g) × BVPS; residual income model.
+- **Banks/NBFC:** two-stage justified P/B (below); residual income model.
 - **Insurance:** P/EV band; EV plus a VNB multiple (manual EV input allowed).
 - **Cyclicals:** normalised mid-cycle EBITDA (7–10 yr median margin × current sales) × EV/EBITDA band median.
 - **Real estate:** NAV (manual input) × discount.
@@ -645,7 +645,7 @@ Implementation notes (`valuation/`, pure functions; parameters in `valuation.yam
 - Bands use the median and sample σ of daily multiples whose denominator is positive, over the lookback. Fundamentals are carried forward from their announcement date. A band needs `bands.min_observations` valid days. EV/EBITDA per share = price + net debt per share.
 - Relative valuation uses ROCE as quality for PE and EV/EBITDA, and ROE for P/B and P/EV. It needs positive quality and growth on both sides.
 - EPV: normalised EBIT = mean EBIT margin over `epv.normalise_years` × latest revenue. Graham multiplier: `graham_multiplier`.
-- Banks: justified P/B uses `sectors.<bank>.long_run_growth` (required for the bank model). The residual-income model grows book value by ROE × (1 − payout).
+- Banks: **two-stage justified P/B** (`valuation.justified_pb`). Stage 1 runs `stage1_years` (n) with ROE moving linearly from the current ROE to the normalised ROE (ROE_t = ROE + (ROE_norm − ROE)·t/n); book grows by ROE_t × retention (retention = 1 − dividends/PAT; when the payout is unknown, by g and the reason says so). Value = BVPS + Σ (ROE_t − Ke)·B_{t−1}/(1+Ke)^t + (ROE_norm − Ke)·B_n/(Ke − g)/(1+Ke)^n. Terminal g = min(`dcf.terminal_growth`, `justified_pb.max_terminal_growth` = 6.5%); a long-run growth above that (the old 10%) is never used as a perpetual rate. Ke ≤ g → None. Normalised ROE = median of PAT / average equity over the last `normalised_roe_years`; the user can override it (`normalised_roe` override). With ROE = ROE_norm the formula reduces to (ROE − g)/(Ke − g) × BVPS (HDFCBANK: 381 × 0.087/0.0725 = ₹457). The valuation panel shows a sensitivity grid: normalised ROE × g × Ke around the base, steps in `justified_pb.grid`. The residual-income model uses the same terminal g and grows book value by ROE × (1 − payout).
 - Blend: methods without a value are dropped and the remaining weights are renormalised (reported). If the available methods carry less than `blend.min_weight_coverage` of the weight, there is no fair value. The baseline book floor is `blend.asset_heavy_book_multiple`. The top band is capped at band +`zones.top_band_cap_sigma`σ. The primary band is the sector's highest-weighted band method.
 - Confidence: CV (population σ / mean of the method values used) above `confidence.low_if_method_cv_above` → low; above `medium_if_method_cv_above` → medium; otherwise high. Fewer than two methods → low. Zone boundaries: FV(1 − MoS) is Fair; FV × `fair_upper_mult` is Fair; the top band itself is Premium.
 

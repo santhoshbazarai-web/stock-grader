@@ -56,6 +56,8 @@ export type Valuation = {
   market_cap_cr: number | null;
   extra_methods: Record<string, number | null>;
   dcf_inputs: Record<string, number> | null;
+  justified_pb_inputs: Record<string, number | null> | null;
+  justified_pb_grid: { roe: number; g: number; ke: number; value: number | null }[];
   reasons: string[];
 };
 
@@ -165,6 +167,7 @@ export type Overrides = {
   capex_pct: number | null;
   nwc_pct: number | null;
   sector: string | null;
+  normalised_roe: number | null;
   nav_per_share: number | null;
   embedded_value_per_share: number | null;
   vnb_per_share: number | null;

@@ -29,6 +29,9 @@ class Overrides(BaseModel):
     capex_pct: float | None = Field(None, ge=0.0, lt=1.0)
     nwc_pct: float | None = Field(None, gt=-1.0, lt=1.0)
     sector: str | None = Field(None, description="sectors.yaml key; selects the model")
+    normalised_roe: float | None = Field(
+        None, gt=-0.5, lt=1.0, description="Banks: the ROE the two-stage justified P/B converges to"
+    )
     nav_per_share: float | None = Field(None, gt=0)
     embedded_value_per_share: float | None = Field(None, gt=0)
     vnb_per_share: float | None = Field(None, gt=0)

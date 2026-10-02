@@ -695,6 +695,8 @@ def _assemble(
             dcf_inputs=(
                 {k: float(getattr(run.base, k)) for k in DCF_KEYS} if run.base is not None else None
             ),
+            justified_pb_inputs=run.justified_pb_inputs,
+            justified_pb_grid=run.justified_pb_grid,
             reasons=run.reasons + (val.reasons if val else []),
         ),
         scores=Scores(

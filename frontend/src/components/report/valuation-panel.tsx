@@ -7,6 +7,7 @@ import { crore, inr, METHOD_LABEL, num, pct, signedPct } from "@/lib/format";
 import type { Sensitivity, StockReport } from "@/lib/types";
 
 import { AssumptionsForm } from "./assumptions-form";
+import { JustifiedPbGrid } from "./justified-pb-grid";
 import { SensitivityHeatmap } from "./sensitivity-heatmap";
 
 export function ValuationPanel({
@@ -123,16 +124,25 @@ export function ValuationPanel({
         )}
       </section>
 
-      <section aria-labelledby="sens-h" className="flex flex-col gap-2">
-        <h3 id="sens-h" className="text-sm font-semibold">
-          DCF sensitivity (₹ per share)
-        </h3>
-        {grid ? (
-          <SensitivityHeatmap grid={grid} cmp={report.cmp} />
-        ) : (
-          <p className="text-muted-foreground text-sm">{gridNote ?? "Loading…"}</p>
-        )}
-      </section>
+      {v.justified_pb_grid.length > 0 ? (
+        <section aria-labelledby="jpb-h" className="flex flex-col gap-2">
+          <h3 id="jpb-h" className="text-sm font-semibold">
+            Justified P/B sensitivity (₹ per share)
+          </h3>
+          <JustifiedPbGrid inputs={v.justified_pb_inputs} cells={v.justified_pb_grid} cmp={report.cmp} />
+        </section>
+      ) : (
+        <section aria-labelledby="sens-h" className="flex flex-col gap-2">
+          <h3 id="sens-h" className="text-sm font-semibold">
+            DCF sensitivity (₹ per share)
+          </h3>
+          {grid ? (
+            <SensitivityHeatmap grid={grid} cmp={report.cmp} />
+          ) : (
+            <p className="text-muted-foreground text-sm">{gridNote ?? "Loading…"}</p>
+          )}
+        </section>
+      )}
 
       <section aria-labelledby="assume-h" className="flex flex-col gap-2">
         <h3 id="assume-h" className="text-sm font-semibold">

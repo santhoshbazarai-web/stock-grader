@@ -28,7 +28,7 @@ import numpy as np
 import pandas as pd
 
 from app.core.config import SectorConfig, SectorModel, ValuationConfig
-from app.fundamentals.metrics import Metric, by_year
+from app.fundamentals.metrics import Metric, average, by_year, column, ratio
 from app.reports.data import StockData
 from app.reports.dto import PeerStats
 from app.valuation.bands import band, band_prices
@@ -51,7 +51,8 @@ from app.valuation.reverse_dcf import ReverseDcf, reverse_dcf
 from app.valuation.sector_models import (
     ModelValue,
     insurance_appraisal,
-    justified_pb,
+    justified_pb_grid,
+    justified_pb_two_stage,
     nav_value,
     normalised_ev_ebitda,
     p_ev_value,
@@ -88,6 +89,9 @@ class ValuationRun:
     gaps: list[tuple[str, str]] = field(default_factory=list)
     announcement_dates_assumed: bool = False
     reasons: list[str] = field(default_factory=list)
+    # banks: two-stage justified P/B inputs and its normalised ROE x g x Ke sensitivity
+    justified_pb_inputs: dict[str, float | None] | None = None
+    justified_pb_grid: list[dict[str, float | None]] = field(default_factory=list)
 
     def blend(self, grade: str, config: ValuationConfig) -> Valuation:
         bear = self.scenarios.get("bear")
@@ -179,6 +183,19 @@ def known_series(values: Any, periods: pd.DatetimeIndex, known: pd.DatetimeIndex
                      dtype=float)  # fmt: skip
 
 
+def normalised_roe(annual: pd.DataFrame, years: int) -> tuple[float | None, str]:
+    """Median ROE (PAT / average equity) over the last ``years`` fiscal years."""
+    df = by_year(annual)
+    if df.empty:
+        return None, "normalised ROE: no annual statements"
+    roe = ratio(column(df, "pat"), average(column(df, "total_equity"))).dropna().tail(years)
+    if roe.empty:
+        return None, "normalised ROE: needs PAT and two years of equity"
+    return float(roe.median()), (f"normalised ROE {roe.median():.1%} = median of FY"
+                                 f"{int(roe.index.min())}-FY{int(roe.index.max())} "
+                                 f"({len(roe)} years)")  # fmt: skip
+
+
 def ttm_by_quarter(quarterly: pd.DataFrame, col: str) -> pd.Series:
     """TTM sum of ``col`` keyed by quarter-end period, only over 4 consecutive quarters."""
     if quarterly.empty or col not in quarterly.columns:
@@ -263,6 +280,8 @@ def run_valuation(
     mr: dict[str, list[str]] = {}
     mv: dict[str, float | None] = {}
     extra: dict[str, float | None] = {}
+    jpb_grid: list[dict[str, float | None]] = []
+    jpb_inputs: dict[str, float | None] | None = None
     assumed_nil: list[str] = []
     gaps: list[tuple[str, str]] = []  # (field, reason): inputs the report lists as data gaps
 
@@ -539,16 +558,30 @@ def run_valuation(
                 ),
             )
     if sector.model is SectorModel.BANK:
-        g_lr = sector.long_run_growth or 0.0
+        jp = vc.justified_pb
+        g_t = min(vc.dcf.terminal_growth, jp.max_terminal_growth)
+        roe_norm, norm_why = normalised_roe(annual, jp.normalised_roe_years)
+        if ov.normalised_roe is not None:
+            roe_norm, norm_why = ov.normalised_roe, "normalised ROE: user override"
+        pat, div = _num(latest.get("pat")), _num(latest.get("dividends_paid"))
+        retention = 1 - div / pat if pat and pat > 0 and div is not None else None
         if ke is None:
             use("justified_pb", ModelValue(None, ["cost of equity unavailable"]))
         else:
-            use("justified_pb", justified_pb(roe=roe, ke=ke, g=g_lr, bvps=bvps))
-            pat, div = _num(latest.get("pat")), _num(latest.get("dividends_paid"))
-            if pat and pat > 0 and div is not None:
-                ri = residual_income(
-                    bvps=bvps, roe=roe, ke=ke, g=g_lr, payout=div / pat, years=vc.dcf.stage1_years
-                )
+            jv = justified_pb_two_stage(roe=roe, roe_norm=roe_norm, ke=ke, g=g_t, bvps=bvps,
+                                        retention=retention, years=jp.stage1_years)  # fmt: skip
+            use("justified_pb", ModelValue(jv.value, [*jv.reasons, norm_why]))
+            jpb_grid = justified_pb_grid(
+                roe=roe, roe_norm=roe_norm, ke=ke, g=g_t, bvps=bvps, retention=retention,
+                years=jp.stage1_years, roe_steps=jp.grid.roe_steps, g_steps=jp.grid.g_steps,
+                ke_steps=jp.grid.ke_steps,
+            )  # fmt: skip
+            jpb_inputs = {"roe": roe, "normalised_roe": roe_norm, "ke": ke, "g": g_t,
+                          "retention": retention,
+                          "stage1_years": float(jp.stage1_years)}  # fmt: skip
+            if retention is not None:
+                ri = residual_income(bvps=bvps, roe=roe, ke=ke, g=g_t, payout=1 - retention,
+                                     years=vc.dcf.stage1_years)  # fmt: skip
                 extra["residual_income"] = ri.value
                 mr["residual_income"] = ri.reasons
             else:
@@ -622,5 +655,7 @@ def run_valuation(
         assumed_nil=sorted(set(assumed_nil)),
         gaps=gaps,
         announcement_dates_assumed=announcement_assumed,
+        justified_pb_inputs=jpb_inputs,
+        justified_pb_grid=jpb_grid,
         reasons=reasons,
     )

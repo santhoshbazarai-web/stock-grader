@@ -167,7 +167,7 @@ def _delete(path: list[str]) -> Mutator:
         ("valuation", _set(["confidence", "medium_if_method_cv_above"], 0.5), "medium_if"),
         ("valuation", _set(["dcf", "reverse_growth_bracket"], [1.0, -0.5]), "reverse_growth"),
         ("valuation", _delete(["blend"]), "blend"),
-        ("sectors", _delete(["nbfc", "long_run_growth"]), "long_run_growth"),
+        ("valuation", _delete(["justified_pb"]), "justified_pb"),
         # sectors
         ("sectors", _delete(["default"]), "'default'"),
         ("sectors", _set(["it_services", "weights", "dcf_base"], 0.5), "sum to 1.0"),
