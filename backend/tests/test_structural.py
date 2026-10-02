@@ -138,3 +138,13 @@ def test_year_end_shares_missing_for_old_years_use_the_weighted_count(
     assert out["sales_cagr_10y"].reason == (
         "per share (year-end shares; weighted where not reported)"
     )
+
+
+def test_uncomputed_per_share_cagr_says_which_years_are_missing(hdfc: HdfcData) -> None:
+    annual, shares = hdfc
+    recent = annual[annual["fiscal_year"] >= 2019]  # FY2016 not on file
+    out, _ = adjust_growth({"sales_cagr_10y": Metric(9.9)}, recent, [MERGER], cagr_years=[10],
+                           shares_year_end=shares, year=2026)  # fmt: skip
+    m = out["sales_cagr_10y"]
+    assert m.value is None
+    assert m.reason == "per-share sales_ps missing for FY2016 (on file: FY2019-FY2026)"

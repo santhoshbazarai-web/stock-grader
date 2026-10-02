@@ -75,7 +75,15 @@ def _ps_cagr(ps: PerShare, col: str, year: int, n: int) -> Metric:
     end, start = s.get(year), s.get(year - n)
     v = cagr(end, start, n)
     if v is None:
-        return Metric(None, f"per-share {col} not positive (or missing) in FY{year - n} / FY{year}")
+        known = s.dropna()
+        if known.empty:
+            return Metric(None, f"no per-share {col}: the inputs are not on file")
+        absent = [f"FY{fy}" for fy in (year - n, year) if pd.isna(s.get(fy))]
+        if absent:
+            span = f"FY{int(known.index.min())}-FY{int(known.index.max())}"
+            return Metric(None, f"per-share {col} missing for {', '.join(absent)} "
+                                f"(on file: {span})")  # fmt: skip
+        return Metric(None, f"per-share {col} not positive in FY{year - n} / FY{year}")
     return Metric(v, f"per share ({ps.basis})")
 
 

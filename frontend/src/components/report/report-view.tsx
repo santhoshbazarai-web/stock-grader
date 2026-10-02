@@ -12,6 +12,7 @@ import type { PipelineRun, PipelineStart, StockReport } from "@/lib/types";
 
 import { CoverageGrid } from "./coverage-grid";
 import { FundamentalsCharts } from "./fundamentals-charts";
+import { KeyMetrics } from "./key-metrics";
 import { EventsCard } from "./events-card";
 import { DecisionPanel, FlagsPanel, ReportHeader } from "./panels";
 import { PipelineProgress } from "./pipeline-progress";
@@ -171,6 +172,9 @@ export function ReportView({ symbol }: { symbol: string }) {
           </Section>
           <Section title={fundYears ? `Fundamentals (${fundYears} year${fundYears === 1 ? "" : "s"})` : "Fundamentals"}>
             <FundamentalsCharts symbol={report.symbol} onYears={setFundYears} />
+          </Section>
+          <Section title="Key metrics">
+            <KeyMetrics report={report} />
           </Section>
           <Section title="Data coverage">
             <CoverageGrid symbol={report.symbol} />

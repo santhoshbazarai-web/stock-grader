@@ -175,6 +175,12 @@ def test_bank_report_lists_only_metrics_that_apply(reports: dict[str, StockRepor
     assert "beneish" not in r.knockouts.unknown
     assert not any("ebitda_cagr" in x for x in r.reasons)
     assert "roe_latest" in r.fundamentals  # the rest is unchanged
+    # how the 10-year growth across the merger was measured is in the notes
+    notes = r.fundamentals_notes
+    assert notes["sales_cagr_10y"].startswith("per share (")
+    assert notes["eps_cagr_10y"].startswith("per share (")
+    # every metric left None says why
+    assert all(k in notes for k, v in r.fundamentals.items() if v is None)
 
 
 def test_bank_fundamentals_charts_and_earned_premium(

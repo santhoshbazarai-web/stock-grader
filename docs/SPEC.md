@@ -564,6 +564,7 @@ Implementation notes (`fundamentals/`, pure functions; windows and thresholds in
 - Year-end shares are the reported share count at the fiscal-year end (today the Indian API's `shares_outstanding`). Older years without a reported count use the weighted-average count (PAT / EPS), and the basis says so.
   - Without it, the weighted-average diluted count (PAT / EPS) is used, and the note says so.
   - Without either, the metric is None with its reason.
+- The report carries `fundamentals_notes`: for every reported metric that is None, why (e.g. "per-share sales_ps missing for FY2016 (on file: FY2019-FY2026)"), and for a per-share CAGR across a break, its basis. The report page lists them in "Key metrics".
 - Example (fixture-checked): HDFCBANK FY24 net profit rose 42% (46,149 → 65,446 cr, the vendor's history) and owners' PAT 39%. Profit per year-end share rose 2.3% (41.22 → 42.16).
 - Every switch is listed first in the report's `reasons`, e.g. "Structural break FY2024 (merger): … Growth across it is per share (year-end shares): sales_cagr_3y, …".
 

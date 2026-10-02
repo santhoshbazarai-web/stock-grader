@@ -156,6 +156,7 @@ export type StockReport = {
     reasons: string[];
   };
   fundamentals: Record<string, number | null>;
+  fundamentals_notes?: Record<string, string>;
   overrides: Partial<Overrides>;
 };
 

@@ -96,6 +96,25 @@ FUNDAMENTAL_KEYS = (
 )
 
 
+def _metric_notes(
+    metrics: dict[str, Metric], bank: dict[str, Metric], shown: dict[str, float | None]
+) -> dict[str, str]:
+    """Why each reported metric is None, and how per-share CAGRs across a break were made."""
+    out: dict[str, str] = {}
+    for k in FUNDAMENTAL_KEYS:
+        m = metrics.get(k)
+        if m is None:
+            continue
+        if m.value is None:
+            out[k] = m.reason or "not computed"
+        elif m.reason and m.reason.startswith("per share"):
+            out[k] = m.reason
+    for k, m in bank.items():
+        if k in shown and m.value is None:
+            out[k] = m.reason or "not computed"
+    return out
+
+
 @dataclass
 class Built:
     report: StockReport
@@ -799,6 +818,7 @@ def _assemble(
             **{k: metrics[k].value for k in FUNDAMENTAL_KEYS if k in metrics},
             **extras,
         },
+        fundamentals_notes=_metric_notes(metrics, bank, extras),
         overrides=data.overrides.as_dict(),
         peer_stats=run.peer,
     )

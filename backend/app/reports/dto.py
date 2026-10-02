@@ -275,5 +275,10 @@ class StockReport(_Dto):
     decision: DecisionDto
     technical: TechnicalDto
     fundamentals: dict[str, float | None]
+    fundamentals_notes: dict[str, str] = Field(
+        default_factory=dict,
+        description="Why a metric is null (or how it was computed, e.g. per share across a "
+        "structural break)",
+    )
     overrides: dict[str, object]
     peer_stats: PeerStats
