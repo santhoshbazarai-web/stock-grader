@@ -886,6 +886,15 @@ class FundamentalsConfig(_Strict):
     cumulative_years: PositiveInt
     dilution_years: PositiveInt
     days_in_year: Annotated[int, Field(ge=360, le=366)]
+    # sector model → metrics that mean nothing for it (not computed, not listed as missing);
+    # a name ending in "*" matches a prefix (ebitda_cagr_*)
+    not_applicable: dict[str, list[str]] = Field(default_factory=dict)
+
+    def applies(self, model: str, metric: str) -> bool:
+        for pat in self.not_applicable.get(model, []):
+            if metric == pat or (pat.endswith("*") and metric.startswith(pat[:-1])):
+                return False
+        return True
 
 
 class ForensicConfig(_Strict):

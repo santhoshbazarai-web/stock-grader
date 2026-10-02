@@ -119,8 +119,17 @@ export function CoverageGrid({ symbol }: { symbol: string }) {
           b.cells.map((c) => [`${c.fiscal_year}-${c.statement}`, c]),
         );
         const gaps = b.cells.filter((c) => c.sources.length === 0).length;
-        return (
-          <div key={b.basis} className="overflow-x-auto">
+        // a mostly empty basis next to a fuller one is not what the report uses: fold it
+        const folded =
+          grid.bases.length > 1 &&
+          gaps * 2 > b.cells.length &&
+          grid.bases.some(
+            (o) =>
+              o !== b &&
+              o.cells.filter((c) => c.sources.length === 0).length < gaps,
+          );
+        const table = (
+          <div className="overflow-x-auto">
             <table className="text-xs" aria-label={`Data coverage, ${b.basis}`}>
               <caption className="text-muted-foreground mb-1 text-left">
                 <span className="text-foreground font-medium capitalize">
@@ -160,6 +169,17 @@ export function CoverageGrid({ symbol }: { symbol: string }) {
               </tbody>
             </table>
           </div>
+        );
+        return folded ? (
+          <details key={b.basis}>
+            <summary className="text-muted-foreground cursor-pointer text-xs">
+              <span className="capitalize">{b.basis}</span> · {gaps} of{" "}
+              {b.cells.length} cells missing (not used by the report)
+            </summary>
+            {table}
+          </details>
+        ) : (
+          <div key={b.basis}>{table}</div>
         );
       })}
       <ul

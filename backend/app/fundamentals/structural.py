@@ -54,10 +54,13 @@ def per_share(annual: pd.DataFrame, shares_year_end: Mapping[int, float] | None)
     df = by_year(annual)
     ye = pd.Series({int(k): float(v) for k, v in (shares_year_end or {}).items()}, dtype=float)
     ye = ye.reindex(df.index)
-    if ye.notna().any():
+    weighted = column(df, "shares_diluted_cr")
+    if ye.isna().all():
+        shares, basis = weighted, "weighted-average diluted shares"
+    elif ye.notna().all():
         shares, basis = ye, "year-end shares"
-    else:
-        shares, basis = column(df, "shares_diluted_cr"), "weighted-average diluted shares"
+    else:  # older years without a reported count: the weighted count (PAT / EPS) stands in
+        shares, basis = ye.fillna(weighted), "year-end shares; weighted where not reported"
     shares = shares.where(shares > 0)
     out = pd.DataFrame(index=df.index)
     out["sales_ps"] = column(df, "revenue") / shares

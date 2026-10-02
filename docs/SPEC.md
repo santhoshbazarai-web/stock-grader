@@ -554,12 +554,14 @@ Implementation notes (`fundamentals/`, pure functions; windows and thresholds in
   - BVPS (equity / year-end shares), P/B (price / BVPS), and EPS growth per share (PAT per year-end share).
 - When the latest year comes from the Indian API, NIM is a data gap (as are GNPA, NNPA and CAR, which the vendor does not report). It is never estimated from the vendor's lines.
 
+**Not applicable by sector model** (`scoring.yaml` → `fundamentals.not_applicable`): metrics that mean nothing for a model are dropped from the report rather than listed as missing. For banks and insurers these are ROCE, ROIC, OPM, EBITDA-based ratios, CCC, Piotroski, Beneish and Altman. The Beneish knock-out is likewise not applied to lenders and insurers, as negative CFO already isn't.
+
 **Structural breaks** (`fundamentals/structural.py`; `config/structural_events.yaml`): a merger, demerger or large acquisition makes the company before and after different businesses.
 - The break's fiscal year is the one containing its effective date (HDFCBANK, 1 Jul 2023 → FY2024).
 - A growth window whose base year is before that year and whose end year is at or after it is measured **per share**:
   - the sales / EBITDA / EPS CAGRs use sales, EBITDA and PAT per year-end share;
   - year-on-year growth in the break year uses the same measures (book value: equity per year-end share).
-- Year-end shares are the reported share count at the fiscal-year end (today the Indian API's `shares_outstanding`).
+- Year-end shares are the reported share count at the fiscal-year end (today the Indian API's `shares_outstanding`). Older years without a reported count use the weighted-average count (PAT / EPS), and the basis says so.
   - Without it, the weighted-average diluted count (PAT / EPS) is used, and the note says so.
   - Without either, the metric is None with its reason.
 - Example (fixture-checked): HDFCBANK FY24 net profit rose 42% (46,149 → 65,446 cr, the vendor's history) and owners' PAT 39%. Profit per year-end share rose 2.3% (41.22 → 42.16).

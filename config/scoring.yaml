@@ -107,6 +107,17 @@ scoring:
     cumulative_years: 5         # CFO/EBITDA, CFO/PAT, FCF conversion, averages
     dilution_years: 5
     days_in_year: 365
+    # Metrics that mean nothing for a sector model: not reported as missing (a bank has no
+    # EBITDA, working-capital cycle or capital employed; Altman / Beneish / Piotroski are
+    # built for industrial companies).
+    not_applicable:
+      bank: [roce_latest, roic_latest, roce_5y_avg, ccc_days, opm_latest, opm_ttm, ebitda_ttm,
+             ebitda_cagr_*, opm_5y_avg, piotroski, beneish_m, altman_z2, cfo_to_ebitda_5y,
+             fcf_conversion_5y,
+             net_debt_to_ebitda, interest_coverage, debt_to_equity]
+      insurance: [roce_latest, roic_latest, roce_5y_avg, ccc_days, opm_latest, opm_ttm, ebitda_ttm,
+                  ebitda_cagr_*, piotroski, beneish_m, altman_z2, cfo_to_ebitda_5y,
+                  fcf_conversion_5y, net_debt_to_ebitda, interest_coverage, debt_to_equity]
   forensic:
     beneish_flag_above: -2.22   # SPEC §4: M above this is a manipulation flag
     altman_safe_above: 2.6      # Z'' (EM, without the 3.25 constant) zones, Altman (2005)
