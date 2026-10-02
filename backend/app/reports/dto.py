@@ -21,6 +21,12 @@ class Levels(_Dto):
     top_band: float | None
     mos_pct: float | None = Field(description="Margin of safety (fraction) for the MoS grade")
     confidence: Literal["high", "medium", "low"] | None
+    fair_value_low: float | None = Field(
+        None, description="Methods disagree: the lowest used method value (else null)"
+    )
+    fair_value_high: float | None = Field(
+        None, description="Methods disagree: the highest used method value (else null)"
+    )
     discount_edge: float | None = Field(
         None, description="FV x (1 - MoS): Discount below, Fair from here"
     )

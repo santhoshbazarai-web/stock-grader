@@ -75,6 +75,17 @@ export function ValuationPanel({
                 confidence {report.levels.confidence ?? "—"}
               </td>
             </tr>
+            {report.levels.fair_value_low != null && report.levels.fair_value_high != null && (
+              <tr>
+                <td className="py-1 text-xs">Range (methods disagree)</td>
+                <td className="py-1 text-right text-xs">
+                  {inr(report.levels.fair_value_low)} – {inr(report.levels.fair_value_high)}
+                </td>
+                <td colSpan={2} className="text-muted-foreground py-1 text-right text-xs">
+                  {report.valuation.reasons.find((r) => r.startsWith("methods disagree"))?.split(";")[0]}
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
         <dl className="text-muted-foreground grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-4">

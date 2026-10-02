@@ -623,9 +623,14 @@ def _assemble(
         for ln in lines
     ]
     rev = run.reverse
+    val_lines = val.reasons[-2:] if val else ["no valuation: no provisional grade"]
+    if val is not None and val.disagreement:  # the disagreement always reaches the summary
+        val_lines = [*[x for x in val.reasons if x.startswith(("methods disagree",
+                                                                "not deep discount"))
+                       and x not in val_lines], *val_lines]  # fmt: skip
     reasons = [
         *notes,
-        *(val.reasons[-2:] if val else ["no valuation: no provisional grade"]),
+        *val_lines,
         *grading.reasons,
         *decision.reasons,
     ]
@@ -652,6 +657,8 @@ def _assemble(
             top_band=val.top_band if val else None,
             mos_pct=val.mos_pct if val else None,
             confidence=val.confidence.value if val else None,
+            fair_value_low=val.fair_value_range[0] if val and val.fair_value_range else None,
+            fair_value_high=val.fair_value_range[1] if val and val.fair_value_range else None,
             discount_edge=val.fair_value * (1 - val.mos_pct) if val and val.fair_value else None,
             fair_upper=(
                 val.fair_value * config.valuation.zones.fair_upper_mult

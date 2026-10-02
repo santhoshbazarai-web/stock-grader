@@ -618,9 +618,18 @@ def test_asset_heavy_book_floor() -> None:
 
 
 def test_confidence_levels() -> None:
+    # 366, 234, 366, 234: mean 300, sd 66 → CV 22% → medium; max/min 1.56x: no disagreement
+    medium = {"dcf_base": 366.0, "band_pe": 234.0, "band_ev_ebitda": 366.0, "relative": 234.0}
+    v = _blend(250.0, method_values=medium)
+    assert v.confidence is Confidence.MEDIUM and not v.disagreement and v.fair_value_range is None
+    # mean 300, deviations 100, -100, 0, 0 → CV 23.6% (medium) but max/min 2.0x > 1.6x: the
+    # methods disagree → low, with the range of the used methods
     wide = {"dcf_base": 400.0, "band_pe": 200.0, "band_ev_ebitda": 300.0, "relative": 300.0}
-    # mean 300, deviations 100, -100, 0, 0 → sd sqrt(5000) = 70.71 → CV 23.6% → medium
-    assert _blend(250.0, method_values=wide).confidence is Confidence.MEDIUM
+    v = _blend(250.0, method_values=wide)
+    assert v.confidence is Confidence.LOW and v.disagreement
+    assert v.fair_value_range == (200.0, 400.0)
+    assert any(r.startswith("methods disagree: CV 24% (limit 25%), max/min 2.00x (limit 1.60x)")
+               for r in v.reasons)  # fmt: skip
     # 600, 150, 300, 250: mean 325, sd 167.9 → CV 51.7% → low (> 35%)
     very_wide = {"dcf_base": 600.0, "band_pe": 150.0, "band_ev_ebitda": 300.0, "relative": 250.0}
     assert _blend(250.0, method_values=very_wide).confidence is Confidence.LOW
@@ -739,3 +748,21 @@ def test_pb_vs_roe_regression_band() -> None:
     assert not late.ok and "2 distinct ROE values" in late.reasons[0]
     assert not regression_band(price, bvps, roe, roe_now=None, min_observations=250,
                                min_distinct_roe=3).ok  # fmt: skip
+
+
+def test_deep_discount_needs_two_methods_when_they_disagree() -> None:
+    # FV = 0.4 x 600 + 0.25 x 150 + 0.15 x 160 + 0.2 x 170 = 335.5; baseline 172.19 (bear DCF)
+    # is the deep edge (< 335.5 x 0.725). CMP 165 < 172.19, but only the DCF puts it below the
+    # baseline scaled to the method (600 x 172.19 / 335.5 = 307.9; band P/E: 77.0)
+    lopsided = {"dcf_base": 600.0, "band_pe": 150.0, "band_ev_ebitda": 160.0, "relative": 170.0}
+    v = _blend(165.0, method_values=lopsided)
+    assert v.fair_value == pytest.approx(335.5) and v.disagreement
+    assert v.zone is Zone.DISCOUNT and v.confidence is Confidence.LOW
+    assert v.fair_value_range == (150.0, 600.0)
+    why = "not deep discount: methods disagree and only 1 of 4 put the price below the baseline"
+    assert f"{why} (dcf_base; need 2)" in v.reasons
+    # FV 385.5: at CMP 150 the DCF (268.0) and band P/E (156.3) both do → deep discount stands
+    two = {**lopsided, "band_pe": 350.0}
+    assert _blend(150.0, method_values=two).zone is Zone.DEEP_DISCOUNT
+    # methods that agree keep the plain rule (test_zones: 150 → deep discount)
+    assert not _blend(150.0).disagreement

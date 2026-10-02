@@ -10,6 +10,8 @@ export type Levels = {
   top_band: number | null;
   mos_pct: number | null;
   confidence: "high" | "medium" | "low" | null;
+  fair_value_low: number | null;
+  fair_value_high: number | null;
   discount_edge: number | null;
   fair_upper: number | null;
 };

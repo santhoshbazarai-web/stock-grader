@@ -589,9 +589,18 @@ class ZonesConfig(_Strict):
     top_band_cap_sigma: PositiveFloat
 
 
+class DisagreementConfig(_Strict):
+    """Methods that disagree (SPEC §5.7): either test trips it."""
+
+    cv_above: PositiveFloat  # coefficient of variation of the used method values
+    max_min_ratio_above: Annotated[float, Field(gt=1.0)]  # largest / smallest used value
+    deep_discount_min_methods: PositiveInt  # methods that must put CMP below the baseline
+
+
 class ConfidenceConfig(_Strict):
     low_if_method_cv_above: PositiveFloat
     medium_if_method_cv_above: PositiveFloat
+    disagreement: DisagreementConfig
     # Open reconciliation issues (SPEC v0.2 §3.9) lower the confidence this many levels.
     reconciliation_steps_down: Annotated[int, Field(ge=0, le=2)]
 

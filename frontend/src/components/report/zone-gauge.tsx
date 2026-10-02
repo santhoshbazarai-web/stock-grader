@@ -96,6 +96,8 @@ export function ZoneGauge({ report }: { report: StockReport }) {
   const [lo, hi] = gaugeDomain([
     levels.baseline,
     levels.fair_value,
+    levels.fair_value_low,
+    levels.fair_value_high,
     levels.top_band,
     cmp,
     zoneBz?.low,
@@ -154,8 +156,19 @@ export function ZoneGauge({ report }: { report: StockReport }) {
           style={{ left: `${x(cmp)}%`, background: "var(--viz-ink)" }}
         />
       </div>
-      {/* buy zone track */}
+      {/* buy zone track (and the methods' fair value range when they disagree) */}
       <div className="bg-muted relative h-3 w-full rounded-sm">
+        {levels.fair_value_low != null && levels.fair_value_high != null && (
+          <div
+            className="absolute top-1 h-1 rounded-sm"
+            title={`Fair value range ${inr(levels.fair_value_low)} – ${inr(levels.fair_value_high)}`}
+            style={{
+              left: `${x(levels.fair_value_low)}%`,
+              width: `${Math.max(0.6, x(levels.fair_value_high) - x(levels.fair_value_low))}%`,
+              background: "var(--viz-ink-2)",
+            }}
+          />
+        )}
         {zoneBz && (
           <div
             className="absolute top-0 h-full rounded-sm"
@@ -194,6 +207,15 @@ export function ZoneGauge({ report }: { report: StockReport }) {
           </strong>
         </span>
         <span>Invalidation: {inr(report.invalidation)}</span>
+        {levels.fair_value_low != null && levels.fair_value_high != null && (
+          <span className="text-amber-700 dark:text-amber-400">
+            Methods disagree: fair value range{" "}
+            <strong>
+              {inr(levels.fair_value_low)} – {inr(levels.fair_value_high)}
+            </strong>{" "}
+            (blend {inr(levels.fair_value)})
+          </span>
+        )}
         <span>
           MoS {levels.mos_pct != null ? `${(levels.mos_pct * 100).toFixed(1)}%` : "—"} · confidence{" "}
           {levels.confidence ?? "—"}

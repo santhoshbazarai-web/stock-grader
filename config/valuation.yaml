@@ -63,4 +63,8 @@ valuation:
   confidence:
     low_if_method_cv_above: 0.35
     medium_if_method_cv_above: 0.20
-    reconciliation_steps_down: 1   # open reconciliation issues (SPEC §3.9): one level lower
+    reconciliation_steps_down: 1
+    # Methods disagree when either test trips: confidence low, the fair value is also shown as
+    # the min-max range of the used methods, and Deep Discount needs this many methods to put
+    # the price below the baseline (scaled to each method's value).
+    disagreement: {cv_above: 0.25, max_min_ratio_above: 1.6, deep_discount_min_methods: 2}   # open reconciliation issues (SPEC §3.9): one level lower

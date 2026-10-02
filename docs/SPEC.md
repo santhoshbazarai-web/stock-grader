@@ -632,6 +632,8 @@ The sector models:
 
 Report dispersion across methods. If the coefficient of variation exceeds 35%, raise a "low valuation confidence" flag.
 
+**Method disagreement** (`confidence.disagreement`): when the used methods' CV exceeds `cv_above` (25%) or the largest / smallest used value exceeds `max_min_ratio_above` (1.6x), the methods disagree. Then (a) confidence is low, (b) the report shows the fair value as a range (min to max of the used methods: `levels.fair_value_low/high`) next to the blend, (c) the zone is Deep Discount only if at least `deep_discount_min_methods` (2) methods put CMP below the deep-discount edge scaled to that method (CMP < value_m × edge / FV); otherwise it is Discount, with the reason, and (d) the disagreement is listed in the report reasons.
+
 
 Implementation notes (`valuation/`, pure functions; parameters in `valuation.yaml` and `sectors.yaml`):
 - DCF projection is revenue-driven: revenue grows at g_t, FCFF_t = revenue_t × EBIT margin × (1 − t) + revenue_t × (D&A% − capex%) − NWC% × Δrevenue. The base margin, D&A% and capex% are averages over `dcf.margin_years` (every year required); NWC% is from the latest year. A scenario's `margin_delta` shifts the EBIT margin. Cash flows are discounted at year end.

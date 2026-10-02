@@ -19,6 +19,11 @@ Pure functions.
     Confidence: coefficient of variation (population std / mean) of the method values:
                > low threshold → low; > medium threshold → medium; else high. Fewer than two
                methods → low (dispersion cannot be measured).
+    Disagreement: the used methods' CV > ``confidence.disagreement.cv_above`` or max/min >
+               ``max_min_ratio_above`` → confidence low, the fair value is also reported as the
+               range (min, max) of the used methods, and Deep Discount needs at least
+               ``deep_discount_min_methods`` methods m with CMP < value_m x (deep edge / FV),
+               i.e. below the baseline scaled to that method; otherwise the zone is Discount.
 """
 
 import statistics
@@ -64,6 +69,8 @@ class Valuation:
     method_cv: float | None
     methods: list[MethodLine]
     reasons: list[str] = field(default_factory=list)
+    fair_value_range: tuple[float, float] | None = None  # (min, max) of used methods
+    disagreement: bool = False
 
 
 def fair_value(
@@ -120,6 +127,23 @@ def classify_zone(
     if top_band is None or cmp <= top_band:
         return Zone.PREMIUM
     return Zone.EXTREME_PREMIUM
+
+
+def disagreement(values: list[float], config: ValuationConfig) -> tuple[bool, str | None]:
+    """Whether the used method values disagree beyond the configured CV or max/min ratio."""
+    if len(values) < 2 or min(values) <= 0:
+        return False, None
+    d = config.confidence.disagreement
+    mean = statistics.fmean(values)
+    cv = statistics.pstdev(values) / mean
+    spread = max(values) / min(values)
+    if cv <= d.cv_above and spread <= d.max_min_ratio_above:
+        return False, None
+    return True, (
+        f"methods disagree: CV {cv:.0%} (limit {d.cv_above:.0%}), max/min {spread:.2f}x "
+        f"(limit {d.max_min_ratio_above:.2f}x); fair value range "
+        f"{min(values):,.1f} to {max(values):,.1f}: confidence low"
+    )
 
 
 def confidence(values: list[float], config: ValuationConfig) -> tuple[Confidence, float | None]:
@@ -190,6 +214,8 @@ def blend(
         reasons.append(f"top band capped at band +{config.zones.top_band_cap_sigma:g} sigma")
         top = cap
 
+    used = [ln.value for ln in lines if ln.effective_weight > 0 and ln.value is not None]
+    disagree, why = disagreement(used, config)
     zone = None
     if fv is not None:
         # Deep discount is never shallower than discount: a valuation floor above the MoS
@@ -206,6 +232,16 @@ def blend(
             top_band=top,
             fair_upper_mult=config.zones.fair_upper_mult,
         )
+        if zone is Zone.DEEP_DISCOUNT and disagree and deep_edge is not None:
+            need = config.confidence.disagreement.deep_discount_min_methods
+            below = [ln.name for ln in lines if ln.effective_weight > 0 and ln.value is not None
+                     and cmp < ln.value * deep_edge / fv]  # fmt: skip
+            if len(below) < need:
+                zone = Zone.DISCOUNT
+                reasons.append(
+                    f"not deep discount: methods disagree and only {len(below)} of {len(used)} "
+                    f"put the price below the baseline ({', '.join(below) or 'none'}; need {need})"
+                )
         reasons.append(
             f"CMP {cmp:,.1f} vs fair value {fv:,.1f} (MoS {mos:.1%} for grade "
             f"{provisional_grade}): {zone.value.replace('_', ' ')}"
@@ -215,10 +251,15 @@ def blend(
                 f"baseline {baseline:,.1f} is above the discount threshold "
                 f"{fv * (1 - mos):,.1f}: deep discount starts at the threshold"
             )
-    used = [ln.value for ln in lines if ln.effective_weight > 0 and ln.value is not None]
     conf, cv = confidence(used, config)
     if cv is None:
         reasons.append("confidence low: fewer than two valuation methods")
     else:
         reasons.append(f"method dispersion CV {cv:.0%}: {conf.value} confidence")
-    return Valuation(cmp, fv, baseline, top, mos, zone, conf, cv, lines, reasons)
+    fv_range = None
+    if disagree and why is not None:
+        conf = Confidence.LOW
+        reasons.append(why)
+        fv_range = (min(used), max(used))
+    return Valuation(cmp, fv, baseline, top, mos, zone, conf, cv, lines, reasons,
+                     fair_value_range=fv_range, disagreement=disagree)  # fmt: skip
