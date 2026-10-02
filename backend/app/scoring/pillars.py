@@ -19,7 +19,8 @@ listed in ``PillarScore.missing`` (data gaps), never scored as 0 or as an averag
                 ``health.neutral`` by the missing share of the weight (no minimum coverage):
                 score = neutral + (raw - neutral) x (1 - missing weight / total weight)
     Governance  pledge %, promoter holding change QoQ (pp), MF+FII+DII change QoQ (pp),
-                other-income share of PBT, related-party-transaction flag
+                other-income share of PBT (not for banks: fee income is their business),
+                related-party-transaction flag, ASM / GSM listing, auditor resignation
     Technical   Weinstein stage, RS percentile, structure trend, delivery ratio
 
 Valuation is scored separately (:func:`valuation_pillar`) because it depends on the fair value,
@@ -85,6 +86,8 @@ class PillarInputs:
     institutional_change_qoq_pp: float | None = None
     other_income_share: float | None = None
     rpt_flagged: bool | None = None
+    on_asm_gsm: bool | None = None
+    auditor_resigned: bool | None = None  # within knockouts.auditor_resignation_years
     # technical
     stage: int | None = None
     rs_percentile: float | None = None
@@ -249,6 +252,8 @@ def _shrunk(
 def governance(x: PillarInputs, cfg: ScoringConfig) -> PillarScore:
     m = cfg.maps
     rpt = None if x.rpt_flagged is None else ("flagged" if x.rpt_flagged else "clean")
+    asm = None if x.on_asm_gsm is None else ("on" if x.on_asm_gsm else "off")
+    aud = None if x.auditor_resigned is None else ("resigned" if x.auditor_resigned else "none")
     subs = [
         _mapped("pledge_pct", x.pledge_pct, m.pledge_pct),
         _mapped("promoter_change_qoq_pp", x.promoter_change_qoq_pp, m.promoter_change_qoq_pp),
@@ -259,7 +264,11 @@ def governance(x: PillarInputs, cfg: ScoringConfig) -> PillarScore:
         ),
         _mapped("other_income_share", x.other_income_share, m.other_income_share),
         _lookup("rpt_flag", rpt, m.rpt_score, rpt or ""),
+        _lookup("asm_gsm", asm, m.asm_gsm_score, asm or ""),
+        _lookup("auditor_resignation", aud, m.auditor_score, aud or ""),
     ]
+    if x.is_bank:
+        subs = [s for s in subs if s.name != "other_income_share"]
     return combine(Pillar.GOVERNANCE, subs, cfg)
 
 

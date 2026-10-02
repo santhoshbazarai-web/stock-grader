@@ -268,3 +268,46 @@ def company_key(name: str) -> str:
     while words and words[-1] in {"ltd", "limited"}:
         words.pop()
     return " ".join(words)
+
+
+# ───────────────────────── shareholding ─────────────────────────
+
+_SHP_CATEGORY = {"Promoter": "promoter_pct", "FII": "fii_pct", "MF": "dii_pct",
+                 "Other": "public_pct"}  # fmt: skip
+
+
+def vendor_shareholding(stock: Any, sum_tolerance_pp: float) -> list[dict[str, Any]]:
+    """``shareholding``: quarterly % by category. FII → fii_pct, "Mutual Fund/Insurance" →
+    dii_pct (domestic institutions incl. MF; other DIIs sit in "Other"), "Other" → public_pct.
+    A quarter without a promoter row whose other categories sum to 100% (within the tolerance)
+    has promoter_pct = 100 - that sum, flagged ``promoter_derived``; otherwise it stays None."""
+    cats = stock.get("shareholding") if isinstance(stock, dict) else None
+    by_date: dict[date, dict[str, Any]] = {}
+    for c in cats if isinstance(cats, list) else []:
+        col = _SHP_CATEGORY.get(str(c.get("displayName"))) if isinstance(c, dict) else None
+        if col is None:
+            continue
+        for p in c.get("categories") or []:
+            day = _iso_date(p.get("holdingDate")) if isinstance(p, dict) else None
+            pct = number(p.get("percentage")) if isinstance(p, dict) else None
+            if day is not None and pct is not None:
+                by_date.setdefault(day, {})[col] = pct
+    out = []
+    for day in sorted(by_date):
+        row = {"period_end": day, "promoter_pct": None, "fii_pct": None, "dii_pct": None,
+               "public_pct": None, **by_date[day], "promoter_derived": False}  # fmt: skip
+        others = [row["fii_pct"], row["dii_pct"], row["public_pct"]]
+        if row["promoter_pct"] is None and all(v is not None for v in others):
+            rest = 100.0 - sum(others)
+            if abs(rest) <= sum_tolerance_pp or rest > 0:
+                row["promoter_pct"] = max(0.0, round(rest, 2))
+                row["promoter_derived"] = True
+        out.append(row)
+    return out
+
+
+def _iso_date(value: Any) -> date | None:
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None

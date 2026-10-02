@@ -63,6 +63,14 @@ def _negative_cfo(
     return None, f"CFO negative in {negative} known years, {unknown} of the last {n} missing"
 
 
+def recent_resignations(dates: list[date], as_of: date, years: int) -> list[date]:
+    """Auditor resignations within ``years`` up to ``as_of``."""
+    cutoff = as_of.replace(
+        year=as_of.year - years, day=28 if (as_of.month, as_of.day) == (2, 29) else as_of.day
+    )
+    return [d for d in dates if cutoff <= d <= as_of]
+
+
 def knockouts(inputs: KnockoutInputs, cfg: KnockoutsConfig) -> KnockoutResult:
     triggered: list[str] = []
     unknown: list[str] = []
@@ -94,11 +102,7 @@ def knockouts(inputs: KnockoutInputs, cfg: KnockoutsConfig) -> KnockoutResult:
         check("auditor", None, "", "auditor-resignation record unavailable")
     else:
         years = cfg.auditor_resignation_years
-        d0 = inputs.as_of
-        cutoff = d0.replace(
-            year=d0.year - years, day=28 if (d0.month, d0.day) == (2, 29) else d0.day
-        )
-        recent = [d for d in inputs.auditor_resignations if cutoff <= d <= inputs.as_of]
+        recent = recent_resignations(inputs.auditor_resignations, inputs.as_of, years)
         check(
             "auditor",
             bool(recent),

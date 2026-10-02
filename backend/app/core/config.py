@@ -778,6 +778,9 @@ class GradeCutoffs(_Strict):
 
 class KnockoutsConfig(_Strict):
     max_pledge_pct: Annotated[float, Field(ge=0.0, le=100.0)]
+    # an exchange pledge disclosure within this many days of a quarter end fills that
+    # quarter's missing pledge %
+    pledge_disclosure_window_days: PositiveInt
     negative_cfo_years_in_5: PositiveInt
     negative_cfo_window_years: PositiveInt
     min_mcap_cr: NonNegativeFloat
@@ -821,6 +824,8 @@ class ScoringMaps(_Strict):
     stage_score: dict[Literal[1, 2, 3, 4], Score]
     trend_score: dict[Literal["up", "range", "down"], Score]
     rpt_score: dict[Literal["clean", "flagged"], Score]
+    asm_gsm_score: dict[Literal["off", "on"], Score]
+    auditor_score: dict[Literal["none", "resigned"], Score]
 
     @model_validator(mode="after")
     def _check(self) -> Self:
@@ -830,6 +835,10 @@ class ScoringMaps(_Strict):
             raise ValueError("trend_score must define up, range and down")
         if set(self.rpt_score) != {"clean", "flagged"}:
             raise ValueError("rpt_score must define clean and flagged")
+        if set(self.asm_gsm_score) != {"off", "on"}:
+            raise ValueError("asm_gsm_score must define off and on")
+        if set(self.auditor_score) != {"none", "resigned"}:
+            raise ValueError("auditor_score must define none and resigned")
         return self
 
 

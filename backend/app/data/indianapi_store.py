@@ -57,6 +57,7 @@ from app.db.models import (
     FinLineItem,
     Instrument,
     ReconciliationIssue,
+    Shareholding,
     VendorName,
     VendorResponse,
 )
@@ -328,3 +329,36 @@ def save_board_meetings(session: Session, frame: pd.DataFrame, cfg: EventClassif
     if frame.empty:
         return 0
     return store_events(session, frame, exchange=EXCHANGE, cfg=cfg, now=now).rows
+
+
+VENDOR_SHP_SOURCE = "indianapi"
+
+
+def save_vendor_shareholding(session: Session, instrument_id: int, rows: list[dict[str, Any]],
+                             now: datetime) -> int:  # fmt: skip
+    """Vendor shareholding (``indianapi_checks.vendor_shareholding``) per quarter. A quarter
+    with no row is inserted (source ``indianapi``). A quarter filed by the exchange keeps its
+    promoter figure; when it lacks FII / DII (NSE gives only promoter vs public), the vendor's
+    FII, DII (incl. MF) and public (excluding institutions) are added and the source names both.
+    Returns the number of quarters written."""
+    have = {r.period_end: r for r in session.scalars(
+        select(Shareholding).where(Shareholding.instrument_id == instrument_id))}  # fmt: skip
+    written = 0
+    for v in rows:
+        cur = have.get(v["period_end"])
+        if cur is None or cur.source == VENDOR_SHP_SOURCE:
+            upsert(session, Shareholding, [{
+                "instrument_id": instrument_id, "period_end": v["period_end"],
+                "filing_date": None, "promoter_pct": v["promoter_pct"],
+                "promoter_pledge_pct": cur.promoter_pledge_pct if cur is not None else None,
+                "fii_pct": v["fii_pct"], "dii_pct": v["dii_pct"], "mf_pct": None,
+                "public_pct": v["public_pct"], "source": VENDOR_SHP_SOURCE, "fetched_at": now,
+            }])  # fmt: skip
+            written += 1
+        elif cur.fii_pct is None and cur.dii_pct is None and v["fii_pct"] is not None:
+            cur.fii_pct, cur.dii_pct, cur.public_pct = v["fii_pct"], v["dii_pct"], v["public_pct"]
+            if cur.promoter_pct is None:
+                cur.promoter_pct = v["promoter_pct"]
+            cur.source = f"{cur.source}+{VENDOR_SHP_SOURCE}"[:32]
+            written += 1
+    return written

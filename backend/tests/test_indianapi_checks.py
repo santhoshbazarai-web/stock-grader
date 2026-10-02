@@ -19,6 +19,7 @@ from app.data.indianapi_checks import (
     key_metric_checks,
     vendor_corporate_actions,
     vendor_peers,
+    vendor_shareholding,
 )
 from app.data.indianapi_parse import map_statements
 from app.db.enums import CorporateActionType
@@ -135,3 +136,16 @@ def test_vendor_peer_list_for_hdfcbank() -> None:
     assert vendor_peers({}) == []
     assert vendor_peers({"companyProfile": {"peerCompanyList": [{}]}}) == []
     assert company_key("ICICI Bank Ltd.") == company_key("icici bank limited") == "icici bank"
+
+
+def test_vendor_shareholding_splits_fii_dii_public_and_derives_no_promoter() -> None:
+    rows = vendor_shareholding(stock("hdfcbank"), 0.1)
+    last = rows[-1]
+    assert last["period_end"] == date(2026, 6, 30)
+    assert (last["fii_pct"], last["dii_pct"], last["public_pct"]) == (41.82, 30.62, 27.56)
+    # no promoter row since the merger; FII + MF/insurance + other = 100.00 → promoter 0
+    assert last["promoter_pct"] == 0.0 and last["promoter_derived"]
+    pre = next(r for r in rows if r["period_end"] == date(2023, 6, 30))
+    assert pre["promoter_pct"] == 25.52 and not pre["promoter_derived"]
+    assert pre["fii_pct"] is None  # the vendor's FII history starts later: never filled in
+    assert vendor_shareholding({}, 0.1) == []

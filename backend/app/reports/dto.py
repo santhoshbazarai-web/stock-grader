@@ -205,6 +205,10 @@ class ShareholdingDto(_Dto):
     promoter_change_pp: float | None = Field(description="vs the previous quarter, in pp")
     pledge_prev_pct: float | None
     quarters: int = Field(description="Patterns on file")
+    pledge_source: str | None = Field(
+        None, description="Where the pledge % came from (pattern, NSE pledge disclosure, ...)"
+    )
+    note: str | None = Field(None, description="e.g. no identified promoter")
 
 
 class AnalystConsensusDto(_Dto):

@@ -412,3 +412,27 @@ def test_bank_relative_pb_says_why_without_three_peers(db: Session) -> None:
     assert rel.reasons[0].startswith("P/B: 0 peers with a positive multiple (< 3)")
     assert rel.reasons[-1].startswith("configured peers without a report yet: HDFCBANK, ICICIBANK")
     assert "vendor peer list: no Indian API /stock answer on file" in r.data_gaps
+
+
+def test_pledge_filled_from_disclosures_or_no_promoter() -> None:
+    from app.reports.data import fill_pledge, no_promoter_note
+
+    idx = pd.DatetimeIndex(["2025-12-31", "2026-03-31", "2026-06-30"], name="period_end")
+    shp = pd.DataFrame({"promoter_pct": [26.0, 26.0, 26.0],
+                        "promoter_pledge_pct": [1.5, None, None]}, index=idx)  # fmt: skip
+    out = fill_pledge(shp, [(date(2026, 4, 10), 0.0), (date(2025, 1, 5), 9.0)], 92)
+    assert out["promoter_pledge_pct"].tolist()[:2] == [1.5, 0.0]
+    assert out["pledge_source"].tolist()[:2] == ["shareholding pattern",
+                                                 "NSE pledge disclosure 10 Apr 2026"]  # fmt: skip
+    # Jun 2026: the April disclosure is within 92 days too
+    assert out["promoter_pledge_pct"].iloc[2] == 0.0
+    # nothing within the window and a promoter: stays unknown
+    late = fill_pledge(shp, [(date(2025, 1, 5), 9.0)], 92)
+    assert pd.isna(late["promoter_pledge_pct"].iloc[2])
+    # no promoter holding: nothing to pledge, and the note says since when
+    none = shp.assign(promoter_pct=[26.0, 0.0, 0.0])
+    filled = fill_pledge(none, [], 92)
+    assert filled["promoter_pledge_pct"].tolist()[1:] == [0.0, 0.0]
+    assert filled["pledge_source"].iloc[2] == "no identified promoter: nothing pledged"
+    assert (no_promoter_note(none) or "").startswith("No identified promoter since Dec 2025")
+    assert no_promoter_note(shp) is None

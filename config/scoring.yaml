@@ -6,6 +6,7 @@ scoring:
   grade_cutoffs: {A_plus: 85, A: 75, B: 60, C: 45}
   knockouts:
     max_pledge_pct: 10
+    pledge_disclosure_window_days: 92   # NSE pledge disclosure → the quarter's missing pledge %
     negative_cfo_years_in_5: 3
     negative_cfo_window_years: 5
     min_mcap_cr: 500
@@ -42,6 +43,8 @@ scoring:
     stage_score:        {1: 50, 2: 100, 3: 30, 4: 0}
     trend_score:        {up: 100, range: 50, down: 0}
     rpt_score:          {clean: 100, flagged: 0}               # related-party-transaction flag
+    asm_gsm_score:      {"off": 100, "on": 0}                    # NSE ASM / GSM surveillance
+    auditor_score:      {none: 100, resigned: 0}   # resignation within auditor_resignation_years
   # A pillar is the equal-weighted mean of its available sub-metric scores; it needs at least
   # this share of its sub-metrics, else it is unavailable (a data gap, never a default score).
   pillar_min_coverage: 0.5

@@ -26,6 +26,7 @@ from app.reports.data import (
     load_overrides,
     load_shareholding,
     load_shares_year_end,
+    no_promoter_note,
 )
 
 GENERAL_SERIES = ("revenue", "ebitda", "pat", "cfo", "fcf", "roce", "ccc_days")
@@ -63,6 +64,7 @@ class ShareholdingPoint(BaseModel):
     promoter_pledge_pct: float | None
     filing_date: date | None = None  # when the pattern was filed (point in time, rule 4)
     source: str | None = None  # where it came from: nse, bse, screener...
+    pledge_source: str | None = None  # pattern, NSE pledge disclosure, no promoter
 
 
 class FundamentalsHistory(BaseModel):
@@ -75,6 +77,7 @@ class FundamentalsHistory(BaseModel):
     model: str = Field("general", description="general | bank (banks and insurers)")
     series: list[str] = Field(default_factory=list, description="The series that apply")
     years_available: int = Field(0, description="Fiscal years in the window with any value")
+    shareholding_note: str | None = Field(None, description="e.g. no identified promoter")
 
 
 def _num(v: object) -> float | None:
@@ -158,6 +161,9 @@ def fundamentals_history(
             period_end=idx.date(),
             filing_date=_date(r.get("filing_date")),
             source=str(r["source"]) if isinstance(r.get("source"), str) else None,
+            pledge_source=(
+                str(r["pledge_source"]) if isinstance(r.get("pledge_source"), str) else None
+            ),
             **{
                 c: _num(r.get(c))
                 for c in (
@@ -186,6 +192,9 @@ def fundamentals_history(
         model="bank" if bank else "general",
         series=list(fields),
         years_available=with_data,
+        shareholding_note=no_promoter_note(shareholding.sort_index())
+        if len(shareholding)
+        else None,
     )
 
 
@@ -195,7 +204,7 @@ def load_history(session: Session, symbol: str, config: AppConfig) -> Fundamenta
     if iid is None:
         return None
     annual, basis, source = load_financials(session, FinAnnual, iid, "fin_annual")
-    shp, _ = load_shareholding(session, iid)
+    shp, _ = load_shareholding(session, iid, config)
     sector = load_overrides(session, iid).sector or session.scalar(
         select(Instrument.sector).where(Instrument.id == iid)
     )

@@ -224,7 +224,17 @@ def test_governance_pillar_and_rpt_flag() -> None:
     # mean = (100 + 60 + 75 + 83.333 + 100) / 5 = 83.667
     assert governance(GOOD, S).score == pytest.approx(83.6667, abs=1e-3)
     flagged = governance(replace(GOOD, rpt_flagged=True), S)
-    assert flagged.subs[-1].score == 0 and flagged.score == pytest.approx(63.6667, abs=1e-3)
+    rpt = next(x for x in flagged.subs if x.name == "rpt_flag")
+    assert rpt.score == 0 and flagged.score == pytest.approx(63.6667, abs=1e-3)
+    # ASM / GSM and auditor resignations are governance inputs too (unknown → missing)
+    assert set(governance(GOOD, S).missing) == {"asm_gsm", "auditor_resignation"}
+    listed = governance(replace(GOOD, on_asm_gsm=True, auditor_resigned=False), S)
+    subs = {x.name: x.score for x in listed.subs}
+    assert subs["asm_gsm"] == 0 and subs["auditor_resignation"] == 100
+    assert listed.score == pytest.approx((100 + 60 + 75 + 83.333 + 100 + 0 + 100) / 7, abs=1e-2)
+    # a bank's other income (fees) is its business: not a governance input
+    bank = governance(replace(GOOD, is_bank=True), S)
+    assert "other_income_share" not in {x.name for x in bank.subs}
 
 
 def test_technical_pillar() -> None:

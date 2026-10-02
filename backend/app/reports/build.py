@@ -19,7 +19,7 @@ from app.fundamentals.depth import DataDepth, data_depth
 from app.fundamentals.forensic import altman_z2, beneish, piotroski
 from app.fundamentals.metrics import Metric, annual_metrics, by_year, summary_metrics
 from app.fundamentals.structural import adjust_growth, crossing, yoy_growth
-from app.reports.data import StockData
+from app.reports.data import StockData, no_promoter_note
 from app.reports.dto import (
     AnalystConsensusDto,
     BankMetricDto,
@@ -47,7 +47,7 @@ from app.scoring.common import Grade, Pillar
 from app.scoring.decision import Decision, DecisionInputs, decide
 from app.scoring.earned_premium import EarnedPremium, EarnedPremiumInputs, earned_premium
 from app.scoring.grade import Grading, resolve_grade
-from app.scoring.knockouts import KnockoutInputs, KnockoutResult, knockouts
+from app.scoring.knockouts import KnockoutInputs, KnockoutResult, knockouts, recent_resignations
 from app.scoring.pillars import PillarInputs, PillarScore, non_valuation_pillars, valuation_pillar
 from app.technical.buy_zone import BuyZone, buy_zone
 from app.technical.engine import TechnicalAnalysis, analyze
@@ -211,6 +211,10 @@ def _shareholding_dto(shp: pd.DataFrame) -> ShareholdingDto | None:
         promoter_change_pp=ch["promoter_change"],
         pledge_prev_pct=ch["pledge_prev"],
         quarters=len(s),
+        pledge_source=last.get("pledge_source")
+        if isinstance(last.get("pledge_source"), str)
+        else None,
+        note=no_promoter_note(s),
     )
 
 
@@ -379,6 +383,11 @@ def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> B
     trend = t.structure.trend if t.structure.swings else None
 
     # ── pillars + knock-outs ──
+    resignations = (
+        data.overrides.auditor_resignations
+        if data.overrides.auditor_resignations is not None
+        else data.auditor_resignations
+    )
     pin = PillarInputs(
         roce_5y_avg=mv("roce_5y_avg"),
         roce_latest=mv("roce_latest"),
@@ -402,6 +411,14 @@ def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> B
         institutional_change_qoq_pp=shp["institutional_change"],
         other_income_share=mv("other_income_share"),
         rpt_flagged=data.overrides.rpt_flagged,
+        on_asm_gsm=data.on_asm_gsm,
+        auditor_resigned=(
+            None
+            if resignations is None
+            else bool(
+                recent_resignations(resignations, as_of, sc.knockouts.auditor_resignation_years)
+            )
+        ),
         stage=stage,
         rs_percentile=data.rs_percentile,
         trend=trend,
@@ -438,9 +455,7 @@ def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> B
             cfo_history=[_v(v) for v in cfo.tolist()] if len(cfo) else None,
             cfo_applies=not is_financial,
             beneish_applies=not is_financial,
-            auditor_resignations=data.overrides.auditor_resignations
-            if data.overrides.auditor_resignations is not None
-            else data.auditor_resignations,
+            auditor_resignations=resignations,
             on_asm_gsm=data.on_asm_gsm,
             mcap_cr=run.market_cap_cr,
             avg_traded_value_cr_20d=_avg_traded_value(

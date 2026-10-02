@@ -166,13 +166,19 @@ function FundamentalsTable({ h }: { h: FundamentalsHistory }) {
 }
 
 function Shareholding({ h, table }: { h: FundamentalsHistory; table: boolean }) {
+  const note = h.shareholding_note ? (
+    <p className="rounded border border-dashed px-2 py-1 text-xs" role="note">
+      {h.shareholding_note}
+    </p>
+  ) : null;
   if (h.shareholding.length === 0) {
     return <p className="text-muted-foreground text-sm">No shareholding filings on file.</p>;
   }
   const data = h.shareholding.map((s) => ({ ...s, q: s.period_end.slice(0, 7) }));
   if (table) {
     return (
-      <div className="overflow-x-auto">
+      <div className="flex flex-col gap-1 overflow-x-auto">
+        {note}
         <table className="w-full text-xs tabular-nums" aria-label="Shareholding">
           <thead className="text-muted-foreground">
             <tr>
@@ -214,8 +220,12 @@ function Shareholding({ h, table }: { h: FundamentalsHistory; table: boolean }) 
         <span className="font-medium">
           Shareholding <span className="text-muted-foreground font-normal">(% of equity)</span>
         </span>
-        <span className="text-muted-foreground">Promoter pledge: {lastPledge == null ? "—" : `${num(lastPledge, 2)}%`}</span>
+        <span className="text-muted-foreground" title={last?.pledge_source ?? undefined}>
+          Promoter pledge: {lastPledge == null ? "no disclosure on file" : `${num(lastPledge, 2)}%`}
+          {last?.pledge_source && lastPledge != null ? ` (${last.pledge_source})` : ""}
+        </span>
       </figcaption>
+      {note}
       <p className="text-muted-foreground text-xs" aria-label="Shareholding source">
         Source {last?.source ?? "—"} · quarter ended {last?.period_end ?? "—"} · filed{" "}
         {last?.filing_date ?? "date not recorded"}

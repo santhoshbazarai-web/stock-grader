@@ -147,7 +147,11 @@ def load_share_actions(session: Session, iid: int) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["ex_date", "action_type", "ratio_old", "ratio_new"])
 
 
-def load_shareholding(session: Session, iid: int) -> tuple[pd.DataFrame, str | None]:
+def load_shareholding(
+    session: Session, iid: int, config: AppConfig
+) -> tuple[pd.DataFrame, str | None]:
+    """Quarterly patterns, with the promoter pledge filled from the exchange's pledge
+    disclosures where the pattern lacks it (``fill_pledge``)."""
     rows = list(
         session.scalars(
             select(Shareholding)
@@ -161,7 +165,59 @@ def load_shareholding(session: Session, iid: int) -> tuple[pd.DataFrame, str | N
         index=pd.DatetimeIndex([pd.Timestamp(r.period_end) for r in rows], name="period_end"),
         columns=cols,
     )
-    return df, (rows[-1].source if rows else None)
+    disclosures = [
+        (day, (data or {}).get("pledged_pct_of_promoter"))
+        for day, data in session.execute(
+            select(Event.event_date, Event.data).where(
+                Event.instrument_id == iid, Event.kind == EventKind.PLEDGE
+            )
+        ).all()
+        if day is not None
+    ]
+    window = config.scoring.knockouts.pledge_disclosure_window_days
+    return fill_pledge(df, disclosures, window), (rows[-1].source if rows else None)
+
+
+def no_promoter_note(shp: pd.DataFrame) -> str | None:
+    """The latest pattern has no promoter holding: say so, and since when."""
+    if "promoter_pct" not in shp.columns or shp.empty:
+        return None
+    promoter = pd.to_numeric(shp["promoter_pct"], errors="coerce")
+    if promoter.iloc[-1] != 0:
+        return None
+    held = promoter[promoter > 0]
+    since = f" since {pd.Timestamp(held.index[-1]).date():%b %Y}" if len(held) else ""
+    return (
+        f"No identified promoter{since}: the company is widely held, so promoter holding "
+        "and pledge read 0% and governance rests on institutions, pledges and filings"
+    )
+
+
+def fill_pledge(
+    shp: pd.DataFrame, disclosures: list[tuple[date, Any]], window_days: int
+) -> pd.DataFrame:
+    """Fill a quarter's missing ``promoter_pledge_pct``: from the latest exchange pledge
+    disclosure dated in that quarter's window (``pledge_source`` names it), or 0 when the
+    pattern shows no promoter holding (nothing to pledge). Otherwise it stays None."""
+    out = shp.copy()
+    out["pledge_source"] = None
+    known = sorted((d, float(p)) for d, p in disclosures if isinstance(p, (int, float)))
+    for idx in out.index:
+        if not pd.isna(out.at[idx, "promoter_pledge_pct"]):
+            out.at[idx, "pledge_source"] = "shareholding pattern"
+            continue
+        end = pd.Timestamp(idx).date()
+        lo, hi = end - timedelta(days=window_days), end + timedelta(days=window_days)
+        within = [(d, p) for d, p in known if lo < d <= hi]
+        promoter = pd.to_numeric(out.at[idx, "promoter_pct"], errors="coerce")
+        if within:
+            day, pct = within[-1]
+            out.at[idx, "promoter_pledge_pct"] = pct
+            out.at[idx, "pledge_source"] = f"NSE pledge disclosure {day:%d %b %Y}"
+        elif promoter == 0.0:
+            out.at[idx, "promoter_pledge_pct"] = 0.0
+            out.at[idx, "pledge_source"] = "no identified promoter: nothing pledged"
+    return out
 
 
 def load_overrides(session: Session, iid: int) -> Overrides:
@@ -292,7 +348,7 @@ def load_stock_data(
     current_q = vendor_rows(session, FinQuarterly, inst.id)
     annual, restated = restate_per_share(annual, actions, adj, current=current_a)
     quarterly, _ = restate_per_share(quarterly, actions, adj, current=current_q)
-    shp, shp_source = load_shareholding(session, inst.id)
+    shp, shp_source = load_shareholding(session, inst.id, config)
     price_source = session.scalar(
         select(PriceDaily.source)
         .where(PriceDaily.instrument_id == inst.id)

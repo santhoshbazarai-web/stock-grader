@@ -102,6 +102,9 @@ class NetCapex(_Strict):
 class Checks(_Strict):
     key_metric_tolerance: PositiveFloat  # keyMetrics vs our derived values (relative)
     corporate_action_window_days: int = Field(ge=0)  # ex-dates this close are the same action
+    # shareholding: FII + MF/insurance + other within this of 100% with no promoter row → the
+    # promoter holds the remainder (0 when they sum to 100: no identified promoter)
+    shareholding_sum_tolerance_pp: PositiveFloat
 
 
 class IndianApiMap(_Strict):

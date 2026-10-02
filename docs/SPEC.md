@@ -739,10 +739,15 @@ A stock is capped at grade C if any of these apply:
 | Growth | 20 | 5-yr sales & EPS CAGR, last 4Q YoY EPS growth, acceleration |
 | Valuation | 20 | Zone position: (FV − CMP)/FV mapped to score; reverse-DCF gap |
 | Financial health | 15 | D/E, ICR, Net debt/EBITDA, CCC trend, Altman Z″ |
-| Governance & ownership | 10 | Pledge, promoter trend, MF/FII/DII QoQ change, other-income share, RPT flag |
+| Governance & ownership | 10 | Pledge, promoter trend, MF/FII/DII QoQ change, other-income share (not for banks), RPT flag, ASM/GSM listing, auditor resignation |
 | Technical | 10 | Stage, RS percentile, structure trend, delivery trend |
 
 Banks use a bank-specific Quality and Health map (asset quality, NIM, CAR).
+
+**Governance inputs:**
+- The pledge % comes from the shareholding pattern. When the pattern lacks it, the latest NSE pledge disclosure (SEBI SAST reg. 31 events) dated within `knockouts.pledge_disclosure_window_days` of the quarter end fills it (`pledge_source` names the disclosure). A quarter with 0% promoter holding has 0% pledged ("no identified promoter: nothing pledged"). The pledge knock-out uses the same value.
+- ASM/GSM listing (`maps.asm_gsm_score`) and an auditor resignation within `knockouts.auditor_resignation_years` (`maps.auditor_score`) are governance sub-metrics as well as knock-outs. When their data is unavailable they are missing, never assumed.
+- Shareholding: Indian API `/stock` quarters are stored with source `indianapi`: FII → FII, "Mutual Fund/Insurance" → DII (incl. MF), "Other" → public (excluding institutions). A quarter the exchange filed keeps its promoter figure and gains the vendor's FII / DII / public when it lacks them (NSE gives only promoter vs public); the source names both. A quarter without a promoter row whose other categories sum to 100% (within `checks.shareholding_sum_tolerance_pp`) has promoter 0%. The report and the chart then carry a "No identified promoter since …" note (HDFCBANK since the July 2023 merger).
 
 - **Bank health with proxies:** GNPA and CAR are scored as reported. A missing one is replaced by its proxy, mapped by `scoring.yaml` → `bank_maps`: credit cost for GNPA, equity / assets for CAR.
   - The pillar then scores what exists and lists the missing reported metrics in `missing`.

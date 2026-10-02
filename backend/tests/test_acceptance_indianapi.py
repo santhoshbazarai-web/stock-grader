@@ -199,3 +199,25 @@ def test_bank_fundamentals_charts_and_earned_premium(
     assert not {"roce_up", "operating_leverage", "implied_growth"} & codes
     # equity-valued: no "taken as nil" EV inputs among the gaps
     assert not [g for g in r.data_gaps if g.startswith("non_operating_investments")]
+
+
+def test_bank_governance_from_vendor_shareholding(
+    env: Env, reports: dict[str, StockReport]
+) -> None:
+    from app.reports.history import load_history
+
+    r = reports["HDFCBANK"]
+    shp = r.shareholding
+    assert shp is not None and shp.source == "indianapi"
+    assert (shp.fii_pct, shp.dii_pct, shp.public_pct) == (41.82, 30.62, 27.56)
+    assert shp.promoter_pct == 0.0 and shp.promoter_pledge_pct == 0.0
+    assert shp.note is not None and shp.note.startswith("No identified promoter since Jun 2023")
+    gov = next(p for p in r.pillars if p.pillar == "governance")
+    assert gov.score is not None
+    assert {s.name: s.value for s in gov.subs}["pledge_pct"] == 0.0
+    assert "pledge" not in r.knockouts.unknown and "pledge" not in r.knockouts.triggered
+    assert not any(g.startswith("shareholding:") for g in r.data_gaps)
+    with env.session() as s:
+        h = load_history(s, "HDFCBANK", get_config())
+    assert h is not None and h.shareholding[-1].fii_pct == 41.82
+    assert h.shareholding[-1].promoter_pledge_pct == 0.0 and h.shareholding_note

@@ -213,6 +213,9 @@ checks:
   # by the vendor's price date and profit definition (~2%), so 5% before it is listed
   key_metric_tolerance: 0.05
   corporate_action_window_days: 3   # vendor and exchange ex-dates this close: the same action
+  # /stock shareholding has no promoter row for HDFCBANK after the 2023 merger; FII + MF/insurance
+  # + other sum to 100.00: within this of 100, the promoter holding is the remainder (0)
+  shareholding_sum_tolerance_pp: 0.1
 
 # The vendor gives no sale of fixed assets: /stock has gross CapitalExpenditures, the history
 # has CFO and Free Cash Flow (= CFO - net capex). Net capex = CFO - FCF (history) is split:

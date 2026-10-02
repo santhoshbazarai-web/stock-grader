@@ -54,6 +54,7 @@ export function ReportHeader({ report, onRun }: { report: StockReport; onRun?: (
             ? ` (${report.shareholding.period_end}${report.shareholding.filing_date ? `, filed ${report.shareholding.filing_date}` : ""})`
             : ""}
         </p>
+        {report.shareholding?.note && <p className="text-muted-foreground text-xs">{report.shareholding.note}</p>}
         <div className="flex items-center gap-2">
           {queued && <span className="text-muted-foreground text-xs" role="status">{queued}</span>}
           <Button size="sm" variant="outline" onClick={refresh}>

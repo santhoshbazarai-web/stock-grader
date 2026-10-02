@@ -26,6 +26,7 @@ from app.data.indianapi_checks import (
     key_metric_checks,
     latest_year_end,
     vendor_corporate_actions,
+    vendor_shareholding,
 )
 from app.data.indianapi_parse import (
     Mapped,
@@ -45,6 +46,7 @@ from app.data.indianapi_store import (
     save_board_meetings,
     save_differences,
     save_key_metric_checks,
+    save_vendor_shareholding,
     store_mapped,
 )
 from app.data.providers.base import ProviderError
@@ -85,6 +87,7 @@ class SymbolOutcome:
     notes: list[str] = field(default_factory=list)
     key_metric_issues: int = 0
     board_meetings: int = 0
+    shareholding_quarters: int = 0
 
 
 def _gap(ctx: JobContext, symbol: str, reason: str) -> None:
@@ -271,6 +274,11 @@ def _cross_check(ctx: JobContext, session: Any, inst: Instrument, stock: Any, ma
         out.notes.append(msg)
         ctx.gaps.record(GapRecord(Dataset.CORPORATE_ACTIONS, inst.symbol, msg, [SOURCE],
                                   "indianapi"))  # fmt: skip
+    shp = vendor_shareholding(stock, amap.checks.shareholding_sum_tolerance_pp)
+    out.shareholding_quarters = save_vendor_shareholding(session, inst.id, shp, ctx.clock())
+    if any(r["promoter_derived"] and r["promoter_pct"] == 0 for r in shp[-1:]):
+        out.notes.append("shareholding: no promoter category; FII + MF/insurance + other = "
+                         "100%: no identified promoter")  # fmt: skip
     out.board_meetings = save_board_meetings(
         session, board_meetings(stock, symbol=inst.symbol, isin=inst.isin),
         ctx.config.jobs.event_classification, ctx.now())  # fmt: skip

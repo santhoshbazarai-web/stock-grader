@@ -228,6 +228,7 @@ export type ShareholdingPoint = {
   promoter_pledge_pct: number | null;
   filing_date?: string | null; // when the pattern was filed
   source?: string | null;
+  pledge_source?: string | null;
 };
 
 export type ShareholdingSummary = {
@@ -243,6 +244,8 @@ export type ShareholdingSummary = {
   promoter_change_pp: number | null;
   pledge_prev_pct: number | null;
   quarters: number;
+  pledge_source?: string | null;
+  note?: string | null;
 };
 
 export type AnalystConsensus = {
@@ -263,6 +266,7 @@ export type FundamentalsHistory = {
   model?: "general" | "bank";
   series?: string[];
   years_available?: number;
+  shareholding_note?: string | null;
 };
 
 // ── technical debug payload (chart overlays) ──
