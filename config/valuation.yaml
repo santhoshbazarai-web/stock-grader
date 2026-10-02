@@ -42,6 +42,10 @@ valuation:
     # treats it as known this many days after period end (SEBI LODR deadlines) and flags it.
     # Backtests never use this: they need real announcement dates (rule 4).
     assumed_announcement_lag_days: {quarterly: 45, annual: 60}
+    # Stocks in structural_events.yaml: bands use only the window after the latest break when
+    # it is at least min_window_years long; otherwise the P/B band is a P/B-vs-ROE regression
+    # (post-break window, else full history, flagged). A pre-break window is never used as is.
+    structural: {min_window_years: 2.0, regression_min_distinct_roe: 3}
   epv:
     normalise_years: 5           # normalised EBIT = mean EBIT margin over N years x latest revenue
   graham_multiplier: 22.5        # Graham number = sqrt(multiplier x EPS x BVPS)

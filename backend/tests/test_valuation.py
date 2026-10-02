@@ -13,7 +13,7 @@ import pandas as pd
 import pytest
 
 from app.core.config import SectorConfig, load_config
-from app.valuation.bands import band, band_prices, multiple_series
+from app.valuation.bands import band, band_prices, multiple_series, regression_band
 from app.valuation.blend import Confidence, Zone, blend, classify_zone, fair_value
 from app.valuation.dcf import (
     DcfInputs,
@@ -702,3 +702,40 @@ def test_deep_discount_is_never_shallower_than_discount() -> None:
     assert any("deep discount starts at the threshold" in r for r in v.reasons)
     # below the MoS threshold it is deep (the floor is above it)
     assert _blend(190.0, bear_dcf=None, epv=None, band_prices=band).zone is Zone.DEEP_DISCOUNT
+
+
+def test_band_after_a_structural_break_uses_only_the_post_break_window() -> None:
+    days = pd.bdate_range("2020-01-01", "2024-12-31")
+    price = pd.Series(100.0, index=days)
+    brk = pd.Timestamp("2023-07-03")
+    bvps = pd.Series({pd.Timestamp("2019-12-31"): 50.0, brk: 25.0})  # P/B 2x before, 4x after
+    full = band("pb", price, bvps, lookback_years=5, min_observations=250)
+    post = band("pb", price, bvps, lookback_years=5, min_observations=250, start_floor=brk)
+    assert full.median == pytest.approx(2.0)  # mostly pre-merger days: misleading
+    assert post.median == pytest.approx(4.0) and post.sigma == pytest.approx(0.0)
+    assert post.observations == len(days[days >= brk])
+    assert post.reasons == [f"pb 03 Jul 2023 to 31 Dec 2024: median 4.0x, sigma 0.0x over "
+                            f"{post.observations} days"]  # fmt: skip
+    short = band("pb", price, bvps, lookback_years=5, min_observations=500,
+                 start_floor=pd.Timestamp("2024-06-03"))  # fmt: skip
+    assert not short.ok and "03 Jun 2024 to 31 Dec 2024" in short.reasons[0]
+
+
+def test_pb_vs_roe_regression_band() -> None:
+    days = pd.bdate_range("2020-01-01", "2024-12-31")
+    roe = pd.Series({pd.Timestamp(f"{y}-01-01"): r
+                     for y, r in ((2020, 0.10), (2021, 0.12), (2022, 0.14), (2023, 0.16),
+                                  (2024, 0.13))})  # fmt: skip
+    bvps = pd.Series({pd.Timestamp("2019-12-31"): 50.0})
+    step_roe = roe.reindex(roe.index.union(days)).ffill().reindex(days)
+    price = (0.5 + 10.0 * step_roe) * 50.0  # P/B = 0.5 + 10 x ROE exactly
+    b = regression_band(price, bvps, roe, roe_now=0.15, min_observations=250, min_distinct_roe=3)
+    assert b.ok and b.median == pytest.approx(2.0) and b.sigma == pytest.approx(0.0, abs=1e-9)
+    assert band_prices(b, 400.0) == pytest.approx({k: 800.0 for k in (-2, -1, 0, 1, 2)})
+    assert "P/B = 0.50 + 10.00 x ROE" in b.reasons[0] and "full history" in b.reasons[0]
+    # fitted only after 2023: two distinct ROE values are not enough
+    late = regression_band(price, bvps, roe, roe_now=0.15, min_observations=250,
+                           min_distinct_roe=3, start=pd.Timestamp("2023-01-01"))  # fmt: skip
+    assert not late.ok and "2 distinct ROE values" in late.reasons[0]
+    assert not regression_band(price, bvps, roe, roe_now=None, min_observations=250,
+                               min_distinct_roe=3).ok  # fmt: skip

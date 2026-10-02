@@ -375,3 +375,26 @@ def test_a_plus_grade_persists(seeded: Session) -> None:
     persist(seeded, built)
     seeded.flush()
     assert seeded.scalars(select(Score.grade)).one() == "A_plus"
+
+
+@pytest.mark.parametrize(
+    ("brk", "expect"),
+    [
+        (date(2021, 6, 1), "window after the merger 01 Jun 2021 only (pre-break years excluded)"),
+        (date(2023, 9, 1), "regression"),
+    ],
+)
+def test_bank_pb_band_never_uses_the_pre_merger_window(db: Session, brk: date, expect: str) -> None:
+    from app.core.config import StructuralEvent, StructuralEventsConfig
+
+    seed_index(db)
+    seed_company(db, sector="banks")
+    ev = StructuralEvent(date=brk, kind="merger", description="synthetic merger")
+    events = StructuralEventsConfig(events={"SYNTH": [ev]})
+    cfg = CFG.model_copy(update={"structural_events": events})
+    r = build_for(db, "SYNTH", cfg).report
+    pb = next(m for m in r.valuation.methods if m.name == "band_pb")
+    assert expect in pb.reasons[-1] or any(expect in x for x in pb.reasons)
+    if expect == "regression":  # ~10 months after the break (< 2y): no plain band
+        assert any("pre-break window not used" in x for x in pb.reasons)
+        assert not any(x.startswith("pb 5y") or x.startswith("pb 10y") for x in pb.reasons)

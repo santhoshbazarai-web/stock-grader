@@ -544,11 +544,19 @@ class AnnouncementLag(_Strict):
     annual: PositiveInt
 
 
+class StructuralBandsConfig(_Strict):
+    """Bands for stocks with a structural break (SPEC §5.3)."""
+
+    min_window_years: PositiveFloat  # post-break window needed for a plain band
+    regression_min_distinct_roe: PositiveInt  # distinct ROE values the P/B-vs-ROE fit needs
+
+
 class BandsConfig(_Strict):
     lookback_years: list[PositiveInt] = Field(min_length=1)
     multiples: list[Literal["pe", "ev_ebitda", "pb"]] = Field(min_length=1)
     min_observations: PositiveInt
     assumed_announcement_lag_days: AnnouncementLag
+    structural: StructuralBandsConfig
 
 
 class EpvConfig(_Strict):

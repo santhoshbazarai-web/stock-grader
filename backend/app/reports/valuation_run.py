@@ -31,7 +31,7 @@ from app.core.config import SectorConfig, SectorModel, ValuationConfig
 from app.fundamentals.metrics import Metric, average, by_year, column, ratio
 from app.reports.data import StockData
 from app.reports.dto import PeerStats
-from app.valuation.bands import band, band_prices
+from app.valuation.bands import Band, band, band_prices, regression_band
 from app.valuation.blend import Valuation, blend
 from app.valuation.dcf import (
     DcfInputs,
@@ -346,25 +346,60 @@ def run_valuation(
     }
     band_px: dict[str, dict[int, float] | None] = {}
     band_median: dict[str, float | None] = {}
-    for m in vc.bands.multiples:
+    bc = vc.bands
+    brk_event = max((e for e in data.structural_events if pd.Timestamp(e.date) <= as_of),
+                    key=lambda e: e.date, default=None)  # fmt: skip
+    brk = pd.Timestamp(brk_event.date) if brk_event is not None else None
+    if brk is not None and brk <= as_of - pd.DateOffset(years=max(bc.lookback_years)):
+        brk = None  # the break is older than every lookback: plain bands
+    equity = pd.to_numeric(acol("total_equity"), errors="coerce")
+    roe_series = annual_series(ratio(pd.to_numeric(acol("pat"), errors="coerce"), average(equity)))
+    for m in bc.multiples:
         den, off, cur, cur_off = denominators[m]
         key = BAND_METHODS[m]
         mr[key] = []
-        chosen = None
-        for lb in vc.bands.lookback_years:
-            b = band(
-                m,
-                close,
-                den,
-                lookback_years=lb,
-                min_observations=vc.bands.min_observations,
-                offset=off,
-                as_of=as_of,
-            )
-            mr[key] += b.reasons
-            if b.ok:
-                chosen = b
-                break
+        chosen: Band | None = None
+        if brk is None:
+            for lb in bc.lookback_years:
+                b = band(m, close, den, lookback_years=lb, min_observations=bc.min_observations,
+                         offset=off, as_of=as_of)  # fmt: skip
+                mr[key] += b.reasons
+                if b.ok:
+                    chosen = b
+                    break
+        else:
+            assert brk_event is not None
+            post_years = (as_of - brk).days / 365.25
+            what = f"{brk_event.kind} {brk:%d %b %Y}"
+            if post_years >= bc.structural.min_window_years:
+                b = band(m, close, den, lookback_years=max(bc.lookback_years),
+                         min_observations=bc.min_observations, offset=off, as_of=as_of,
+                         start_floor=brk)  # fmt: skip
+                mr[key] += b.reasons
+                if b.ok:
+                    chosen = b
+                    mr[key].append(f"window after the {what} only (pre-break years excluded)")
+            else:
+                need = bc.structural.min_window_years
+                mr[key].append(f"post-{brk_event.kind} window {post_years:.1f}y < {need:g}y: "
+                               "pre-break window not used")  # fmt: skip
+            if chosen is None and m == "pb":
+                roe_now = _latest_before(roe_series, as_of)
+                for start in (brk, None):
+                    rb = regression_band(close, bvps_series, roe_series, roe_now=roe_now,
+                                         min_observations=bc.min_observations,
+                                         min_distinct_roe=bc.structural.regression_min_distinct_roe,
+                                         start=start, as_of=as_of)  # fmt: skip
+                    mr[key] += rb.reasons
+                    if rb.ok:
+                        chosen = rb
+                        if start is None:
+                            flag = f"full history incl. pre-{what} (flag: short post-break data)"
+                            mr[key].append(f"P/B-vs-ROE regression on {flag}")
+                            reasons.append(f"band_pb: regression fitted across the {what} (flag)")
+                        else:
+                            mr[key].append(f"P/B-vs-ROE regression fitted after the {what}")
+                        break
         if m == "ev_ebitda" and nd_ps_now is None:
             chosen = None
             mr[key].append("net debt per share unavailable")
