@@ -1,7 +1,7 @@
-import { ComingSoon } from "@/components/common";
+import { ValuationMap } from "@/components/pages/valuation-map";
 
 export const metadata = { title: "Valuation Map · Stock Grader" };
 
 export default function Page() {
-  return <ComingSoon title="Valuation Map">A map of every stock by zone and quality is planned.</ComingSoon>;
+  return <ValuationMap />;
 }
