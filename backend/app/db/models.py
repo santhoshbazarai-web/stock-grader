@@ -949,6 +949,18 @@ class ScreenerPreset(TimestampMixin, Base):
     filters: Mapped[dict[str, Any]]
 
 
+class SavedScreen(TimestampMixin, Base):
+    """A named screen: filters + sort, as built on the screener page."""
+
+    __tablename__ = "saved_screens"
+    __upsert_key__ = ("name",)
+    __table_args__ = (UniqueConstraint("name"),)
+
+    id: Mapped[int] = mapped_column(Integer, Identity(), primary_key=True)
+    name: Mapped[str] = mapped_column(String(64))
+    definition: Mapped[dict[str, Any]]  # {"filters": [...], "sort": key, "order": asc|desc}
+
+
 class Notification(Base):
     """In-app notification (SPEC §8 alerts), optionally also delivered to Telegram."""
 

@@ -1,0 +1,100 @@
+# Screening Ideas (SPEC §9): ready-made scans on OUR fields (screener_fields.yaml), with
+# thresholds sensible for Indian listed companies. "Run Scan" opens the screener with the
+# filters applied and editable. A filter is {key, min, max} for numbers and {key, in: [...]} for
+# enums; every bound is in the field's own unit (percent fields are percent points).
+#   icon: one of the abstract icons the page draws (trend, coins, rocket, shield, rebound,
+#         cycle, seedling, scale, gem)
+screen_presets:
+  presets:
+    - id: quality_compounders
+      name: Quality Compounders
+      icon: trend
+      description: "High-return businesses with low debt that have compounded earnings for years."
+      sort: total_score
+      filters:
+        - {key: roe, min: 15}
+        - {key: roce, min: 18}
+        - {key: eps_cagr_5y, min: 12}
+        - {key: debt_to_equity, max: 0.5}
+        - {key: grade, in: ["A+", A]}
+    - id: dividend_growers
+      name: Dividend Growers
+      icon: coins
+      description: "Dependable payers with a real yield, growing profits and a modest balance sheet."
+      sort: dividend_yield
+      filters:
+        - {key: dividend_yield, min: 1.5}
+        - {key: eps_cagr_5y, min: 8}
+        - {key: roe, min: 12}
+        - {key: debt_to_equity, max: 1.0}
+    - id: high_growth
+      name: High-Growth (speculative)
+      icon: rocket
+      description: "Fast sales and profit growth with strong relative strength; expect large swings."
+      sort: eps_cagr_3y
+      filters:
+        - {key: sales_cagr_5y, min: 25}
+        - {key: eps_cagr_3y, min: 25}
+        - {key: rs_percentile, min: 70}
+    - id: defensive
+      name: Defensive Stocks
+      icon: shield
+      description: "Low-beta, low-debt companies of decent grade that tend to hold up in falling markets."
+      sort: beta
+      order: asc
+      filters:
+        - {key: beta, max: 0.8}
+        - {key: debt_to_equity, max: 0.5}
+        - {key: grade, in: ["A+", A, B]}
+    - id: fallen_quality
+      name: Fallen Quality
+      icon: rebound
+      description: "Good businesses trading well below their highs and at a discount to fair value."
+      sort: discount_pct
+      order: asc
+      filters:
+        - {key: roe, min: 15}
+        - {key: grade, in: ["A+", A, B]}
+        - {key: from_52w_high, max: -25}
+        - {key: zone, in: [deep_discount, discount]}
+    - id: cyclical_value
+      name: Cyclical Value
+      icon: cycle
+      description: "Metals, cement, chemicals and autos priced below fair value or near book value."
+      sort: discount_pct
+      order: asc
+      filters:
+        - {key: sector, in: [metals, cement, chemicals, auto, capital_goods]}
+        - {key: discount_pct, max: -10}
+        - {key: pb, max: 2.5}
+    - id: hidden_small_caps
+      name: Hidden Small Caps
+      icon: seedling
+      description: "Small companies (₹500-5,000 Cr) with high returns, little debt and full data behind them."
+      sort: roce
+      filters:
+        - {key: market_cap_cr, min: 500, max: 5000}
+        - {key: roce, min: 15}
+        - {key: debt_to_equity, max: 0.5}
+        - {key: eps_cagr_5y, min: 15}
+        - {key: depth, in: [full]}
+    - id: garp
+      name: Growth at a Reasonable Price
+      icon: scale
+      description: "Earnings growing 15%+ a year without a stretched P/E."
+      sort: pe
+      order: asc
+      filters:
+        - {key: pe, max: 28}
+        - {key: eps_cagr_5y, min: 15}
+        - {key: roe, min: 15}
+    - id: quality_fair_price
+      name: Quality at a Fair Price
+      icon: gem
+      description: "Top-grade companies that are not expensive: in the discount or fair zone."
+      sort: total_score
+      filters:
+        - {key: grade, in: ["A+", A]}
+        - {key: zone, in: [discount, fair]}
+        - {key: roe, min: 15}
+        - {key: discount_pct, max: 10}

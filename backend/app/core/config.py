@@ -1466,6 +1466,74 @@ class StructuralEventsConfig(_Strict):
         return sorted(self.events.get(symbol.upper(), []), key=lambda e: e.date)
 
 
+# ───────────────────────── screener_fields.yaml / screen_presets.yaml ─────────────────────────
+
+FieldType = Literal["number", "percent", "enum", "text"]
+
+
+class ScreenerField(_Strict):
+    key: Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]*$")]
+    label: str = Field(min_length=1)
+    group: str
+    type: FieldType
+    unit: str | None = None
+    path: str = Field(min_length=1)  # dotted path, "computed:<name>" or "bank:<metric>"
+    scale: float = 1.0
+
+
+class ScreenerFieldsConfig(_Strict):
+    groups: list[str] = Field(min_length=1)
+    fields: list[ScreenerField] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        keys = [f.key for f in self.fields]
+        if len(set(keys)) != len(keys):
+            raise ValueError(
+                f"duplicate screener field keys: {sorted({k for k in keys if keys.count(k) > 1})}"
+            )
+        bad = sorted({f.group for f in self.fields} - set(self.groups))
+        if bad:
+            raise ValueError(f"screener fields in unknown groups: {bad}")
+        return self
+
+    def by_key(self) -> dict[str, ScreenerField]:
+        return {f.key: f for f in self.fields}
+
+
+class ScreenFilter(_Strict):
+    """One condition: numeric bounds (min / max, inclusive) or an in-list for enums / text."""
+
+    key: str
+    min: float | None = None
+    max: float | None = None
+    in_: list[str] | None = Field(default=None, alias="in")
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        if self.min is None and self.max is None and not self.in_:
+            raise ValueError(f"filter {self.key!r} has no min, max or in")
+        if self.min is not None and self.max is not None and self.min > self.max:
+            raise ValueError(f"filter {self.key!r}: min > max")
+        return self
+
+
+class ScreenPreset(_Strict):
+    id: Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]*$")]
+    name: str = Field(min_length=1)
+    icon: str
+    description: str = Field(min_length=1)
+    sort: str
+    order: Literal["asc", "desc"] = "desc"
+    filters: list[ScreenFilter] = Field(min_length=1)
+
+
+class ScreenPresetsConfig(_Strict):
+    presets: list[ScreenPreset] = Field(min_length=1)
+
+
 class AppConfig(_Strict):
     providers: ProvidersConfig
     valuation: ValuationConfig
@@ -1475,6 +1543,27 @@ class AppConfig(_Strict):
     jobs: JobsConfig
     industries: IndustriesConfig
     structural_events: StructuralEventsConfig
+    screener_fields: ScreenerFieldsConfig
+    screen_presets: ScreenPresetsConfig
+
+    @model_validator(mode="after")
+    def _presets_use_known_fields(self) -> Self:
+        fields = self.screener_fields.by_key()
+        for p in self.screen_presets.presets:
+            for f in p.filters:
+                spec = fields.get(f.key)
+                if spec is None:
+                    raise ValueError(f"preset {p.id!r}: unknown field {f.key!r}")
+                numeric = spec.type in ("number", "percent")
+                if (f.in_ is not None) == numeric:
+                    raise ValueError(f"preset {p.id!r}: {f.key!r} is {spec.type}; use "
+                                     f"{'min / max' if numeric else 'in'}")  # fmt: skip
+            if p.sort not in fields:
+                raise ValueError(f"preset {p.id!r}: unknown sort field {p.sort!r}")
+        ids = [p.id for p in self.screen_presets.presets]
+        if len(set(ids)) != len(ids):
+            raise ValueError("duplicate screen preset ids")
+        return self
 
     @model_validator(mode="after")
     def _industries_map_to_sectors(self) -> Self:

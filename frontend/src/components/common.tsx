@@ -25,6 +25,7 @@ const LINKS = [
   { href: "/watchlist", label: "Watchlist" },
 ];
 const MORE = [
+  { href: "/screening-ideas", label: "Screening Ideas" },
   { href: "/notes", label: "Notes" },
   { href: "/glossary", label: "Glossary" },
   { href: "/backtests", label: "Backtests" },

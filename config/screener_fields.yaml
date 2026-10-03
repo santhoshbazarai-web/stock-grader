@@ -1,0 +1,69 @@
+# Screener fields (SPEC §9): everything a scan can filter, sort and show, read from the STORED
+# latest report (never recomputed). One entry per field:
+#   key     the name used in URLs, saved screens and screen_presets.yaml
+#   label   shown in the filter picker        group  tab in the picker
+#   type    number | percent | enum | text    unit   shown next to the value
+#   path    dotted path into the stored report payload, or
+#           computed:discount_pct   price / fair value - 1, in percent
+#           bank:<name>             a bank metric (report.bank_metrics, already in percent)
+#   scale   multiplier applied to the raw value (fractions → percent points: 100)
+# A stock with no value for a field never passes a filter on it (nothing is assumed).
+screener_fields:
+  groups: [Overview, Valuation, Growth, Quality, Financial strength, Dividend, Technical, Ownership]
+  fields:
+    # ── Overview ──
+    - {key: symbol, label: Symbol, group: Overview, type: text, path: symbol}
+    - {key: name, label: Name, group: Overview, type: text, path: name}
+    - {key: sector, label: Sector, group: Overview, type: enum, path: valuation.sector}
+    - {key: industry, label: Industry, group: Overview, type: enum, path: industry}
+    - {key: market_cap_cr, label: Market cap, group: Overview, type: number, unit: "₹ Cr", path: valuation.market_cap_cr}
+    - {key: price, label: Price, group: Overview, type: number, unit: "₹", path: cmp}
+    - {key: day_change_pct, label: Day change, group: Overview, type: percent, unit: "%", path: day_change_pct, scale: 100}
+    - {key: depth, label: Data depth, group: Overview, type: enum, path: data_depth.level}
+    - {key: grade, label: Grade, group: Overview, type: enum, path: grade_label}
+    - {key: action, label: Action, group: Overview, type: enum, path: action}
+    - {key: total_score, label: Total score, group: Overview, type: number, unit: "/100", path: scores.total}
+    # ── Valuation ──
+    - {key: zone, label: Zone, group: Valuation, type: enum, path: zone}
+    - {key: discount_pct, label: Discount (-) / premium (+) to fair value, group: Valuation, type: percent, unit: "%", path: "computed:discount_pct"}
+    - {key: fair_value, label: Fair value, group: Valuation, type: number, unit: "₹", path: levels.fair_value}
+    - {key: confidence, label: Valuation confidence, group: Valuation, type: enum, path: levels.confidence}
+    - {key: pe, label: P/E, group: Valuation, type: number, unit: x, path: peer_stats.pe}
+    - {key: pb, label: P/B, group: Valuation, type: number, unit: x, path: peer_stats.pb}
+    - {key: ev_ebitda, label: EV / EBITDA, group: Valuation, type: number, unit: x, path: peer_stats.ev_ebitda}
+    # ── Growth ──
+    - {key: sales_cagr_3y, label: Sales CAGR 3y, group: Growth, type: percent, unit: "%", path: fundamentals.sales_cagr_3y, scale: 100}
+    - {key: sales_cagr_5y, label: Sales CAGR 5y, group: Growth, type: percent, unit: "%", path: fundamentals.sales_cagr_5y, scale: 100}
+    - {key: eps_cagr_3y, label: EPS CAGR 3y, group: Growth, type: percent, unit: "%", path: fundamentals.eps_cagr_3y, scale: 100}
+    - {key: eps_cagr_5y, label: EPS CAGR 5y, group: Growth, type: percent, unit: "%", path: fundamentals.eps_cagr_5y, scale: 100}
+    - {key: loan_growth_pct, label: Loan growth (banks), group: Growth, type: percent, unit: "%", path: "bank:loan_growth_pct"}
+    # ── Quality ──
+    - {key: roe, label: ROE, group: Quality, type: percent, unit: "%", path: fundamentals.roe_latest, scale: 100}
+    - {key: roce, label: ROCE, group: Quality, type: percent, unit: "%", path: fundamentals.roce_latest, scale: 100}
+    - {key: roce_5y_avg, label: ROCE 5y average, group: Quality, type: percent, unit: "%", path: fundamentals.roce_5y_avg, scale: 100}
+    - {key: opm_ttm, label: Operating margin (TTM), group: Quality, type: percent, unit: "%", path: fundamentals.opm_ttm, scale: 100}
+    - {key: roa_pct, label: ROA (banks), group: Quality, type: percent, unit: "%", path: "bank:roa_pct"}
+    - {key: piotroski, label: Piotroski F-score, group: Quality, type: number, path: fundamentals.piotroski}
+    - {key: quality_score, label: Quality pillar, group: Quality, type: number, unit: "/100", path: scores.quality}
+    # ── Financial strength ──
+    - {key: debt_to_equity, label: Debt / equity, group: Financial strength, type: number, unit: x, path: fundamentals.debt_to_equity}
+    - {key: net_debt_to_ebitda, label: Net debt / EBITDA, group: Financial strength, type: number, unit: x, path: fundamentals.net_debt_to_ebitda}
+    - {key: interest_coverage, label: Interest coverage, group: Financial strength, type: number, unit: x, path: fundamentals.interest_coverage}
+    - {key: altman_z2, label: "Altman Z''", group: Financial strength, type: number, path: fundamentals.altman_z2}
+    - {key: health_score, label: Health pillar, group: Financial strength, type: number, unit: "/100", path: scores.health}
+    - {key: beta, label: Beta, group: Financial strength, type: number, path: valuation.beta}
+    # ── Dividend ──
+    - {key: dividend_yield, label: Dividend yield, group: Dividend, type: percent, unit: "%", path: fundamentals.dividend_yield}
+    - {key: payout_pct, label: Dividend payout (banks), group: Dividend, type: percent, unit: "%", path: "bank:payout_pct"}
+    # ── Technical ──
+    - {key: stage, label: Weinstein stage, group: Technical, type: number, path: technical.stage}
+    - {key: rs_percentile, label: RS percentile, group: Technical, type: number, path: technical.rs_percentile}
+    - {key: rsi, label: RSI (14), group: Technical, type: number, path: technical.rsi}
+    - {key: from_52w_high, label: From 52-week high, group: Technical, type: percent, unit: "%", path: technical.from_52w_high, scale: 100}
+    - {key: earned_premium, label: Earned premium, group: Technical, type: number, unit: /8, path: earned_premium}
+    # ── Ownership ──
+    - {key: promoter_pct, label: Promoter holding, group: Ownership, type: percent, unit: "%", path: shareholding.promoter_pct}
+    - {key: fii_pct, label: FII holding, group: Ownership, type: percent, unit: "%", path: shareholding.fii_pct}
+    - {key: dii_pct, label: DII holding (incl. MF), group: Ownership, type: percent, unit: "%", path: shareholding.dii_pct}
+    - {key: public_pct, label: Public holding, group: Ownership, type: percent, unit: "%", path: shareholding.public_pct}
+    - {key: pledge_pct, label: Promoter pledge, group: Ownership, type: percent, unit: "%", path: shareholding.promoter_pledge_pct}

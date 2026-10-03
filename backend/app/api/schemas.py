@@ -209,6 +209,8 @@ class FilingsSummary(BaseModel):
 ConfigFileName = Literal[
     "providers", "valuation", "sectors", "scoring", "technical", "jobs", "industries",
     "structural_events",
+    "screener_fields",
+    "screen_presets",
 ]  # fmt: skip
 
 

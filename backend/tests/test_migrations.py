@@ -82,6 +82,7 @@ def test_spec_tables_present() -> None:
         "api_usage",  # SPEC §3.9a: metered API calls per month (Indian API budget)
         "vendor_responses",  # ... every raw vendor answer, stored before it is read
         "vendor_names",  # ... the vendor name that last gave a verified answer
+        "saved_screens",  # named screens from the screener page
         "ui_preferences",  # UI settings, e.g. the stock page "My metrics"
         "price_anomalies",  # SPEC §3.2: moves that look like a missing / doubled split
     } == MODEL_TABLES

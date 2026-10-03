@@ -17,38 +17,34 @@ test("dashboard shows brokers, freshness, buy-zone list and alerts", async ({ pa
   await expect(page.getByText("Triggered alerts")).toBeVisible();
 });
 
-test("screener filters live in the URL, columns sort, presets save and load", async ({ page }) => {
+test("screener: add a filter chip, run, sort, save a screen; ideas open it prefilled", async ({ page }) => {
   await login(page, "/screener");
   const table = page.getByRole("table", { name: "Screener results" });
   await expect(table.locator("tbody tr").first()).toBeVisible();
-  const all = await table.locator("tbody tr").count();
 
-  await page.getByRole("button", { name: "Extreme Premium" }).click();
-  await expect(page).toHaveURL(/zone=extreme_premium/);
-  await expect(table.locator("tbody tr")).not.toHaveCount(all);
-  for (const zone of await table.locator("tbody tr td:nth-child(4)").allInnerTexts()) {
-    expect(zone).toBe("Extreme Premium");
-  }
+  await page.getByLabel("Search parameters").fill("ROE");
+  await page.getByRole("list", { name: "Available parameters" }).getByRole("button").first().click();
+  await page.getByRole("list", { name: "Active filters" }).getByLabel(/minimum/).fill("5");
+  await page.getByRole("list", { name: "Active filters" }).getByLabel(/minimum/).blur();
+  await page.getByRole("button", { name: "Run scan" }).click();
+  await expect(page).toHaveURL(/min\.roe=5/);
 
   await page.getByRole("button", { name: "Symbol" }).click();
   await expect(page).toHaveURL(/sort=symbol/);
-  const symbols = await table.locator("tbody tr td:first-child a").allInnerTexts();
-  expect(symbols).toEqual([...symbols].sort().reverse()); // first click = descending
-  await page.getByRole("button", { name: "Symbol" }).click();
-  await expect(page).toHaveURL(/order=asc/);
 
-  const name = `e2e preset ${Date.now()}`;
-  await page.getByLabel("Preset name").fill(name);
-  await page.getByRole("button", { name: "Save preset" }).click();
-  await expect(page.getByRole("status")).toContainText(`Saved “${name}”`);
+  const name = `e2e screen ${Date.now()}`;
+  await page.getByLabel("Screen name").fill(name);
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByText(`Saved “${name}”`)).toBeVisible();
 
-  await page.getByRole("button", { name: "Reset", exact: true }).click();
+  await page.getByRole("button", { name: "Reset" }).click();
   await expect(page).toHaveURL(/\/screener$/);
-  await page.getByLabel("Preset", { exact: true }).selectOption(name);
-  await expect(page).toHaveURL(/zone=extreme_premium/);
-  await expect(page).toHaveURL(/sort=symbol/);
-  await page.getByRole("button", { name: "Delete" }).click();
-  await expect(page.getByRole("status")).toContainText(`Deleted “${name}”`);
+
+  await login(page, "/screening-ideas");
+  await expect(page.getByRole("heading", { level: 2 })).toHaveCount(9);
+  await page.getByRole("link", { name: "Run scan: Quality Compounders" }).click();
+  await expect(page).toHaveURL(/\/screener\?.*min\./);
+  await expect(page.getByRole("list", { name: "Active filters" })).toBeVisible();
 });
 
 test("watchlist and alerts: add, toggle, remove", async ({ page }) => {
