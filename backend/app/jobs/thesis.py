@@ -7,6 +7,7 @@ model is configured.
 
 from sqlalchemy import select
 
+from app.core.rate_limiter import RateLimiter
 from app.core.settings import get_settings
 from app.db.models import Instrument, WatchlistItem
 from app.jobs.runner import JobContext, JobOptions, JobOutcome
@@ -21,7 +22,8 @@ def thesis(ctx: JobContext, options: JobOptions) -> JobOutcome:
         reason = disabled_reason(settings, cfg)
         if reason is not None:
             return JobOutcome(skipped_reason=reason)
-        model = build_model(settings, cfg)
+        limiter = RateLimiter(ctx.redis, ctx.config.providers.rate_limits)
+        model = build_model(settings, cfg, limiter)
     if model is None:
         return JobOutcome(skipped_reason="no model")
     if options.symbols:

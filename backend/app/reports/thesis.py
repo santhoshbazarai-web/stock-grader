@@ -30,7 +30,10 @@ from app.scoring.decision import Action
 from app.valuation.blend import Zone
 
 # Bump when the fact sheet or the prompt changes: stored theses then no longer match.
-PROMPT_VERSION = 1
+PROMPT_VERSION = 2
+DISCLAIMER = "AI-generated from the numbers above. Not investment advice."
+SECTIONS = ("Business quality", "Valuation vs fair value", "Technical set-up", "Key risks",
+            "What would change the view")  # fmt: skip
 
 _NUMBER = re.compile(r"(?<![A-Za-z0-9_.])\d[\d,]*(?:\.\d+)?")
 _DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
@@ -154,21 +157,32 @@ def fact_sheet(r: StockReport, cfg: ThesisConfig) -> FactSheet:
 # ───────────────────────── prompt ─────────────────────────
 
 
+def facts_json(sheet: FactSheet) -> str:
+    """The only data sent to the model: computed report numbers and the report's reasons."""
+    facts = {f.label: f.text for f in sheet.facts if f.label != "Reason"}
+    reasons = [f.text for f in sheet.facts if f.label == "Reason"]
+    return json.dumps({"symbol": sheet.symbol, "facts": facts, "reasons": reasons},
+                      ensure_ascii=False, indent=1)  # fmt: skip
+
+
 def build_prompt(sheet: FactSheet, cfg: ThesisConfig) -> str:
+    parts = "\n".join(f'- "{s}:"' for s in SECTIONS)
     return (
-        "You write a short investment thesis for one Indian listed stock, for the owner of a "
-        "personal stock-grading tool. Use ONLY the facts below.\n"
+        "You write a short note on one Indian listed stock for the owner of a personal "
+        "stock-grading tool. The JSON after FACTS_JSON holds the ONLY facts you may use.\n"
         "Rules:\n"
-        f"- One paragraph of plain English, {cfg.min_words} to {cfg.max_words} words.\n"
-        "- Every number you write must appear in the facts, written the same way. Do not "
+        f"- {cfg.min_words} to {cfg.max_words} words in total, plain text, five short parts, "
+        f"each starting on a new line with its label:\n{parts}\n"
+        "- Every number you write must appear in the JSON, written the same way. Do not "
         "calculate, round differently, convert units or add any other number or date.\n"
-        "- Do not add facts about the company, its business, management, news or peers.\n"
+        "- Use no outside facts: nothing about the company's business, management, news, "
+        "peers or the economy.\n"
         "- Do not predict prices or give targets. State the report's action as given; do not "
         "recommend a different one.\n"
-        "- Explain why the report reaches its grade, zone and action, and name the main risk "
-        "the facts show.\n"
-        "- Output only the paragraph: no title, no list, no disclaimer.\n\n"
-        f"FACTS\n{sheet.block()}\n"
+        "- Under the last label say which of the given figures, if they changed, would change "
+        "the view.\n"
+        "- No markdown, no title, no disclaimer.\n\n"
+        f"FACTS_JSON\n{facts_json(sheet)}\n"
     )
 
 
@@ -245,8 +259,9 @@ def _spoken(code: str) -> str:
 
 
 def clean_draft(raw: str) -> str:
-    """Model output → one paragraph: strip whitespace, surrounding quotes and line breaks."""
-    text = " ".join(raw.split())
+    """Model output → plain text: no markdown marks or quotes, one part per line."""
+    lines = [" ".join(line.replace("**", "").lstrip("#* ").split()) for line in raw.splitlines()]
+    text = "\n".join(line for line in lines if line)
     if len(text) >= 2 and text[0] == text[-1] and text[0] in "\"'":
         text = text[1:-1].strip()
     return text

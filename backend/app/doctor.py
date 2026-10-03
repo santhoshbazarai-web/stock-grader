@@ -239,7 +239,14 @@ class Doctor:
             )
 
     def _thesis(self, settings: Settings, config: AppConfig) -> None:
-        url, model = settings.thesis_llm_url, config.jobs.thesis.model
+        url, model = settings.thesis_llm_url, config.jobs.thesis.ollama_model
+        if url != "fake" and config.jobs.thesis.provider == "gemini":
+            if settings.gemini_api_key and settings.gemini_api_key.get_secret_value().strip():
+                self.add("thesis model", "ok", f"Gemini key set (model {config.jobs.thesis.model})")
+            else:
+                self.add("thesis model", "warn", "thesis.provider is gemini but GEMINI_API_KEY is "
+                         "not set: add it to .env")  # fmt: skip
+            return
         if not url:
             self.add("thesis model", "warn", "thesis.enabled but THESIS_LLM_URL is not set: "
                      "no thesis is written")  # fmt: skip

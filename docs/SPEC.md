@@ -20,7 +20,7 @@ Version 0.2 · Owner: Santhosh · Single-user personal research tool (see §12 C
 | Hosting | Owner's home desktop via Docker. Redirect URIs on `http://127.0.0.1`. Remote/phone access only through Tailscale (no public exposure) |
 | Alerts | In-app + Telegram bot |
 | Budget | Free sources only. No paid data, no paid LLM API |
-| LLM thesis | Optional, off by default. A **local** model only (Ollama on the owner's machine or network); numbers in → text out, no new facts (§8a) |
+| AI thesis | Google Gemini by default (key `GEMINI_API_KEY`), local Ollama optional; only computed numbers and reasons are sent; numbers in → text out, no new facts (§8a) |
 | NSE Market Lens | NSE's beta screener (marketlens.nseindia.com). Used only as an optional **reconciliation** source, never primary: it is beta, undocumented and may change or be restricted |
 
 ---
@@ -942,8 +942,8 @@ Implementation notes (alerts, P14):
 - **Delivery:** each firing writes a `notifications` row (the in-app bell) and, when `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are set, sends a Telegram message. A Telegram failure is stored on the row and never loses the in-app notification, and the bot token never reaches logs or stored errors.
 - **Scope:** alerts are notifications only. No orders or broker GTTs (rule 7).
 
-### 8a. LLM thesis (P26)
-An optional paragraph explaining the report, written by a local model from the report's own numbers. It adds no facts and never changes a score, zone, grade or action.
+### 8a. AI thesis (P26)
+An optional note explaining the report, written by a model from the report's own numbers. **Provider (`jobs.yaml` → `thesis.provider`): `gemini` (default; `thesis.model` names the model, key from `GEMINI_API_KEY`, header-only and never logged, each call takes a token from `core/rate_limiter.py` → `providers.yaml` `rate_limits.gemini`; a missing key is the reason "Add GEMINI_API_KEY to .env", an HTTP 429 is reported as rate-limited and not retried) or `ollama` (local, `THESIS_LLM_URL`). The prompt carries the fact sheet as JSON (`facts`, `reasons`) and asks for `min_words`–`max_words` (150–250) in five labelled parts; `max_attempts: 2` means one retry with the problems listed, then the card shows "Thesis unavailable". A passing text is stored with the fixed line "AI-generated from the numbers above. Not investment advice." under the fact sheet's digest (per symbol and report), and the Regenerate button forces a new one.** The earlier description below still applies to the fact sheet and the check. It adds no facts and never changes a score, zone, grade or action.
 
 - **Off by default.** It needs `jobs.yaml` → `thesis.enabled: true` and `THESIS_LLM_URL`: a local Ollama server (`/api/generate`, non-streaming, `temperature` and `seed` fixed). The URL must be loopback, a private address, a Docker service name, `host.docker.internal`, `*.local` or the tailnet, so the numbers never leave the owner's network and no paid API is used. `THESIS_LLM_URL=fake` (development only) is a built-in deterministic stand-in for tests and demos.
 - **Fact sheet** (`reports/thesis.py`, pure). Labelled lines with numbers already in display units:

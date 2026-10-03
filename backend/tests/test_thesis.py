@@ -8,18 +8,23 @@ import pytest
 from app.core.config import load_config
 from app.reports.dto import StockReport
 from app.reports.thesis import (
+    SECTIONS,
     Fact,
     FactSheet,
     build_prompt,
     check,
     clean_draft,
     fact_sheet,
+    facts_json,
     fmt,
     retry_prompt,
 )
 from tests.conftest import REPO_CONFIG_DIR
 
-CFG = load_config(REPO_CONFIG_DIR).jobs.thesis
+# the 150-250 word range is the shipped config; these pure tests use a short paragraph
+CFG = load_config(REPO_CONFIG_DIR).jobs.thesis.model_copy(
+    update={"min_words": 40, "max_words": 160}
+)
 FIXTURE = Path(__file__).parent / "fixtures" / "thesis" / "DEMOIT_report.json"
 
 
@@ -125,11 +130,18 @@ def test_length_limits(report: StockReport) -> None:
 def test_prompt_and_retry(report: StockReport) -> None:
     sheet = fact_sheet(report, CFG)
     prompt = build_prompt(sheet, CFG)
-    assert sheet.block() in prompt and f"{CFG.min_words} to {CFG.max_words} words" in prompt
+    assert facts_json(sheet) in prompt and f"{CFG.min_words} to {CFG.max_words} words" in prompt
+    data = json.loads(facts_json(sheet))
+    assert set(data) == {"symbol", "facts", "reasons"} and len(data["reasons"]) == CFG.max_reasons
+    assert all(f'"{s}:"' in prompt for s in SECTIONS)
     again = retry_prompt(sheet, CFG, "draft text", ["numbers not in the facts: 9"])
     assert again.startswith(prompt) and "numbers not in the facts: 9" in again
     assert "draft text" in again
 
 
 def test_clean_draft() -> None:
-    assert clean_draft('  "One\nparagraph  here."\n') == "One paragraph here."
+    assert clean_draft('  "One\nparagraph  here."\n') == "One\nparagraph here."
+    assert (
+        clean_draft("**Business quality:** fine\n\n## Key risks: none\n")
+        == "Business quality: fine\nKey risks: none"
+    )

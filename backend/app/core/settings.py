@@ -75,6 +75,10 @@ class Settings(BaseSettings):
     # X-Api-Key header; never logged or stored.
     indianapi_key: SecretStr | None = None
 
+    # Optional Google Gemini key for the AI thesis (default provider). Sent only in the
+    # x-goog-api-key header; never logged or stored.
+    gemini_api_key: SecretStr | None = None
+
     # Optional Telegram delivery for alert notifications (never logged).
     telegram_bot_token: SecretStr | None = None
     telegram_chat_id: str | None = None

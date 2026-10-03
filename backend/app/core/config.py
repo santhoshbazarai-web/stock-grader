@@ -91,6 +91,7 @@ class Provider(StrEnum):
     MARKET_LENS = "market_lens"  # NSE Market Lens (beta): reconciliation only, off by default
     OFFLINE = "offline"  # development only: the synthetic offline exchange (app.devtools)
     INDIANAPI = "indianapi"  # stock.indianapi.in: bulk fundamentals (paid key, optional)
+    GEMINI = "gemini"  # Google Gemini API: the optional AI thesis (key GEMINI_API_KEY)
 
 
 class Dataset(StrEnum):
@@ -1216,7 +1217,12 @@ class ThesisConfig(_Strict):
     unknown number or a ``forbidden_phrases`` entry are rejected."""
 
     enabled: bool
-    model: str = Field(min_length=1)
+    provider: Literal["gemini", "ollama"]  # gemini: key from GEMINI_API_KEY; ollama: THESIS_LLM_URL
+    model: str = Field(min_length=1)  # the Gemini model name (provider gemini)
+    ollama_model: str = Field(min_length=1)  # the local model (provider ollama)
+    gemini_base_url: str = Field(pattern=r"^https://")
+    max_output_tokens: PositiveInt
+    rate_limit_timeout_s: PositiveFloat  # wait this long for a core/rate_limiter.py token
     timeout_s: PositiveFloat
     temperature: Annotated[float, Field(ge=0, le=2)]
     seed: int

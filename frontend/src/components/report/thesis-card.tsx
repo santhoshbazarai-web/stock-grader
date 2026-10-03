@@ -1,8 +1,8 @@
 "use client";
 
-// LLM thesis (SPEC §8a): a paragraph written by a local model from the numbers on this page
-// only. The backend rejects drafts that cite a number the report does not state, so the card
-// shows text only when it passed; otherwise it says why.
+// AI thesis (SPEC §8a): five short parts written by Gemini (or a local Ollama) from the numbers
+// on this page only. The backend rejects drafts that cite a number the report does not state,
+// so the card shows text only when it passed; otherwise it says "Thesis unavailable" and why.
 import { Loader2, RefreshCw, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -73,10 +73,9 @@ export function ThesisCard({
 
   if (thesis.status === "disabled")
     return (
-      <p className="text-muted-foreground text-sm">
-        Off: {thesis.reasons[0]}. A local model (Ollama) can write a short
-        thesis from this page&apos;s numbers; see the README, &ldquo;LLM
-        thesis&rdquo;.
+      <p className="text-muted-foreground text-sm" data-testid="thesis-off">
+        {thesis.reasons[0]}
+        {thesis.reasons[0]?.includes("GEMINI_API_KEY") ? " (then restart the API). Only this page's numbers are sent." : ""}
       </p>
     );
 
@@ -96,14 +95,14 @@ export function ThesisCard({
           <Sparkles aria-hidden />
         )}
         {thesis.status === "ok"
-          ? "Rewrite"
+          ? "Regenerate"
           : thesis.status === "missing"
             ? "Write thesis"
             : "Try again"}
       </Button>
       {busy && (
         <span className="text-muted-foreground text-xs" role="status">
-          Writing with the local model; this can take a minute…
+          Writing the thesis; this can take a few seconds…
         </span>
       )}
       {error && !busy && (
@@ -118,14 +117,14 @@ export function ThesisCard({
     <div className="flex flex-col gap-3 text-sm">
       {thesis.status === "ok" && thesis.text && (
         <>
-          <p className="max-w-prose leading-relaxed" data-testid="thesis-text">
+          <p className="max-w-prose leading-relaxed whitespace-pre-line" data-testid="thesis-text">
             {thesis.text}
           </p>
           <p className="text-muted-foreground text-xs">
-            Machine-written by {thesis.model} from the figures on this page
+            Written by {thesis.model}
             {thesis.generated_at ? ` (${when(thesis.generated_at)})` : ""}.
             Every number in it was checked against the report; the wording was
-            not. Verify before relying on it.
+            not.
           </p>
         </>
       )}
@@ -137,8 +136,8 @@ export function ThesisCard({
       {thesis.status === "rejected" && (
         <div className="flex flex-col gap-1">
           <p>
-            Not shown: no draft from {thesis.model} passed the facts check in{" "}
-            {thesis.attempts} attempt(s).
+            Thesis unavailable: no draft from {thesis.model} passed the facts
+            check in {thesis.attempts} attempt(s).
           </p>
           <ul className="text-muted-foreground list-disc pl-5 text-xs">
             {thesis.problems.map((p) => (
@@ -149,8 +148,8 @@ export function ThesisCard({
       )}
       {thesis.status === "failed" && (
         <p>
-          The local model could not be reached
-          {thesis.problems[0] ? `: ${thesis.problems[0]}` : ""}.
+          Thesis unavailable: the model could not be reached
+          {thesis.problems[0] ? ` (${thesis.problems[0]})` : ""}.
         </p>
       )}
       {action}

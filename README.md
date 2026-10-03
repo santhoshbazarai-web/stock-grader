@@ -736,27 +736,27 @@ To run a check outside market hours:
 - **Your chat ID:** send your bot a message, then open
   `https://api.telegram.org/bot<token>/getUpdates` once and copy `message.chat.id`.
 
-### LLM thesis (optional, local)
+### AI thesis (Gemini by default, Ollama optional)
 
-A short paragraph on the stock page explaining the grade, zone and action, written by a model
-on your own machine from the report's numbers only (SPEC §8a). It is off by default and free:
-no paid API, and the numbers never leave your network.
+Five short parts on the stock page (Business quality, Valuation vs fair value, Technical set-up,
+Key risks, What would change the view), 150-250 words, written from the report's numbers only
+(SPEC §8a). Only the computed numbers and the report's reasons go to the model, as JSON.
 
-1. Install [Ollama](https://ollama.com) and pull a model: `ollama pull llama3.1:8b` (or set
-   `thesis.model` in `config/jobs.yaml` to one you have).
-2. Set `thesis.enabled: true` in `config/jobs.yaml`, and `THESIS_LLM_URL` in your env file:
-   `http://127.0.0.1:11434` when the API runs on the host, or
-   `http://host.docker.internal:11434` from the home Docker stack. For the containers to reach
-   it, Ollama must listen beyond localhost (`OLLAMA_HOST=0.0.0.0`).
-3. `make doctor` checks that the server answers and has the model.
+1. Get a Gemini key at <https://aistudio.google.com/apikey> and put `GEMINI_API_KEY=...` in
+   your `.env`, then restart the API. Without it the card says "Add GEMINI_API_KEY to .env".
+   The key is sent as a request header, is never logged, and calls are paced by the rate limiter
+   (`providers.yaml` → `rate_limits.gemini`). The model name is `thesis.model` in
+   `config/jobs.yaml`.
+2. Optional, local instead: set `thesis.provider: ollama` and `THESIS_LLM_URL` (for example
+   `http://127.0.0.1:11434`), then `ollama pull llama3.1:8b`; nothing leaves your machine.
+3. `make doctor` reports whether the key (or the local model) is set up.
 
-Then use **Write thesis** on a stock page; the nightly `thesis` job also writes one for each
-watchlist stock whose numbers changed. Every number in a draft must match a fact in the report.
-A draft that cites anything else (a made-up target, a converted figure, another grade) is retried
-with the problems listed and, if it never passes, not shown. The card says why. The text is
-tied to the exact numbers it was written from: after a refresh changes them, it disappears until
-it is rewritten. For development, `THESIS_LLM_URL=fake` uses a built-in stand-in instead of a
-model.
+Every number in a draft must appear in the facts; a draft that does not is retried once with the
+problems listed and, if it still fails, the card says "Thesis unavailable". A passing text gets
+"AI-generated from the numbers above. Not investment advice." and is cached per stock and
+report: it stays until the numbers change, **Regenerate** writes a new one. The nightly `thesis`
+job is off (`nightly_scope: none`); set it to `watchlist` to write one per watchlist stock. For
+development, `THESIS_LLM_URL=fake` uses a built-in stand-in.
 
 ### Backtests
 

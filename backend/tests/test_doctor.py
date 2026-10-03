@@ -131,9 +131,21 @@ def thesis_on(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     conf = tmp_path / "config"
     shutil.copytree(REPO_CONFIG_DIR, conf)
     jobs = conf / "jobs.yaml"
-    off = "    enabled: false            # needs THESIS_LLM_URL"
-    assert off in jobs.read_text()
-    jobs.write_text(jobs.read_text().replace(off, off.replace("false", "true ")))
+    gem = "    provider: gemini "
+    assert gem in jobs.read_text()
+    jobs.write_text(jobs.read_text().replace(gem, "    provider: ollama "))  # the Ollama checks
+    monkeypatch.setenv("CONFIG_DIR", str(conf))
+    get_settings.cache_clear()
+
+
+@pytest.fixture
+def thesis_off(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    conf = tmp_path / "config"
+    shutil.copytree(REPO_CONFIG_DIR, conf)
+    jobs = conf / "jobs.yaml"
+    on = "    enabled: true             # Gemini needs"
+    assert on in jobs.read_text()
+    jobs.write_text(jobs.read_text().replace(on, on.replace("true ", "false")))
     monkeypatch.setenv("CONFIG_DIR", str(conf))
     get_settings.cache_clear()
 
@@ -165,7 +177,26 @@ def test_thesis_model_check(
 
 
 @responses.activate
-def test_no_thesis_check_when_off(ok_env: Path) -> None:
+def test_no_thesis_check_when_off(ok_env: Path, thesis_off: None) -> None:
     responses.add(responses.GET, NSE, status=200)
     responses.add(responses.GET, ARCHIVES, status=200)
     assert "thesis model" not in by_area(Doctor().run())
+
+
+@responses.activate
+@pytest.mark.parametrize(
+    ("key", "status", "detail"),
+    [(None, "warn", "GEMINI_API_KEY"), ("k-123", "ok", "Gemini key set")],
+)
+def test_gemini_thesis_check(
+    ok_env: Path, monkeypatch: pytest.MonkeyPatch, key: str | None, status: str, detail: str
+) -> None:
+    responses.add(responses.GET, NSE, status=200)
+    responses.add(responses.GET, ARCHIVES, status=200)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    if key:
+        monkeypatch.setenv("GEMINI_API_KEY", key)
+    get_settings.cache_clear()
+    check = by_area(Doctor().run())["thesis model"]
+    assert check.status == status and detail in check.detail
+    assert "k-123" not in check.detail

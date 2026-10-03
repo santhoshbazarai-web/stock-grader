@@ -5,8 +5,9 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
 
-from app.api.deps import ConfigDep, SessionDep, SettingsDep
+from app.api.deps import ConfigDep, RedisDep, SessionDep, SettingsDep
 from app.api.schemas import Symbol, ThesisOut
+from app.core.rate_limiter import RateLimiter, on_demand
 from app.reports.thesis_service import (
     ThesisView,
     build_model,
@@ -53,18 +54,20 @@ def write_thesis(
     session: SessionDep,
     config: ConfigDep,
     settings: SettingsDep,
+    redis: RedisDep,
     force: bool = False,
 ) -> ThesisOut:
-    """Write the thesis now with the local model (blocks while it generates). Reuses one that
+    """Write the thesis now (blocks while the model generates). Reuses one that
     already passed for the same numbers unless ``force``. A draft that cites a number not in
     the report is retried, then rejected (``status`` ``rejected`` with the problems)."""
     cfg = config.jobs.thesis
     disabled = disabled_reason(settings, cfg)
-    model = build_model(settings, cfg)
+    model = build_model(settings, cfg, RateLimiter(redis, config.providers.rate_limits))
     if disabled is not None or model is None:
         raise HTTPException(status.HTTP_409_CONFLICT, disabled or "no model")
     try:
-        view = generate(session, symbol, cfg, model, now=datetime.now(UTC), force=force)
+        with on_demand():
+            view = generate(session, symbol, cfg, model, now=datetime.now(UTC), force=force)
     except LookupError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     return _out(view, None)
