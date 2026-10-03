@@ -205,7 +205,7 @@ export function ReportView({ symbol }: { symbol: string }) {
             {tab === "financials" && <FinancialsTab symbol={report.symbol} />}
             {tab === "key-metrics" && (
               <>
-                <KeyMetricsTab symbol={report.symbol} />
+                <KeyMetricsTab symbol={report.symbol} durability={report.durability} />
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                   <Section title="Scorecard">
                     <Scorecard report={report} />

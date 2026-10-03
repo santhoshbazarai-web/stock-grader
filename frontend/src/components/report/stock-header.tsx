@@ -7,7 +7,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { ZoneBadge } from "@/components/ds";
-import { ActionBadge, GradeBadge } from "@/components/common";
+import { ActionBadge, DurabilityBadge, GradeBadge } from "@/components/common";
 import { AddAlertButton } from "@/components/add-alert";
 import { Button } from "@/components/ui/button";
 import { api, ApiError } from "@/lib/api";
@@ -83,6 +83,7 @@ export function StockHeader({ report, onRun }: { report: StockReport; onRun?: (r
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <GradeBadge label={report.grade_label} />
+          <DurabilityBadge durability={report.durability} />
           <ActionBadge action={report.action} />
           <ZoneBadge zone={report.zone} cmp={report.cmp} fairValue={report.levels.fair_value} confidence={report.levels.confidence} />
           {report.data_depth && <DepthBadge depth={report.data_depth} />}

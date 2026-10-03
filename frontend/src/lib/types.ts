@@ -130,6 +130,7 @@ export type StockReport = {
   data_gaps: string[];
   thesis: string | null;
   shareholding?: ShareholdingSummary | null; // absent in reports built before Prompt A
+  durability?: Durability | null; // a proxy from reported data, not a moat rating
   analyst_consensus?: AnalystConsensus | null; // informational only, never scored
   bank_metrics?: BankMetric[]; // banks only (absent before Prompt B)
   grade_confidence?: "full" | "reduced"; // reduced below full data depth (grade provisional)
@@ -975,3 +976,12 @@ export type DividendsOut = {
 };
 export type Peer = { symbol: string; name: string | null };
 export type ComparePrices = { base_date: string | null; series: { symbol: string; points: { date: string; value: number }[] }[] };
+
+export type Durability = {
+  rating: "strong" | "moderate" | "weak" | null;
+  score: number | null;
+  confidence: "high" | "medium" | "low" | null;
+  label: string;
+  tests: { key: string; label: string; passed: boolean | null; detail: string }[];
+  reasons: string[];
+};

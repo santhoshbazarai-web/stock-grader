@@ -627,3 +627,13 @@ glossary:
     definition: The stock's relative strength against the benchmark, smoothed over about a year.
     formula: null
     why: Positive means the stock beats the market.
+  - key: durability
+    term: Durability (proxy)
+    group: Quality
+    definition: 'A Strong / Moderate / Weak rating of how durable a business''s returns look, computed
+      only from reported numbers: median ROE and ROCE, years ROE beat the cost of equity, stability of
+      margins and ROE, years of profit growth and the leverage trend. Banks use ROA stability and deposit
+      / loan growth consistency instead. It is a proxy, not an analyst moat rating.'
+    formula: 'share of tests with data that pass: Strong at 75% or more, Weak below 45%'
+    why: Returns that stay high and steady for a decade are more likely to last. Missing history lowers
+      the confidence; it never counts as a fail.

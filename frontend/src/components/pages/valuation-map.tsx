@@ -169,7 +169,7 @@ export function ValuationMap() {
               </CardTitle>
               <div className="flex flex-wrap items-center gap-4">
                 <Select label="Colour by" value={colourBy} onChange={setColourBy} options={COLOUR_LABEL} />
-                <Select label="Group by" value={groupBy} onChange={(g) => { setGroupBy(g); setZoom(null); }} options={{ sector: "Sector", industry: "Industry" }} />
+                <Select label="Group by" value={groupBy} onChange={(g) => { setGroupBy(g); setZoom(null); }} options={{ sector: "Sector", industry: "Industry", durability: "Durability (proxy)" }} />
                 {zoom && (
                   <Button size="sm" variant="outline" onClick={() => setZoom(null)}>
                     Reset zoom ({zoom})

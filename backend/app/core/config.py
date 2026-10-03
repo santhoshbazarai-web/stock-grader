@@ -996,6 +996,38 @@ class HealthConfig(_Strict):
     bank_weights: dict[str, PositiveFloat] = Field(min_length=1)
 
 
+class DurabilityConfig(_Strict):
+    window_years: PositiveInt
+    min_years: PositiveInt
+    roe_median_min: float
+    roce_median_min: float
+    years_above_ke_min_share: Fraction
+    margin_std_max: PositiveFloat
+    roe_std_max: PositiveFloat
+    profit_growth_min_share: Fraction
+    leverage_increase_max: float
+    leverage_max: PositiveFloat
+    bank_roa_median_min: float
+    bank_roa_std_max: PositiveFloat
+    growth_consistency_min: float
+    growth_consistency_min_share: Fraction
+    strong_min_score: Fraction
+    weak_max_score: Fraction
+    min_coverage: Fraction
+    confidence_high: Fraction
+    confidence_medium: Fraction
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        if self.weak_max_score >= self.strong_min_score:
+            raise ValueError("durability.weak_max_score must be below strong_min_score")
+        if self.confidence_medium >= self.confidence_high:
+            raise ValueError("durability.confidence_medium must be below confidence_high")
+        if self.min_years > self.window_years:
+            raise ValueError("durability.min_years cannot exceed window_years")
+        return self
+
+
 class ScoringConfig(_Strict):
     weights: PillarWeights
     grade_cutoffs: GradeCutoffs
@@ -1011,6 +1043,7 @@ class ScoringConfig(_Strict):
     data_depth: DataDepthConfig
     fundamentals: FundamentalsConfig
     forensic: ForensicConfig
+    durability: DurabilityConfig
 
 
 # ───────────────────────── technical.yaml ─────────────────────────

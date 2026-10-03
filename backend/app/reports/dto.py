@@ -119,6 +119,24 @@ class PillarDto(_Dto):
     )
 
 
+class DurabilityTestDto(_Dto):
+    key: str
+    label: str
+    passed: bool | None = Field(description="None: not enough history (lowers confidence)")
+    detail: str
+
+
+class DurabilityDto(_Dto):
+    rating: Literal["strong", "moderate", "weak"] | None = Field(
+        description="None when too few tests have data"
+    )
+    score: float | None = Field(description="Share of tests with data that pass")
+    confidence: Literal["high", "medium", "low"] | None
+    label: str = Field(description="Always shown with the rating: a proxy, not a moat rating")
+    tests: list[DurabilityTestDto]
+    reasons: list[str]
+
+
 class BankMetricDto(_Dto):
     """A bank metric for the latest fiscal year. ``proxy``: derived from the statements, not
     the figure the bank reports (``definition`` says how)."""
@@ -262,6 +280,10 @@ class StockReport(_Dto):
     shareholding: ShareholdingDto | None = None
     bank_metrics: list[BankMetricDto] = Field(
         default_factory=list, description="Banks only: reported metrics and labelled proxies"
+    )
+    durability: DurabilityDto | None = Field(
+        default=None,
+        description="Proxy from reported data only; not an analyst moat rating",
     )
     analyst_consensus: AnalystConsensusDto | None = Field(
         default=None, description="Informational only: never part of a score, zone or action"

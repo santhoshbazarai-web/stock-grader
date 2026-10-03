@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { ACTION_LABEL, ZONE_LABEL } from "@/lib/format";
+import type { Durability } from "@/lib/types";
 
 const LINKS = [
   { href: "/", label: "Dashboard" },
@@ -186,6 +187,25 @@ const BUYS = new Set(["strong_buy", "buy", "accumulate", "buy_on_pullback", "mom
 
 export function GradeBadge({ label }: { label: string | null }) {
   return <Badge variant="outline">{label ?? "n/a"}</Badge>;
+}
+
+const DUR_CLASS: Record<string, string> = {
+  strong: "border-[var(--sem-discount)] text-[var(--sem-discount)]",
+  moderate: "border-[var(--sem-fair)] text-[var(--sem-fair)]",
+  weak: "border-[var(--sem-premium)] text-[var(--sem-premium)]",
+};
+
+/** Durability proxy badge: always worded as a proxy, never as an analyst moat rating. */
+export function DurabilityBadge({ durability }: { durability: Durability | null | undefined }) {
+  if (!durability) return null;
+  const r = durability.rating;
+  const tip = `${durability.label}. ${durability.reasons.at(-1) ?? ""}`;
+  return (
+    <Badge variant="outline" title={tip} aria-label={r ? `Durability ${r}, proxy, ${durability.confidence} confidence` : "Durability: not enough data for a rating"} className={r ? DUR_CLASS[r] : "text-muted-foreground"}>
+      Durability: {r ? `${r[0].toUpperCase()}${r.slice(1)}` : "n/a"}
+      {r && durability.confidence !== "high" ? ` · ${durability.confidence} conf.` : ""}
+    </Badge>
+  );
 }
 
 export function ActionBadge({ action }: { action: string | null }) {

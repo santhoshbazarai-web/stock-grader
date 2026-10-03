@@ -32,6 +32,7 @@ class MapRow(BaseModel):
     grade: str | None
     depth: str | None
     confidence: str | None
+    durability: str | None = None  # strong | moderate | weak (a proxy, not a moat rating)
     as_of: date
 
 
@@ -62,7 +63,7 @@ def build_map(payloads: list[dict[str, Any]], universe: str, note: str | None) -
             day_change_pct=p.get("day_change_pct"), fair_value=fv,
             discount_pct=p["cmp"] / fv - 1, zone=p.get("zone"), grade=p.get("grade_label"),
             depth=depth, confidence=(p.get("levels") or {}).get("confidence"),
-            as_of=p["as_of"],
+            durability=(p.get("durability") or {}).get("rating"), as_of=p["as_of"],
         ))  # fmt: skip
     rows.sort(key=lambda r: r.symbol)
     return ValuationMap(universe=universe, universe_note=note, rows=rows, excluded=excluded,

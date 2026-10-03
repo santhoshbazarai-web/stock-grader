@@ -138,3 +138,25 @@ scoring:
     beneish_flag_above: -2.22   # SPEC §4: M above this is a manipulation flag
     altman_safe_above: 2.6      # Z'' (EM, without the 3.25 constant) zones, Altman (2005)
     altman_distress_below: 1.1
+  # Durability: a PROXY computed only from reported data, not an analyst moat rating (SPEC §4).
+  # Each test passes, fails, or has no data (None: it lowers confidence, never scores 0).
+  durability:
+    window_years: 10
+    min_years: 5                  # a test needs this many years of its input, else no data
+    roe_median_min: 0.15          # median ROE over the window
+    roce_median_min: 0.15
+    years_above_ke_min_share: 0.70   # share of years with ROE above the cost of equity
+    margin_std_max: 0.05          # std-dev of operating margin (fraction of sales)
+    roe_std_max: 0.06
+    profit_growth_min_share: 0.70    # share of year-on-year steps where PAT grew
+    leverage_increase_max: 0.20      # debt/equity now minus debt/equity trend_years ago
+    leverage_max: 1.0                # debt/equity now
+    bank_roa_median_min: 0.010
+    bank_roa_std_max: 0.003
+    growth_consistency_min: 0.08     # deposit / loan growth a year counts above this
+    growth_consistency_min_share: 0.70
+    strong_min_score: 0.75        # share of tests with data that pass
+    weak_max_score: 0.45          # below this: Weak
+    min_coverage: 0.50            # share of tests that must have data, else no rating
+    confidence_high: 0.85         # coverage at/above: high; at/above confidence_medium: medium
+    confidence_medium: 0.65

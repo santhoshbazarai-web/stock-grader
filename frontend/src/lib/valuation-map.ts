@@ -6,6 +6,7 @@ export type MapRow = {
   name: string | null;
   sector: string | null;
   industry: string | null;
+  durability?: string | null;
   market_cap_cr: number | null;
   price: number;
   day_change_pct: number | null;
@@ -26,7 +27,11 @@ export type ValuationMapData = {
 };
 
 export type ColourBy = "discount" | "day_change" | "grade";
-export type GroupBy = "sector" | "industry";
+export function durabilityLabel(d: string | null | undefined): string {
+  return d ? `${d[0].toUpperCase()}${d.slice(1)} durability` : "Durability: no rating";
+}
+
+export type GroupBy = "sector" | "industry" | "durability";
 
 // Seven steps, green (cheap / good) → grey → red-orange (expensive / bad). Lightness changes
 // strongly from step to step and every tile also prints its value, so the scale does not rely
@@ -81,7 +86,7 @@ export function buildTree(rows: MapRow[], by: GroupBy, only: string | null): { t
       noCap++;
       continue;
     }
-    const g = (by === "sector" ? r.sector : r.industry) ?? "Unclassified";
+    const g = (by === "sector" ? r.sector : by === "industry" ? r.industry : durabilityLabel(r.durability)) ?? "Unclassified";
     if (only && g !== only) continue;
     const node = groups.get(g) ?? { name: g, children: [] };
     node.children!.push({ name: r.symbol, size: r.market_cap_cr, row: r });

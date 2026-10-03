@@ -27,6 +27,7 @@ screener_fields:
     - {key: zone, label: Zone, group: Valuation, type: enum, path: zone}
     - {key: discount_pct, label: Discount (-) / premium (+) to fair value, group: Valuation, type: percent, unit: "%", path: "computed:discount_pct"}
     - {key: fair_value, label: Fair value, group: Valuation, type: number, unit: "₹", path: levels.fair_value}
+    - {key: durability, label: Durability (proxy), group: Quality, type: enum, path: durability.rating}
     - {key: confidence, label: Valuation confidence, group: Valuation, type: enum, path: levels.confidence}
     - {key: pe, label: P/E, group: Valuation, type: number, unit: x, path: peer_stats.pe}
     - {key: pb, label: P/B, group: Valuation, type: number, unit: x, path: peer_stats.pb}

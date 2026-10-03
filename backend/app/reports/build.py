@@ -12,9 +12,9 @@ from typing import Literal
 
 import pandas as pd
 
-from app.core.config import AppConfig, Dataset, SectorModel
+from app.core.config import AppConfig, Dataset, ScoringConfig, SectorModel
 from app.data.gaps import GapRecord
-from app.fundamentals.banking import PROXIES, bank_metrics, bank_per_share, bank_summary
+from app.fundamentals.banking import PROXIES, bank_frame, bank_metrics, bank_per_share, bank_summary
 from app.fundamentals.depth import DataDepth, data_depth
 from app.fundamentals.forensic import altman_z2, beneish, piotroski
 from app.fundamentals.metrics import Metric, annual_metrics, by_year, summary_metrics
@@ -28,6 +28,8 @@ from app.reports.dto import (
     DataDepthDto,
     DcfScenarioDto,
     DecisionDto,
+    DurabilityDto,
+    DurabilityTestDto,
     EarnedPremiumDto,
     KnockoutsDto,
     Levels,
@@ -45,6 +47,7 @@ from app.reports.overrides import DCF_KEYS
 from app.reports.valuation_run import DCF_MODELS, ValuationRun, run_valuation, ttm_by_quarter
 from app.scoring.common import Grade, Pillar
 from app.scoring.decision import Decision, DecisionInputs, decide
+from app.scoring.durability import DurabilityInputs, durability
 from app.scoring.earned_premium import EarnedPremium, EarnedPremiumInputs, earned_premium
 from app.scoring.grade import Grading, resolve_grade
 from app.scoring.knockouts import (
@@ -276,6 +279,48 @@ def _bank_metric_dtos(bank: dict[str, Metric]) -> list[BankMetricDto]:
     ]  # fmt: skip
 
 
+def _durability(
+    annual: pd.DataFrame,
+    am: pd.DataFrame,
+    bm: pd.DataFrame,
+    ke: float | None,
+    is_financial: bool,
+    sc: ScoringConfig,
+) -> DurabilityDto:
+    """Durability proxy (scoring.durability) from the annual statements; no data, no rating."""
+
+    def col(df: pd.DataFrame, name: str, scale: float = 1.0) -> pd.Series | None:
+        return df[name] * scale if name in df.columns else None
+
+    df = by_year(annual) if not annual.empty else pd.DataFrame()
+    bank_cols = by_year(bank_frame(annual)) if is_financial and not annual.empty else df
+    inp = DurabilityInputs(
+        is_bank=is_financial,
+        trend_years=sc.trend_years,
+        cost_of_equity=ke,
+        roe=col(bm, "roe_pct", 0.01) if is_financial else col(am, "roe"),
+        roce=col(am, "roce"),
+        opm=col(am, "opm"),
+        pat=col(df, "pat"),
+        debt_to_equity=col(am, "debt_to_equity"),
+        roa=col(bm, "roa_pct", 0.01),
+        deposits=col(bank_cols, "deposits"),
+        advances=col(bank_cols, "advances"),
+    )
+    d = durability(inp, sc.durability)
+    return DurabilityDto(
+        rating=d.rating,
+        score=d.score,
+        confidence=d.confidence,
+        label=d.label,
+        tests=[
+            DurabilityTestDto(key=t.key, label=t.label, passed=t.passed, detail=t.detail)
+            for t in d.tests
+        ],
+        reasons=d.reasons,
+    )
+
+
 def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> Built:
     """``lite`` skips the DCF sensitivity grid (backtests do not need it)."""
     vc, sc, tc = config.valuation, config.scoring, config.technical
@@ -463,6 +508,7 @@ def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> B
     pillars = non_valuation_pillars(pin, sc)
 
     run = run_valuation(data, metrics, sector_key, sector, vc, sensitivity=not lite)
+    dur = _durability(annual, am, bm, run.ke, is_financial, sc)
     for name in run.assumed_nil:
         gap(Dataset.FIN_ANNUAL, name, "not reported: taken as nil in the valuation")
     for name, why in run.gaps:
@@ -637,6 +683,7 @@ def build_report(data: StockData, config: AppConfig, *, lite: bool = False) -> B
         notes=structural_notes,
         bank=bank,
         depth=depth,
+        dur=dur,
     )
     return Built(report, run, val, t, grading, bz, gaps)
 
@@ -672,6 +719,7 @@ def _assemble(
     notes: list[str],
     bank: dict[str, Metric],
     depth: DataDepth,
+    dur: DurabilityDto,
 ) -> StockReport:
     weights = config.scoring.weights.model_dump()
     pillars = grading.pillars
@@ -794,6 +842,7 @@ def _assemble(
         data_gaps=sorted(set(data_gaps)),
         thesis=None,
         reconciliation_issues=list(data.reconciliation_issues),
+        durability=dur,
         provisional_grade=grading.provisional.grade.value if grading.provisional.grade else None,
         mos_grade=grading.mos_grade.value if grading.mos_grade else None,
         pillars=[_pillar_dto(p, float(weights[p.pillar.value])) for p in pillars.values()],
