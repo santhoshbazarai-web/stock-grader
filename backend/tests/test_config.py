@@ -66,6 +66,7 @@ def test_config_files_split() -> None:
         "structural_events",
         "screener_fields",
         "screen_presets",
+        "glossary",
     }
     for name in CONFIG_FILES:
         assert (REPO_CONFIG_DIR / f"{name}.yaml").is_file()

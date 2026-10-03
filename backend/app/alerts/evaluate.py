@@ -19,7 +19,7 @@ the transition is still recorded, so it is not replayed later.
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Literal
 
 from app.core.config import AlertsJobConfig
@@ -89,6 +89,8 @@ def evaluate(
     *,
     now: datetime,
     last_fired_at: datetime | None,
+    threshold: float | None = None,
+    next_results: date | None = None,
 ) -> Evaluation:
     prev = dict(state or {})
     band = cfg.hysteresis_pct
@@ -118,6 +120,10 @@ def evaluate(
         msg = f"entered the buy zone {_fmt(lo)} to {_fmt(hi)} at {_fmt(price)}"
         return Evaluation(True, new_state, msg, [msg])
 
+    if kind in ("price_above", "price_below"):
+        return _price_alert(kind, price, threshold, prev, base, cooling)
+    if kind == "results_date":
+        return _results_alert(threshold, next_results, now.date(), cfg, base, prev)
     if kind not in LEVEL_NAME:
         return Evaluation(False, base, reasons=[f"unknown alert type {kind!r}"])
     name = LEVEL_NAME[kind]
@@ -141,3 +147,46 @@ def evaluate(
         )
     msg = f"crossed {now_side} {name} {_fmt(level)} at {_fmt(price)}"
     return Evaluation(True, new_state, msg, [msg])
+
+
+def _price_alert(
+    kind: str,
+    price: float,
+    threshold: float | None,
+    prev: dict[str, Any],
+    base: dict[str, Any],
+    cooling: bool,
+) -> Evaluation:
+    """Fires when price moves onto the alert's side of ``threshold`` (not while it stays)."""
+    if threshold is None:
+        return Evaluation(False, base, reasons=["no price set on this alert"])
+    met = price >= threshold if kind == "price_above" else price <= threshold
+    new_state = {**base, "met": met}
+    word = "at or above" if kind == "price_above" else "at or below"
+    if not met or prev.get("met") is True:
+        return Evaluation(False, new_state, reasons=[f"price {_fmt(price)} vs {_fmt(threshold)}"])
+    if cooling:
+        return Evaluation(False, new_state, reasons=[f"{word} {_fmt(threshold)} (cooldown)"])
+    msg = f"is {word} {_fmt(threshold)} (now {_fmt(price)})"
+    return Evaluation(True, new_state, msg, [msg])
+
+
+def _results_alert(
+    days: float | None,
+    next_results: date | None,
+    today: date,
+    cfg: AlertsJobConfig,
+    base: dict[str, Any],
+    prev: dict[str, Any],
+) -> Evaluation:
+    """Fires once per results date, ``days`` (default ``results_days_before``) before it."""
+    if next_results is None:
+        return Evaluation(False, base, reasons=["no upcoming results date known"])
+    lead = int(days) if days is not None else cfg.results_days_before
+    left = (next_results - today).days
+    if left < 0 or left > lead:
+        return Evaluation(False, base, reasons=[f"results on {next_results} ({left} days away)"])
+    if prev.get("notified_for") == next_results.isoformat():
+        return Evaluation(False, base, reasons=[f"already notified for {next_results}"])
+    msg = f"announces results on {next_results:%d %b %Y} ({left} day(s) away)"
+    return Evaluation(True, {**base, "notified_for": next_results.isoformat()}, msg, [msg])

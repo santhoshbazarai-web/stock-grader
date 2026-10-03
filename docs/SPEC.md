@@ -980,7 +980,11 @@ Fundamentals section (`GET /stocks/{symbol}/fundamentals`): titled with the real
    - **Scorecards:** a six-pillar radar chart plus expandable sub-metrics, each with its reason.
    - **Fundamentals:** 10-yr charts for sales, EBITDA, PAT, CFO, FCF, ROCE and CCC, plus a shareholding trend (promoter, FII, DII, public, pledge per quarter) captioned with its source, quarter and filing date. The report also carries `shareholding` (latest pattern: source, quarter, filing date, holdings, promoter change and previous pledge); with no pattern on file it lists a `shareholding` data gap.
    - **Red flags and data gaps.**
-4. **Watchlist & alerts.**
+4. **Watchlists, alerts, notes, glossary.**
+   - **Watchlists** (`/watchlist`): several named lists (`GET/POST /api/watchlists`, `DELETE /api/watchlists/{id}`; "Default" cannot be deleted), add by search, CSV import (`POST /api/watchlist/import`, symbol in the first or a `Symbol` column). Columns: grade, zone, discount (price ÷ fair value − 1), next results date (board-meeting calendar, `events`), what changed since the previous stored report (grade / zone / action / fair value), and a "Manage alerts" link.
+   - **Alerts** (`/alerts`; "Add alert" on the stock page): types enters buy zone, crosses fair value / top band / invalidation, `price_above` / `price_below` (`threshold` = ₹), `results_date` (`threshold` = days before, default `jobs.alerts.results_days_before`). One alert per stock and type; a price alert's target is replaced on re-create. They fire on a transition (price types) or once per results date, notify in-app and on Telegram, and never place orders (rule 7). Table filters: symbol, type, status (active / triggered / paused).
+   - **Notes** (`/notes`, stock page Notes tab): markdown notes, many per stock, timestamped (`GET/POST /api/notes`, `PUT/DELETE /api/notes/{id}`).
+   - **Glossary** (`/glossary`, `GET /api/glossary`, `config/glossary.yaml`): definition, formula and why it matters per metric / score / zone; A-Z index and search. Every screener field must have an entry (checked at config load). Metric labels link to `/glossary#key` with a tooltip.
 5. **Backtest:** choose rules (grade set × zone set × holding period) and see the equity curve against Nifty 500, CAGR, max drawdown and hit rate.
 6. **Settings:** connect brokers, edit config (with a YAML validator), manage uploads.
 

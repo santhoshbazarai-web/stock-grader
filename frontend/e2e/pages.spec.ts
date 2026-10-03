@@ -40,31 +40,37 @@ test("screener: add a filter chip, run, sort, save a screen; ideas open it prefi
   await page.getByRole("button", { name: "Reset" }).click();
   await expect(page).toHaveURL(/\/screener$/);
 
-  await login(page, "/screening-ideas");
+  await page.goto("/screening-ideas");
   await expect(page.getByRole("heading", { level: 2 })).toHaveCount(9);
   await page.getByRole("link", { name: "Run scan: Quality Compounders" }).click();
   await expect(page).toHaveURL(/\/screener\?.*min\./);
   await expect(page.getByRole("list", { name: "Active filters" })).toBeVisible();
 });
 
-test("watchlist and alerts: add, toggle, remove", async ({ page }) => {
+test("watchlist: lists, CSV import, remove; alerts page: add, pause, delete", async ({ page }) => {
   await login(page, "/watchlist");
-  await page.getByLabel("Symbol", { exact: true }).fill("demotech");
-  await page.getByLabel("Notes").fill("e2e note");
-  await page.getByRole("button", { name: "Add" }).click();
+  await page.getByLabel("New list name").fill(`e2e ${Date.now()}`);
+  await page.getByRole("button", { name: "Create list" }).click();
+  await page.getByText("Import from CSV").click();
+  await page.getByLabel("CSV text").fill("Symbol\nDEMOTECH\n");
+  await page.getByRole("button", { name: "Import", exact: true }).click();
   const watch = page.getByRole("table", { name: "Watchlist" });
   await expect(watch).toContainText("DEMOTECH");
-  await expect(watch).toContainText("e2e note");
   await page.getByRole("button", { name: "Remove DEMOTECH" }).click();
-  await expect(page.getByRole("table", { name: "Watchlist" }).or(page.getByText("Your watchlist is empty."))).not.toContainText("DEMOTECH");
+  await expect(page.getByText("This list is empty.")).toBeVisible();
+  await page.getByRole("button", { name: "Delete list" }).click();
 
+  await page.goto("/alerts");
   await page.getByLabel("Alert symbol").fill("DEMOFMCG");
-  await page.getByLabel("Alert type").selectOption("crosses_top_band");
+  await page.getByLabel("Alert type").selectOption("price_above");
+  await page.getByLabel("Alert price").fill("123");
   await page.getByRole("button", { name: "Create alert" }).click();
   const row = page.getByRole("table", { name: "Alerts" }).locator("tr", { hasText: "DEMOFMCG" });
-  await expect(row).toContainText("Price crosses the top band");
+  await expect(row).toContainText("Price rises to or above ₹123.00");
   await row.getByRole("checkbox").click(); // controlled: flips after the server round-trip
   await expect(row).toContainText("paused");
+  await page.getByLabel("Filter by status").selectOption("paused");
+  await expect(page).toHaveURL(/status=paused/);
   await row.getByRole("button", { name: /Delete alert/ }).click();
   await expect(page.getByRole("table", { name: "Alerts" }).locator("tr", { hasText: "DEMOFMCG" })).toHaveCount(0);
 });

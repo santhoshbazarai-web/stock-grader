@@ -9,7 +9,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Page } from "@/components/common";
-import { EmptyState, PillarMiniChart, Skeleton, Tabs } from "@/components/ds";
+import { EmptyState, PillarMiniChart, Skeleton, Tabs, Term } from "@/components/ds";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { api, ApiError } from "@/lib/api";
@@ -54,7 +54,7 @@ function FilterChip({ def, f, onChange, onRemove }: { def: FieldDef; f: Filter; 
   const numeric = def.type === "number" || def.type === "percent";
   return (
     <li className="bg-card flex flex-wrap items-center gap-2 rounded-lg border px-2.5 py-1.5 text-sm" aria-label={`Filter ${def.label}`}>
-      <span className="font-medium">{def.label}</span>
+      <span className="font-medium"><Term label={def.label} k={def.key} /></span>
       {numeric ? (
         <>
           <input aria-label={`${def.label} minimum`} placeholder="min" inputMode="decimal" className="bg-background w-20 rounded border px-1.5 py-0.5" defaultValue={f.min ?? ""} onBlur={(e) => onChange({ ...f, min: e.target.value === "" ? null : Number(e.target.value) })} />

@@ -6,3 +6,4 @@ export { MetricTable, type MetricRow } from "./metric-table";
 export { PillarMiniChart } from "./pillar-mini-chart";
 export { PriceLadder } from "./price-ladder";
 export { TONE_CHIP, TONE_TEXT, TONE_VAR } from "./tone";
+export { Term } from "./term";

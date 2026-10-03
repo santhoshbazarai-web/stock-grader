@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import AppConfig, JobName, ThesisConfig, get_config, load_config
 from app.core.settings import get_settings
-from app.db.models import Instrument, Report, ReportThesis, WatchlistItem
+from app.db.models import Instrument, Report, ReportThesis
 from app.jobs.registry import REGISTRY
 from app.jobs.runner import JobOptions, run_job
 from app.reports.service import latest_report, refresh_report
@@ -30,7 +30,7 @@ from app.reports.thesis_service import (
 )
 from tests.api_support import app_client
 from tests.conftest import REPO_CONFIG_DIR
-from tests.jobs_support import Env
+from tests.jobs_support import Env, watch
 from tests.report_support import seed_company, seed_index
 
 CONFIG = load_config(REPO_CONFIG_DIR)
@@ -218,8 +218,7 @@ def test_thesis_job(env: Env) -> None:
         seed_index(s)
         seed_company(s)
         refresh_report(s, "SYNTH", env.ctx.config)
-        s.add(WatchlistItem(instrument_id=s.scalar(select(Instrument.id).where(
-            Instrument.symbol == "SYNTH"))))  # fmt: skip
+        watch(s, s.scalar(select(Instrument.id).where(Instrument.symbol == "SYNTH")))
         s.commit()
     spec = REGISTRY[JobName.THESIS]
     # off by default: skipped, no model built

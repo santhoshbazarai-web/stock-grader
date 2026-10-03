@@ -1,7 +1,7 @@
-import { ComingSoon } from "@/components/common";
+import { MyNotes } from "@/components/pages/notes";
 
-export const metadata = { title: "Notes · Stock Grader" };
+export const metadata = { title: "My Notes · Stock Grader" };
 
 export default function Page() {
-  return <ComingSoon title="Notes">Per-stock research notes are planned.</ComingSoon>;
+  return <MyNotes />;
 }

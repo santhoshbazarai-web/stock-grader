@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 
 import { ZoneBadge } from "@/components/ds";
 import { ActionBadge, GradeBadge } from "@/components/common";
+import { AddAlertButton } from "@/components/add-alert";
 import { Button } from "@/components/ui/button";
 import { api, ApiError } from "@/lib/api";
 import { inr, signedPct, titleCase } from "@/lib/format";
@@ -88,6 +89,7 @@ export function StockHeader({ report, onRun }: { report: StockReport; onRun?: (r
           <Button size="sm" variant={watching ? "secondary" : "outline"} onClick={toggleWatch} disabled={watching === null} aria-pressed={!!watching}>
             <Star className={watching ? "fill-current" : ""} /> {watching ? "In watchlist" : "Add to watchlist"}
           </Button>
+          <AddAlertButton symbol={report.symbol} />
           <Button size="sm" variant="outline" onClick={refresh}>
             <RefreshCw /> Refresh data
           </Button>

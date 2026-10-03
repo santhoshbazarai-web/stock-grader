@@ -23,10 +23,11 @@ const LINKS = [
   { href: "/screener", label: "Screener" },
   { href: "/valuation-map", label: "Valuation Map" },
   { href: "/watchlist", label: "Watchlist" },
+  { href: "/alerts", label: "Alerts" },
 ];
 const MORE = [
   { href: "/screening-ideas", label: "Screening Ideas" },
-  { href: "/notes", label: "Notes" },
+  { href: "/notes", label: "My Notes" },
   { href: "/glossary", label: "Glossary" },
   { href: "/backtests", label: "Backtests" },
   { href: "/review", label: "Review" },

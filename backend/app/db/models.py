@@ -79,12 +79,14 @@ __all__ = [
     "Score",
     "ScreenerPreset",
     "Shareholding",
+    "StockNote",
     "SurveillanceFlag",
     "Symbol",
     "SymbolAlias",
     "TechnicalSnapshot",
     "UserOverride",
     "ValuationSnapshot",
+    "Watchlist",
     "WatchlistItem",
 ]
 
@@ -823,14 +825,38 @@ class ReportThesis(TimestampMixin, Base):
 # ───────────────────────── user & ops ─────────────────────────
 
 
+class Watchlist(TimestampMixin, Base):
+    """A named watchlist; the first one ("Default") always exists and cannot be deleted."""
+
+    __tablename__ = "watchlists"
+    __upsert_key__ = ("name",)
+    __table_args__ = (UniqueConstraint("name"),)
+
+    id: Mapped[int] = mapped_column(Integer, Identity(), primary_key=True)
+    name: Mapped[str] = mapped_column(String(80))
+
+
 class WatchlistItem(TimestampMixin, Base):
     __tablename__ = "watchlist"
-    __upsert_key__ = ("instrument_id",)
-    __table_args__ = (UniqueConstraint("instrument_id"),)
+    __upsert_key__ = ("watchlist_id", "instrument_id")
+    __table_args__ = (UniqueConstraint("watchlist_id", "instrument_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, Identity(), primary_key=True)
+    watchlist_id: Mapped[int] = mapped_column(ForeignKey("watchlists.id", ondelete="CASCADE"))
+    instrument_id: Mapped[int] = _instrument_fk()
+    notes: Mapped[str | None] = mapped_column(Text)
+
+
+class StockNote(TimestampMixin, Base):
+    """A markdown research note on one stock (many per stock)."""
+
+    __tablename__ = "stock_notes"
+    __upsert_key__ = ("id",)
+    __table_args__ = (Index("ix_stock_notes_instrument", "instrument_id", "created_at"),)
 
     id: Mapped[int] = mapped_column(Integer, Identity(), primary_key=True)
     instrument_id: Mapped[int] = _instrument_fk()
-    notes: Mapped[str | None] = mapped_column(Text)
+    body: Mapped[str] = mapped_column(Text)
 
 
 class Alert(TimestampMixin, Base):
@@ -841,6 +867,7 @@ class Alert(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(Integer, Identity(), primary_key=True)
     instrument_id: Mapped[int] = _instrument_fk()
     alert_type: Mapped[AlertType] = mapped_column(str_enum(AlertType))
+    threshold: Mapped[float | None]  # price (price_above / price_below) or days (results_date)
     is_active: Mapped[bool] = mapped_column(Boolean, server_default="true")
     last_triggered_at: Mapped[datetime | None]
     last_triggered_price: Mapped[float | None]

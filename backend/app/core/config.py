@@ -1234,6 +1234,7 @@ class AlertsJobConfig(_Strict):
     hysteresis_pct: Fraction
     cooldown_minutes: Annotated[int, Field(ge=0)]
     telegram_timeout_s: PositiveFloat
+    results_days_before: Annotated[int, Field(ge=0)]  # results_date alerts: notify this early
 
     @model_validator(mode="after")
     def _check(self) -> Self:
@@ -1534,6 +1535,22 @@ class ScreenPresetsConfig(_Strict):
     presets: list[ScreenPreset] = Field(min_length=1)
 
 
+# ───────────────────────── glossary.yaml ─────────────────────────
+
+
+class GlossaryEntry(_Strict):
+    key: Annotated[str, Field(pattern=r"^[a-z0-9_]+$")]
+    term: str
+    group: str
+    definition: str
+    formula: str | None = None
+    why: str  # why it matters
+
+
+class GlossaryConfig(_Strict):
+    entries: list[GlossaryEntry] = Field(min_length=1)
+
+
 class AppConfig(_Strict):
     providers: ProvidersConfig
     valuation: ValuationConfig
@@ -1545,6 +1562,17 @@ class AppConfig(_Strict):
     structural_events: StructuralEventsConfig
     screener_fields: ScreenerFieldsConfig
     screen_presets: ScreenPresetsConfig
+    glossary: GlossaryConfig
+
+    @model_validator(mode="after")
+    def _glossary_covers_fields(self) -> Self:
+        keys = [e.key for e in self.glossary.entries]
+        if len(set(keys)) != len(keys):
+            raise ValueError("duplicate glossary keys")
+        missing = sorted(set(self.screener_fields.by_key()) - set(keys))
+        if missing:
+            raise ValueError(f"glossary.yaml has no entry for screener fields: {missing}")
+        return self
 
     @model_validator(mode="after")
     def _presets_use_known_fields(self) -> Self:

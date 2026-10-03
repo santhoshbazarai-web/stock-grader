@@ -121,6 +121,7 @@ class ScreenerRow(BaseModel):
 class WatchlistIn(BaseModel):
     symbol: SymbolField
     notes: str | None = Field(None, max_length=2000)
+    list_id: int | None = Field(None, description="Watchlist id; the Default list when omitted")
 
 
 class WatchlistOut(BaseModel):
@@ -132,22 +133,62 @@ class WatchlistOut(BaseModel):
     zone: str | None
     action: str | None
     cmp: float | None
+    discount_pct: float | None = Field(
+        description="Percent: (price / fair value - 1) * 100; negative = discount"
+    )
+    next_results_date: date | None
+    report_as_of: date | None
+    since_last_report: list[str] = Field(
+        description="What changed between the previous stored report and the latest one"
+    )
+    active_alerts: int
+
+
+class WatchlistListOut(BaseModel):
+    id: int
+    name: str
+    count: int
+
+
+class WatchlistListIn(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+
+
+class WatchlistImportIn(BaseModel):
+    csv: str = Field(max_length=200_000, description="CSV text; symbol in the first column")
+    list_id: int | None = None
+
+
+class WatchlistImportOut(BaseModel):
+    added: list[str]
+    already_there: list[str]
+    invalid: list[str]
 
 
 class AlertIn(BaseModel):
     symbol: SymbolField
     alert_type: AlertType
     is_active: bool = True
+    threshold: float | None = Field(
+        None,
+        gt=0,
+        description="₹ price for price_above / price_below; days before for results_date",
+    )
 
 
 class AlertOut(BaseModel):
     id: int
     symbol: str
+    company: str | None
     alert_type: AlertType
+    condition: str = Field(description="Plain-English condition, with the current level if known")
+    threshold: float | None
     is_active: bool
+    status: Literal["active", "triggered", "paused"]
     last_triggered_at: datetime | None
     last_triggered_price: float | None
     created_at: datetime
+    updated_at: datetime
 
 
 class UploadSummary(BaseModel):
@@ -211,6 +252,7 @@ ConfigFileName = Literal[
     "structural_events",
     "screener_fields",
     "screen_presets",
+    "glossary",
 ]  # fmt: skip
 
 

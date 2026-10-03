@@ -22,6 +22,7 @@ from sqlalchemy import select
 
 from app.alerts.evaluate import LEVEL_NAME, Levels, evaluate
 from app.alerts.notify import notify
+from app.alerts.results_dates import next_results_dates
 from app.db.models import Alert, Instrument
 from app.jobs.runner import JobContext, JobOptions, JobOutcome
 from app.reports.service import latest_payloads
@@ -31,6 +32,9 @@ logger = logging.getLogger(__name__)
 TITLE = {
     "enters_buy_zone": "entered the buy zone",
     **{k: f"crossed {v}" for k, v in LEVEL_NAME.items()},
+    "price_above": "price above target",
+    "price_below": "price below target",
+    "results_date": "results coming up",
 }
 
 
@@ -77,6 +81,9 @@ def alerts_intraday(ctx: JobContext, options: JobOptions) -> JobOutcome:
         symbols = sorted({sym for _, sym in rows})
         prices, price_reasons = ctx.router.ltp_filled(symbols)
         now = ctx.clock().astimezone(UTC)
+        results = next_results_dates(
+            session, sorted({a.instrument_id for a, _ in rows}), ctx.today()
+        )
 
         fired: list[dict[str, Any]] = []
         notes: dict[str, str] = {}
@@ -94,6 +101,8 @@ def alerts_intraday(ctx: JobContext, options: JobOptions) -> JobOutcome:
                 cfg,
                 now=now,
                 last_fired_at=alert.last_triggered_at,
+                threshold=alert.threshold,
+                next_results=results.get(alert.instrument_id),
             )
             alert.state = {**ev.state, "source": str(source)}
             if not ev.fired:

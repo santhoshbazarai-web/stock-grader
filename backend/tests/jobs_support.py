@@ -10,7 +10,7 @@ from typing import Any
 import pandas as pd
 import pytest
 from redis import Redis
-from sqlalchemy import Engine, text
+from sqlalchemy import Engine, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import Provider, load_config
@@ -250,3 +250,15 @@ def env(migrated_engine: Engine, redis_client: Redis, tmp_path: Path) -> Iterato
     for pattern in ("job-lock:*", "results-index:*"):
         for key in redis_client.scan_iter(pattern):
             redis_client.delete(key)
+
+
+def watch(session: Session, instrument_id: int) -> None:
+    """Put a stock on the Default watchlist (creating the list if the test DB has none)."""
+    from app.db.models import Watchlist, WatchlistItem
+
+    wl = session.scalar(select(Watchlist).where(Watchlist.name == "Default"))
+    if wl is None:
+        wl = Watchlist(name="Default")
+        session.add(wl)
+        session.flush()
+    session.add(WatchlistItem(watchlist_id=wl.id, instrument_id=instrument_id))

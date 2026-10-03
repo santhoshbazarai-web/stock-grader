@@ -1,0 +1,430 @@
+# Plain-English definitions for every metric, score, zone and level the app shows (SPEC §9 Glossary).
+# One entry per screener field key (checked at load) plus scores, zones and levels.
+# Fields: key (anchor, /glossary#key), term, group, definition, formula (optional), why (why it matters).
+
+glossary:
+  entries:
+  - key: symbol
+    term: Symbol
+    group: Overview
+    definition: The NSE trading code of the company.
+    formula: null
+    why: It is the identifier used everywhere in the app, in alerts and in the watchlist.
+  - key: name
+    term: Name
+    group: Overview
+    definition: The registered company name.
+    formula: null
+    why: Helps you confirm that a symbol is the business you think it is.
+  - key: sector
+    term: Sector
+    group: Overview
+    definition: The broad industry group the company is assigned to (from NSE's basic industry).
+    formula: null
+    why: 'Sector decides which valuation model is used: banks, NBFCs and insurers are never valued with
+      a free-cash-flow DCF.'
+  - key: industry
+    term: Industry
+    group: Overview
+    definition: The narrower NSE basic-industry label.
+    formula: null
+    why: Peers in the same industry are the fair comparison for ratios.
+  - key: market_cap_cr
+    term: Market cap
+    group: Overview
+    definition: The market value of all shares, in ₹ crore.
+    formula: price × shares outstanding
+    why: Size drives liquidity and risk. Very small companies are harder to exit and are screened out
+      by a knock-out filter.
+  - key: price
+    term: Price
+    group: Overview
+    definition: The latest traded price (CMP, current market price) in ₹.
+    formula: null
+    why: Every valuation zone compares this price with the stock's fair value.
+  - key: day_change_pct
+    term: Day change
+    group: Overview
+    definition: Percentage change of the price versus the previous close.
+    formula: (price ÷ previous close − 1) × 100
+    why: 'Context only: one day says little about value.'
+  - key: depth
+    term: Data depth
+    group: Overview
+    definition: 'How much data backs the report: technical only, provisional (some fundamentals) or full.'
+    formula: null
+    why: A grade built on thin data is shown as provisional with lower confidence.
+  - key: grade
+    term: Grade
+    group: Overview
+    definition: Letter grade A+, A, B, C or D from the six-pillar score after knock-out filters.
+    formula: weighted sum of the six pillar scores, cut at the grade cut-offs in scoring.yaml
+    why: A single, comparable summary of business quality, valuation, health, governance and trend.
+  - key: action
+    term: Action
+    group: Overview
+    definition: The suggested stance, such as Buy, Accumulate, Wait or Book Profits, from grade, zone
+      and technicals.
+    formula: null
+    why: It turns the numbers into a plain next step. Every action lists the reasons behind it.
+  - key: total_score
+    term: Total score
+    group: Overview
+    definition: The 0-100 weighted score across the six pillars.
+    formula: Σ pillar score × pillar weight
+    why: Lets you rank stocks and see how close one is to the next grade.
+  - key: zone
+    term: Zone
+    group: Valuation
+    definition: 'Where the price sits against the stock''s own value bands: Deep Discount, Discount, Fair,
+      Premium or Extreme Premium.'
+    formula: null
+    why: Tells you whether you are paying below, near or above what the business is estimated to be worth.
+  - key: discount_pct
+    term: Discount / premium
+    group: Valuation
+    definition: How far the price is from fair value. Negative means a discount, positive a premium.
+    formula: (price ÷ fair value − 1) × 100
+    why: The margin of safety in one number.
+  - key: fair_value
+    term: Fair value
+    group: Valuation
+    definition: The blended intrinsic value per share from the valuation methods that apply to the sector.
+    formula: 'blend of DCF, earnings power value and relative value (banks: justified P/B)'
+    why: The anchor for the zone, the buy zone and the alerts.
+  - key: confidence
+    term: Valuation confidence
+    group: Valuation
+    definition: High, medium or low trust in the fair value, based on how closely the methods agree and
+      how complete the data is.
+    formula: null
+    why: A low-confidence fair value should be treated as a range, not a point.
+  - key: pe
+    term: P/E
+    group: Valuation
+    definition: 'Price divided by earnings per share: what you pay for one rupee of profit.'
+    formula: price ÷ EPS (trailing twelve months)
+    why: A quick read of how expensive earnings are. Compare within the same industry.
+  - key: pb
+    term: P/B
+    group: Valuation
+    definition: Price divided by book value per share.
+    formula: price ÷ book value per share
+    why: The main yardstick for banks and financials, where assets drive value.
+  - key: ev_ebitda
+    term: EV / EBITDA
+    group: Valuation
+    definition: Enterprise value divided by operating profit before depreciation.
+    formula: (market cap + debt − cash) ÷ EBITDA
+    why: Compares companies with different debt levels on a like-for-like basis.
+  - key: sales_cagr_3y
+    term: Sales CAGR 3y
+    group: Growth
+    definition: Compound annual growth rate of sales over three years.
+    formula: (sales now ÷ sales 3 years ago)^(1/3) − 1
+    why: Shows whether the business is actually growing, not just getting cheaper.
+  - key: sales_cagr_5y
+    term: Sales CAGR 5y
+    group: Growth
+    definition: Compound annual growth rate of sales over five years.
+    formula: (sales now ÷ sales 5 years ago)^(1/5) − 1
+    why: A longer window smooths out one-off years.
+  - key: eps_cagr_3y
+    term: EPS CAGR 3y
+    group: Growth
+    definition: Compound annual growth rate of earnings per share over three years.
+    formula: (EPS now ÷ EPS 3 years ago)^(1/3) − 1
+    why: Per-share growth is what shareholders keep after dilution.
+  - key: eps_cagr_5y
+    term: EPS CAGR 5y
+    group: Growth
+    definition: Compound annual growth rate of earnings per share over five years.
+    formula: (EPS now ÷ EPS 5 years ago)^(1/5) − 1
+    why: Consistent per-share growth is the engine of long-term returns.
+  - key: loan_growth_pct
+    term: Loan growth
+    group: Growth
+    definition: Year-on-year growth in a bank's loan book.
+    formula: (loans now ÷ loans a year ago − 1) × 100
+    why: 'For banks, loans are the business: growth must be balanced against asset quality.'
+  - key: roe
+    term: ROE
+    group: Quality
+    definition: 'Return on equity: profit earned on shareholders'' money.'
+    formula: net profit ÷ average shareholders' equity
+    why: High, steady ROE without heavy debt marks a strong business.
+  - key: roce
+    term: ROCE
+    group: Quality
+    definition: 'Return on capital employed: operating profit earned on all capital in the business.'
+    formula: EBIT ÷ (total assets − current liabilities)
+    why: Shows how efficiently the business uses both equity and debt.
+  - key: roce_5y_avg
+    term: ROCE 5y average
+    group: Quality
+    definition: The average ROCE over five years.
+    formula: mean of the last five annual ROCE values
+    why: Separates durable returns from one good year.
+  - key: opm_ttm
+    term: Operating margin
+    group: Quality
+    definition: Operating profit as a share of sales over the last twelve months.
+    formula: operating profit ÷ sales
+    why: Higher margins mean pricing power or cost control.
+  - key: roa_pct
+    term: ROA
+    group: Quality
+    definition: 'Return on assets for banks: profit per rupee of assets.'
+    formula: net profit ÷ average total assets × 100
+    why: The cleanest efficiency gauge for a bank.
+  - key: piotroski
+    term: Piotroski F-score
+    group: Quality
+    definition: A 0-9 checklist of profitability, leverage and efficiency signals.
+    formula: count of nine pass/fail tests
+    why: Eight or nine is strong; three or less flags a weak, deteriorating business.
+  - key: quality_score
+    term: Quality pillar
+    group: Quality
+    definition: The 0-100 score for returns, margins, consistency and cash conversion.
+    formula: null
+    why: One of the six pillars that make up the grade.
+  - key: debt_to_equity
+    term: Debt / equity
+    group: Financial strength
+    definition: How much debt the company carries for each rupee of equity.
+    formula: total debt ÷ shareholders' equity
+    why: Low leverage lets a company survive a bad year.
+  - key: net_debt_to_ebitda
+    term: Net debt / EBITDA
+    group: Financial strength
+    definition: Years of operating profit needed to repay net debt.
+    formula: (debt − cash) ÷ EBITDA
+    why: Under 2 is comfortable; above 4 is stretched.
+  - key: interest_coverage
+    term: Interest coverage
+    group: Financial strength
+    definition: How many times operating profit covers interest cost.
+    formula: EBIT ÷ interest expense
+    why: Below 2 means little room for error.
+  - key: altman_z2
+    term: Altman Z''
+    group: Financial strength
+    definition: A distress score built from five balance-sheet ratios (the non-manufacturer version).
+    formula: 6.56·X1 + 3.26·X2 + 6.72·X3 + 1.05·X4
+    why: Below about 1.1 signals bankruptcy risk; above 2.6 is safe.
+  - key: health_score
+    term: Health pillar
+    group: Financial strength
+    definition: 'The 0-100 score for balance-sheet strength: leverage, coverage, cash cycle and distress
+      risk.'
+    formula: null
+    why: One of the six pillars that make up the grade. Missing inputs pull it toward 50.
+  - key: beta
+    term: Beta
+    group: Financial strength
+    definition: How strongly the stock moves with the market. 1 moves with it, above 1 more, below 1 less.
+    formula: covariance(stock, market) ÷ variance(market)
+    why: A high beta stock is a bumpier ride and gets a higher cost of equity in the DCF.
+  - key: dividend_yield
+    term: Dividend yield
+    group: Dividend
+    definition: Annual dividend per share as a percentage of the price.
+    formula: annual dividend per share ÷ price × 100
+    why: Cash returned to you while you wait. Pair it with payout and growth.
+  - key: payout_pct
+    term: Dividend payout
+    group: Dividend
+    definition: Share of profit paid out as dividends (shown for banks).
+    formula: dividends ÷ net profit × 100
+    why: A moderate payout leaves room to grow; a very high one may not last.
+  - key: stage
+    term: Weinstein stage
+    group: Technical
+    definition: The trend stage from 1 (basing) to 4 (declining) using the 30-week moving average.
+    formula: null
+    why: Stage 2 is the advancing phase. Buying in stage 4 is fighting the trend.
+  - key: rs_percentile
+    term: RS percentile
+    group: Technical
+    definition: Relative strength rank of the stock versus all others, 0-100.
+    formula: percentile rank of 12-month price return
+    why: Leaders (above 80) tend to keep leading; laggards tend to keep lagging.
+  - key: rsi
+    term: RSI (14)
+    group: Technical
+    definition: Relative strength index over 14 days, a 0-100 momentum gauge.
+    formula: 100 − 100 ÷ (1 + average gain ÷ average loss)
+    why: Above 70 is stretched; below 30 is oversold.
+  - key: from_52w_high
+    term: From 52-week high
+    group: Technical
+    definition: How far the price is below its 52-week high.
+    formula: (price ÷ 52-week high − 1) × 100
+    why: A deep fall can mean opportunity or a broken story. Read it with quality and stage.
+  - key: earned_premium
+    term: Earned premium
+    group: Technical
+    definition: Whether the stock has earned the right to trade above fair value through quality, growth
+      and trend.
+    formula: null
+    why: Stops the model from calling every strong, expensive leader a sell.
+  - key: promoter_pct
+    term: Promoter holding
+    group: Ownership
+    definition: Percentage of shares held by the promoters.
+    formula: null
+    why: High, stable holding shows commitment; sharp falls need an explanation.
+  - key: fii_pct
+    term: FII holding
+    group: Ownership
+    definition: Percentage held by foreign institutional investors.
+    formula: null
+    why: Rising FII interest signals global conviction; heavy selling adds pressure.
+  - key: dii_pct
+    term: DII holding
+    group: Ownership
+    definition: Percentage held by domestic institutions, including mutual funds.
+    formula: null
+    why: Domestic funds are a steady source of demand.
+  - key: public_pct
+    term: Public holding
+    group: Ownership
+    definition: Percentage held by retail and other public shareholders.
+    formula: null
+    why: The remainder after promoters and institutions.
+  - key: pledge_pct
+    term: Promoter pledge
+    group: Ownership
+    definition: Percentage of promoter shares pledged as loan collateral.
+    formula: pledged shares ÷ promoter shares × 100
+    why: 'High pledge is a red flag: a price fall can force selling. Above the limit it is a knock-out.'
+  - key: growth_pillar
+    term: Growth pillar
+    group: Scores and zones
+    definition: The 0-100 score for sales and earnings growth.
+    formula: null
+    why: One of the six pillars that make up the grade.
+  - key: valuation_pillar
+    term: Valuation pillar
+    group: Scores and zones
+    definition: The 0-100 score for how cheap the price is against fair value.
+    formula: null
+    why: One of the six pillars that make up the grade.
+  - key: governance_pillar
+    term: Governance pillar
+    group: Scores and zones
+    definition: The 0-100 score for promoter pledge, auditor signals, surveillance lists and ownership.
+    formula: null
+    why: Weak governance can destroy value however good the numbers look.
+  - key: technical_pillar
+    term: Technical pillar
+    group: Scores and zones
+    definition: The 0-100 score for trend stage, relative strength and structure.
+    formula: null
+    why: 'Timing matters: a good business in a downtrend is a poor entry.'
+  - key: baseline
+    term: Baseline
+    group: Scores and zones
+    definition: 'The floor price: roughly what the business is worth on its assets and cautious earnings.'
+    formula: null
+    why: The lower edge of the value bands.
+  - key: top_band
+    term: Top band
+    group: Scores and zones
+    definition: 'The premium ceiling: the highest price the business can reasonably justify.'
+    formula: null
+    why: Above it you are paying for hope, not results.
+  - key: buy_zone
+    term: Buy zone
+    group: Scores and zones
+    definition: A price range from technical support where buying has a better risk-reward.
+    formula: null
+    why: Tells you where to be patient and where to act.
+  - key: invalidation
+    term: Invalidation
+    group: Scores and zones
+    definition: The price level that breaks the technical case.
+    formula: null
+    why: Closing below it means the reason for buying has failed. Use it to size risk.
+  - key: deep_discount
+    term: Deep Discount
+    group: Scores and zones
+    definition: Price well below fair value, confirmed by at least two methods.
+    formula: null
+    why: The widest margin of safety, but check why the market is pessimistic.
+  - key: discount_zone
+    term: Discount
+    group: Scores and zones
+    definition: Price below fair value but above the deep-discount line.
+    formula: null
+    why: A margin of safety exists.
+  - key: fair_zone
+    term: Fair
+    group: Scores and zones
+    definition: Price within the fair-value range.
+    formula: null
+    why: Little mispricing either way; returns will track earnings growth.
+  - key: premium_zone
+    term: Premium
+    group: Scores and zones
+    definition: Price above fair value and inside the top band.
+    formula: null
+    why: Priced for good news; needs strong growth to pay off.
+  - key: extreme_premium
+    term: Extreme Premium
+    group: Scores and zones
+    definition: Price above the top band.
+    formula: null
+    why: The market is paying more than the model can justify.
+  - key: knockouts
+    term: Knock-out filters
+    group: Scores and zones
+    definition: Hard rules (high pledge, repeated negative cash flow, tiny size, illiquidity) that cap
+      the grade.
+    formula: null
+    why: A stock that fails a knock-out cannot earn a top grade whatever its score.
+  - key: dcf
+    term: DCF
+    group: Scores and zones
+    definition: 'Discounted cash flow: future free cash flows brought back to today''s value.'
+    formula: Σ FCFF ÷ (1 + WACC)^t + terminal value
+    why: The core intrinsic-value method for non-financial companies.
+  - key: epv
+    term: Earnings power value
+    group: Scores and zones
+    definition: Value of today's sustainable earnings with no growth assumed.
+    formula: normalised EBIT × (1 − tax) ÷ WACC
+    why: A conservative cross-check on the DCF.
+  - key: reverse_dcf
+    term: Reverse DCF
+    group: Scores and zones
+    definition: The growth rate the current price implies.
+    formula: null
+    why: Shows what the market is already expecting.
+  - key: justified_pb
+    term: Justified P/B
+    group: Scores and zones
+    definition: The P/B a bank deserves given its ROE, growth and cost of equity.
+    formula: (ROE − g) ÷ (cost of equity − g)
+    why: The bank equivalent of a DCF.
+  - key: wacc
+    term: WACC
+    group: Scores and zones
+    definition: 'Weighted average cost of capital: the return investors demand.'
+    formula: E/V × cost of equity + D/V × cost of debt × (1 − tax)
+    why: A higher WACC lowers the fair value.
+  - key: cagr
+    term: CAGR
+    group: Scores and zones
+    definition: 'Compound annual growth rate: steady yearly growth that links a start value to an end
+      value.'
+    formula: (end ÷ start)^(1/years) − 1
+    why: Smooths lumpy years into one comparable rate.
+  - key: data_gap
+    term: Data gap
+    group: Scores and zones
+    definition: A figure the data sources could not provide. It is left blank, never filled with zero
+      or an average.
+    formula: null
+    why: So you can see what is missing instead of trusting an invented number.

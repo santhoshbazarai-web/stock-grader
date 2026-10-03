@@ -40,6 +40,11 @@ class AlertType(StrEnum):
     CROSSES_FV = "crosses_fv"
     CROSSES_TOP_BAND = "crosses_top_band"
     CROSSES_INVALIDATION = "crosses_invalidation"
+    PRICE_ABOVE = "price_above"  # needs ``threshold`` (₹)
+    PRICE_BELOW = "price_below"  # needs ``threshold`` (₹)
+    RESULTS_DATE = (
+        "results_date"  # ``threshold`` = days before; default jobs.alerts.results_days_before
+    )
 
 
 class JobStatus(StrEnum):

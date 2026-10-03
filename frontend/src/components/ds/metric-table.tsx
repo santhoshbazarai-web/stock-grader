@@ -2,6 +2,8 @@
 // A missing value shows "-" and the reason on hover / focus (and to screen readers).
 import { cn } from "@/lib/utils";
 
+import { Term } from "./term";
+
 export type MetricRow = {
   label: string;
   value: string | number | null | undefined;
@@ -28,7 +30,7 @@ export function MetricTable({ title, rows, className }: { title?: string; rows: 
           return (
             <div key={r.label} className="flex items-baseline justify-between gap-3 px-3 py-1.5">
               <dt className="text-muted-foreground" title={r.hint}>
-                {r.label}
+                <Term label={r.label} />
               </dt>
               <dd className={cn("tnum text-right font-medium", !missing && r.tone && TONE[r.tone])}>
                 {missing ? (

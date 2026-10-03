@@ -19,7 +19,6 @@ from app.db.models import (
     PriceDaily,
     Shareholding,
     SurveillanceFlag,
-    WatchlistItem,
 )
 from app.db.upsert import upsert
 from app.jobs.common import universe
@@ -31,7 +30,7 @@ from app.jobs.runner import (
     JobSpec,
     run_job,
 )
-from tests.jobs_support import TODAY, Env, action, ohlcv
+from tests.jobs_support import TODAY, Env, action, ohlcv, watch
 
 # Bonus 1:1 with ex-date 5 Jun: raw 1000 → 500.
 BONUS_BARS = ohlcv(
@@ -157,7 +156,7 @@ def test_universe_is_open_members_plus_watchlist(env: Env) -> None:
                 },  # left the index
             ],
         )
-        s.add(WatchlistItem(instrument_id=ids["D"]))
+        watch(s, ids["D"])
         s.commit()
     assert universe(env.ctx, JobOptions()) == ["A", "D"]
     assert universe(env.ctx, JobOptions(symbols=("x, y", "Y"))) == ["X", "Y"]  # created

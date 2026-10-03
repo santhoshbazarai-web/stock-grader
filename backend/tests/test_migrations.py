@@ -83,6 +83,8 @@ def test_spec_tables_present() -> None:
         "vendor_responses",  # ... every raw vendor answer, stored before it is read
         "vendor_names",  # ... the vendor name that last gave a verified answer
         "saved_screens",  # named screens from the screener page
+        "watchlists",
+        "stock_notes",
         "ui_preferences",  # UI settings, e.g. the stock page "My metrics"
         "price_anomalies",  # SPEC §3.2: moves that look like a missing / doubled split
     } == MODEL_TABLES

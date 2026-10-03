@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { ZONE_LABEL, pct, zoneTone, type Tone } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
+import { Term } from "./term";
 import { TONE_CHIP, TONE_TEXT, TONE_VAR } from "./tone";
 
 export function Stat({
@@ -24,7 +25,7 @@ export function Stat({
 }) {
   return (
     <div className={cn("flex min-w-0 flex-col gap-0.5", className)}>
-      <span className="text-muted-foreground text-xs">{label}</span>
+      <span className="text-muted-foreground text-xs"><Term label={label} /></span>
       <span className={cn("tnum text-lg leading-tight font-semibold", tone && TONE_TEXT[tone])}>{value}</span>
       {sub != null && <span className="text-muted-foreground tnum text-xs">{sub}</span>}
     </div>

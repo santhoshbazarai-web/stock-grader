@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { AppNav } from "@/components/common";
+import { NotesPanel } from "@/components/notes-panel";
 import { EmptyState, MetricTable, PillarMiniChart, PriceLadder, Skeleton, Tabs, type TabDef } from "@/components/ds";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api, ApiError } from "@/lib/api";
@@ -61,6 +62,7 @@ const TABS: TabDef[] = [
   { id: "compare", label: "Compare", soon: true },
   { id: "ownership", label: "Ownership & Events" },
   { id: "ai", label: "AI Insights" },
+  { id: "notes", label: "Notes" },
   { id: "quality", label: "Data quality" },
 ];
 
@@ -249,6 +251,7 @@ export function ReportView({ symbol }: { symbol: string }) {
                 <ThesisCard symbol={report.symbol} version={`${report.as_of}:${report.cmp}:${report.grade}:${report.action}`} />
               </Section>
             )}
+            {tab === "notes" && <NotesPanel symbol={report.symbol} />}
             {tab === "quality" && (
               <>
                 <Section title="Data coverage">

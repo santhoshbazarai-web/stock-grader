@@ -426,19 +426,40 @@ export type WatchlistItem = {
   zone: ZoneName | null;
   action: string | null;
   cmp: number | null;
+  discount_pct: number | null;
+  next_results_date: string | null;
+  report_as_of: string | null;
+  since_last_report: string[];
+  active_alerts: number;
 };
 
-export type AlertType = "enters_buy_zone" | "crosses_fv" | "crosses_top_band" | "crosses_invalidation";
+export type AlertType =
+  | "enters_buy_zone"
+  | "crosses_fv"
+  | "crosses_top_band"
+  | "crosses_invalidation"
+  | "price_above"
+  | "price_below"
+  | "results_date";
 
 export type Alert = {
   id: number;
   symbol: string;
+  company: string | null;
   alert_type: AlertType;
+  condition: string;
+  threshold: number | null;
   is_active: boolean;
+  status: "active" | "triggered" | "paused";
   last_triggered_at: string | null;
   last_triggered_price: number | null;
   created_at: string;
+  updated_at: string;
 };
+
+export type Note = { id: number; symbol: string; name: string | null; body: string; created_at: string; updated_at: string };
+export type GlossaryEntry = { key: string; term: string; group: string; definition: string; formula: string | null; why: string };
+export type WatchlistInfo = { id: number; name: string; count: number };
 
 export type UploadedDataset = {
   symbol: string;

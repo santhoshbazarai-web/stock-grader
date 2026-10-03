@@ -38,7 +38,6 @@ from app.db.models import (
     PipelineRun,
     ReconciliationIssue,
     Report,
-    WatchlistItem,
 )
 from app.db.upsert import upsert
 from app.devtools.synthetic import seed_company, seed_index
@@ -49,7 +48,7 @@ from app.jobs.runner import JobOptions, run_job
 from app.pipeline.runner import run_pending, start_run
 from app.reports.build import build_report
 from app.reports.data import load_stock_data
-from tests.jobs_support import NOW, TODAY, Env
+from tests.jobs_support import NOW, TODAY, Env, watch
 
 FIX = Path(__file__).parent / "fixtures" / "events"
 CR = 1e7
@@ -131,7 +130,7 @@ def synth(env: Env) -> Env:
     with env.session() as s:
         seed_index(s, env.ctx.config.jobs.universe_index)
         iid = seed_company(s, "SYNTH")
-        s.add(WatchlistItem(instrument_id=iid))  # the universe: index members + watchlist
+        watch(s, iid)  # the universe: index members + watchlist
         s.commit()
     return env
 
