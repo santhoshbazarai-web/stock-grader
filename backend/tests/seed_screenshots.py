@@ -21,7 +21,8 @@ from tests.test_acceptance_indianapi import reports  # noqa: F401  (fixture)
 
 def test_seed(env: Env, reports: dict) -> None:  # type: ignore[type-arg]  # noqa: F811
     with env.session() as s:
-        refresh_report(s, "HDFCBANK", get_config())
+        for sym in ("HDFCBANK", "TCS"):
+            refresh_report(s, sym, get_config())
         s.commit()
     url = make_url(TEST_DATABASE_URL)
     subprocess.run(

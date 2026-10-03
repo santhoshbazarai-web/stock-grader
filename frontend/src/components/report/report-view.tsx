@@ -7,12 +7,16 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { AppNav } from "@/components/common";
+import { CompareTab } from "./compare-tab";
+import { DividendsTab } from "./dividends-tab";
+import { FairValueTab } from "./fair-value-tab";
+import { FinancialsTab } from "./financials-tab";
+import { KeyMetricsTab } from "./key-metrics-tab";
 import { NotesPanel } from "@/components/notes-panel";
 import { EmptyState, MetricTable, PillarMiniChart, PriceLadder, Skeleton, Tabs, type TabDef } from "@/components/ds";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api, ApiError } from "@/lib/api";
 import { friendlyMessage, inr, num, signedPct } from "@/lib/format";
-import { metricsFor } from "@/lib/metrics";
 import type { PipelineRun, PipelineStart, StockReport } from "@/lib/types";
 
 import { CoverageGrid } from "./coverage-grid";
@@ -30,8 +34,6 @@ import { ReconciliationBanner } from "./reconciliation-banner";
 import { Scorecard } from "./scorecard";
 import { SourcesPanel } from "./sources-panel";
 import { ThesisCard } from "./thesis-card";
-import { ValuationPanel } from "./valuation-panel";
-import { ZoneGauge } from "./zone-gauge";
 
 function Section({
   title,
@@ -59,7 +61,7 @@ const TABS: TabDef[] = [
   { id: "fair-value", label: "Fair Value" },
   { id: "dividends", label: "Dividends" },
   { id: "technicals", label: "Technicals" },
-  { id: "compare", label: "Compare", soon: true },
+  { id: "compare", label: "Compare" },
   { id: "ownership", label: "Ownership & Events" },
   { id: "ai", label: "AI Insights" },
   { id: "notes", label: "Notes" },
@@ -83,7 +85,7 @@ function useTab(): [string, (id: string) => void] {
 
 export function ReportView({ symbol }: { symbol: string }) {
   const [report, setReport] = useState<StockReport | null>(null);
-  const [fundYears, setFundYears] = useState<number | null>(null);
+  const [, setFundYears] = useState<number | null>(null);
   const [error, setError] = useState<{ status: number; detail: string } | null>(
     null,
   );
@@ -200,42 +202,28 @@ export function ReportView({ symbol }: { symbol: string }) {
                 </div>
               </>
             )}
-            {tab === "financials" && (
-              <Section title={fundYears ? `Financials (${fundYears} year${fundYears === 1 ? "" : "s"})` : "Financials"}>
-                <FundamentalsCharts symbol={report.symbol} onYears={setFundYears} />
-              </Section>
-            )}
+            {tab === "financials" && <FinancialsTab symbol={report.symbol} />}
             {tab === "key-metrics" && (
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                <Section title="Scorecard">
-                  <Scorecard report={report} />
-                </Section>
-                <Section title="Key metrics">
-                  <KeyMetrics report={report} />
-                </Section>
-              </div>
-            )}
-            {tab === "fair-value" && (
               <>
-                <Section title="Valuation zone">
-                  <ZoneGauge report={report} />
-                </Section>
-                <Section title="Valuation">
-                  <ValuationPanel report={report} sectors={sectors} onReport={(r) => r && setReport(r)} />
-                </Section>
+                <KeyMetricsTab symbol={report.symbol} />
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                  <Section title="Scorecard">
+                    <Scorecard report={report} />
+                  </Section>
+                  <Section title="Fundamentals notes">
+                    <KeyMetrics report={report} />
+                  </Section>
+                </div>
               </>
             )}
-            {tab === "dividends" && (
-              <Section title="Dividends">
-                <OverviewGroup report={report} group="Dividends" />
-              </Section>
-            )}
+            {tab === "fair-value" && <FairValueTab report={report} sectors={sectors} onReport={(r) => r && setReport(r)} />}
+            {tab === "dividends" && <DividendsTab symbol={report.symbol} />}
             {tab === "technicals" && (
               <Section title="Technicals">
                 <TechnicalsTab report={report} />
               </Section>
             )}
-            {tab === "compare" && <EmptyState title="Coming soon">Side-by-side comparison with peers is planned.</EmptyState>}
+            {tab === "compare" && <CompareTab symbol={report.symbol} />}
             {tab === "ownership" && (
               <>
                 <Section title="Shareholding">
@@ -267,16 +255,6 @@ export function ReportView({ symbol }: { symbol: string }) {
       )}
     </main>
   );
-}
-
-function OverviewGroup({ report, group }: { report: StockReport; group: string }) {
-  const rows = metricsFor(report)
-    .filter((m) => m.group === group)
-    .map((m) => {
-      const v = m.get(report);
-      return { label: m.label, value: v.text, reason: v.reason };
-    });
-  return <MetricTable rows={rows} />;
 }
 
 function TechnicalsTab({ report }: { report: StockReport }) {

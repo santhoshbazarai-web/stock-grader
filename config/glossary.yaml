@@ -428,3 +428,202 @@ glossary:
       or an average.
     formula: null
     why: So you can see what is missing instead of trusting an invented number.
+  - key: roic
+    term: ROIC
+    group: Quality
+    definition: 'Return on invested capital: after-tax operating profit earned on the capital invested
+      in the business.'
+    formula: EBIT x (1 - tax rate) / average (equity + debt - cash)
+    why: 'Shows whether growth creates value: ROIC above the cost of capital adds value.'
+  - key: net_margin
+    term: Net margin
+    group: Quality
+    definition: Net profit as a share of sales.
+    formula: PAT / revenue x 100
+    why: What is left for shareholders from each rupee of sales.
+  - key: sales_growth
+    term: Sales growth
+    group: Growth
+    definition: Year-on-year growth in sales.
+    formula: (sales / previous year sales - 1) x 100
+    why: The top line is the starting point for every other kind of growth.
+  - key: ebitda_growth
+    term: EBITDA growth
+    group: Growth
+    definition: Year-on-year growth in operating profit before depreciation.
+    formula: (EBITDA / previous EBITDA - 1) x 100
+    why: Faster than sales means margins are widening.
+  - key: pat_growth
+    term: PAT growth
+    group: Growth
+    definition: Year-on-year growth in net profit.
+    formula: (PAT / previous PAT - 1) x 100
+    why: Profit growth pays for dividends and reinvestment.
+  - key: eps_growth
+    term: EPS growth
+    group: Growth
+    definition: Year-on-year growth in earnings per share.
+    formula: (EPS / previous EPS - 1) x 100
+    why: Per-share growth is what shareholders actually keep after dilution.
+  - key: current_ratio
+    term: Current ratio
+    group: Financial strength
+    definition: Current assets divided by current liabilities.
+    formula: current assets / current liabilities
+    why: Below 1 can mean trouble paying short-term bills.
+  - key: asset_turnover
+    term: Asset turnover
+    group: Quality
+    definition: Sales generated per rupee of average assets.
+    formula: revenue / average total assets
+    why: Higher turnover means assets are put to work efficiently.
+  - key: debtor_days
+    term: Debtor days
+    group: Quality
+    definition: Average days customers take to pay.
+    formula: receivables / revenue x days in year
+    why: Rising days can mean weaker customers or aggressive sales.
+  - key: inventory_days
+    term: Inventory days
+    group: Quality
+    definition: Average days stock sits before it is sold.
+    formula: inventory / cost of goods sold x days in year
+    why: Long holding ties up cash and risks write-offs.
+  - key: payable_days
+    term: Payable days
+    group: Quality
+    definition: Average days the company takes to pay suppliers.
+    formula: payables / cost of goods sold x days in year
+    why: Longer days free up cash, but very long ones can strain suppliers.
+  - key: ccc_days
+    term: Cash conversion cycle
+    group: Quality
+    definition: Days between paying suppliers and collecting from customers.
+    formula: debtor days + inventory days - payable days
+    why: A shorter cycle needs less working capital.
+  - key: eps
+    term: EPS
+    group: Quality
+    definition: 'Earnings per share: profit attributable to each share.'
+    formula: net profit / diluted shares
+    why: The base for P/E and for per-share growth.
+  - key: bvps
+    term: Book value per share
+    group: Quality
+    definition: Shareholders' equity per share.
+    formula: equity / shares outstanding
+    why: The base for P/B; the key anchor for banks.
+  - key: sales_per_share
+    term: Sales per share
+    group: Quality
+    definition: Revenue attributable to each share.
+    formula: revenue / diluted shares
+    why: Useful when profits are temporarily distorted.
+  - key: dps
+    term: Dividend per share
+    group: Dividend
+    definition: Dividend paid for each share in a fiscal year.
+    formula: sum of dividends with ex-date in the fiscal year
+    why: The cash you actually receive; growth in DPS shows confidence.
+  - key: nim_pct
+    term: Net interest margin
+    group: Quality
+    definition: A bank's net interest income as a share of its earning assets.
+    formula: NII / average (advances + investments) x 100
+    why: The core spread a bank earns on lending.
+  - key: gnpa_pct
+    term: Gross NPA
+    group: Financial strength
+    definition: Share of loans that borrowers have stopped repaying.
+    formula: gross NPA / gross advances x 100
+    why: The first measure of a bank's loan quality.
+  - key: nnpa_pct
+    term: Net NPA
+    group: Financial strength
+    definition: Bad loans left after provisions are set aside.
+    formula: net NPA / net advances x 100
+    why: Shows how much of the bad-loan risk is still uncovered.
+  - key: credit_cost_pct
+    term: Credit cost
+    group: Financial strength
+    definition: Loan-loss provisions as a share of average loans.
+    formula: loan-loss provisions / average advances x 100
+    why: The yearly price a bank pays for bad loans.
+  - key: car_pct
+    term: Capital adequacy (CAR)
+    group: Financial strength
+    definition: Capital held as a share of risk-weighted assets.
+    formula: capital / risk-weighted assets x 100
+    why: A cushion against losses; regulators require a minimum.
+  - key: casa_pct
+    term: CASA ratio
+    group: Financial strength
+    definition: Share of deposits held in current and savings accounts.
+    formula: (current + savings deposits) / total deposits x 100
+    why: Cheap, sticky funding lifts a bank's margin.
+  - key: cd_ratio_pct
+    term: Credit-deposit ratio
+    group: Financial strength
+    definition: Loans as a share of deposits.
+    formula: advances / deposits x 100
+    why: Very high means stretched funding; very low means idle money.
+  - key: equity_to_assets_pct
+    term: Equity / assets
+    group: Financial strength
+    definition: Equity capital as a share of total assets.
+    formula: equity / total assets x 100
+    why: A simple leverage check for banks.
+  - key: cost_to_income_pct
+    term: Cost-to-income
+    group: Quality
+    definition: Operating costs as a share of a bank's income.
+    formula: operating expenses / (NII + other income) x 100
+    why: Lower means a leaner bank.
+  - key: deposit_growth_pct
+    term: Deposit growth
+    group: Growth
+    definition: Year-on-year growth in deposits.
+    formula: (deposits / previous deposits - 1) x 100
+    why: Deposits fund a bank's loan growth.
+  - key: ex_date
+    term: Ex-dividend date
+    group: Dividend
+    definition: The first day a share trades without the right to the declared dividend.
+    formula: null
+    why: You must own the share before this date to receive the dividend.
+  - key: buyback
+    term: Buyback
+    group: Dividend
+    definition: A company buying its own shares from the market.
+    formula: null
+    why: Shrinks the share count, lifting per-share earnings.
+  - key: payout_ratio
+    term: Dividend payout ratio
+    group: Dividend
+    definition: Share of earnings paid out as dividends.
+    formula: DPS / EPS x 100
+    why: A moderate payout leaves room to grow.
+  - key: football_field
+    term: Football-field chart
+    group: Scores and zones
+    definition: A chart that lays each valuation method's range against the current price.
+    formula: null
+    why: Shows at a glance whether methods agree and where the price sits.
+  - key: sensitivity
+    term: Sensitivity grid
+    group: Scores and zones
+    definition: Fair value recomputed across a grid of growth and discount-rate assumptions.
+    formula: null
+    why: Shows how fragile the fair value is to the inputs.
+  - key: scenarios
+    term: Bear / base / bull
+    group: Scores and zones
+    definition: Fair value under pessimistic, central and optimistic assumptions.
+    formula: null
+    why: A range is more honest than one number.
+  - key: mansfield_rs
+    term: Mansfield RS
+    group: Technical
+    definition: The stock's relative strength against the benchmark, smoothed over about a year.
+    formula: null
+    why: Positive means the stock beats the market.

@@ -908,3 +908,70 @@ export type TriageRow = {
   default: "pdf" | "other";
   reason: string;
 };
+
+// ── stock page tabs (app/reports/tabs.py, app/api/stock_tabs.py) ──
+export type StatementColumn = {
+  period_end: string;
+  label: string;
+  fiscal_year: number | null;
+  source: string | null;
+  derived: boolean;
+  vendor_reclassified: boolean;
+};
+export type StatementRow = {
+  key: string;
+  label: string;
+  unit: "cr" | "inr" | "pct" | "x" | "days";
+  values: (number | null)[];
+  yoy: boolean;
+  reason: string | null;
+};
+export type StatementSection = { id: "income" | "balance" | "cashflow"; title: string; rows: StatementRow[] };
+export type Statements = {
+  symbol: string;
+  period: "annual" | "quarterly";
+  model: "general" | "bank";
+  basis: string | null;
+  columns: StatementColumn[];
+  sections: StatementSection[];
+};
+
+export type KeyMetric = {
+  key: string;
+  glossary_key: string;
+  label: string;
+  unit: "cr" | "inr" | "pct" | "x" | "days";
+  value: number | null;
+  fiscal_year: number | null;
+  median_5y: number | null;
+  percentile: number | null;
+  years: number;
+  reason: string | null;
+};
+export type KeyMetricsOut = { symbol: string; model: "general" | "bank"; groups: { title: string; metrics: KeyMetric[] }[] };
+
+export type DpsYear = { fiscal_year: number; dps: number; eps: number | null; payout_pct: number | null };
+export type ActionRow = {
+  ex_date: string;
+  action_type: string;
+  dividend_per_share: number | null;
+  ratio_old: number | null;
+  ratio_new: number | null;
+  description: string | null;
+};
+export type DividendsOut = {
+  symbol: string;
+  history: DpsYear[];
+  ttm_dps: number | null;
+  yield_pct: number | null;
+  yield_reason: string | null;
+  dps_cagr: Record<"3y" | "5y" | "10y", number | null>;
+  cagr_reason: string | null;
+  corporate_actions: ActionRow[];
+  upcoming: ActionRow[];
+  buybacks: { date: string | null; title: string }[];
+  buyback_note: string | null;
+  note: string | null;
+};
+export type Peer = { symbol: string; name: string | null };
+export type ComparePrices = { base_date: string | null; series: { symbol: string; points: { date: string; value: number }[] }[] };
