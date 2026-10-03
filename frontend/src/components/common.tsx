@@ -24,6 +24,7 @@ const LINKS = [
   { href: "/screener", label: "Screener" },
   { href: "/valuation-map", label: "Valuation Map" },
   { href: "/watchlist", label: "Watchlist" },
+  { href: "/portfolio", label: "Portfolio" },
   { href: "/alerts", label: "Alerts" },
 ];
 const MORE = [

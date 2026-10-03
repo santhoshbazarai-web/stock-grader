@@ -637,3 +637,11 @@ glossary:
     formula: 'share of tests with data that pass: Strong at 75% or more, Weak below 45%'
     why: Returns that stay high and steady for a decade are more likely to last. Missing history lowers
       the confidence; it never counts as a fail.
+  - key: xirr
+    term: XIRR
+    group: Valuation
+    definition: The annualised return of a portfolio that accounts for the dates of every purchase, sale
+      and dividend, with today's market value counted as a final sale.
+    formula: the rate r where the sum of cash flow / (1 + r)^(days / 365) is zero
+    why: Unlike a simple percentage gain, it shows the yearly rate you actually earned given when your
+      money went in.

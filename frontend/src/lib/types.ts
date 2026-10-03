@@ -985,3 +985,60 @@ export type Durability = {
   tests: { key: string; label: string; passed: boolean | null; detail: string }[];
   reasons: string[];
 };
+
+// ── manual portfolios (app/api/portfolio.py) ──
+export type TxnType = "buy" | "sell" | "dividend" | "bonus" | "split";
+export type PortfolioInfo = { id: number; name: string; opening_cash: number; transactions: number };
+export type PortfolioTxn = {
+  id: number;
+  symbol: string;
+  name: string | null;
+  txn_type: TxnType;
+  txn_date: string;
+  quantity: number | null;
+  price: number | null;
+  fees: number;
+  notes: string | null;
+};
+export type PortfolioPosition = {
+  symbol: string;
+  name: string | null;
+  sector: string | null;
+  quantity: number;
+  avg_cost: number | null;
+  cost: number;
+  price: number | null;
+  price_date: string | null;
+  value: number | null;
+  pnl: number | null;
+  pnl_pct: number | null;
+  weight_pct: number | null;
+  realised_pnl: number;
+  dividends: number;
+  grade: string | null;
+  zone: string | null;
+  fair_value: number | null;
+  fv_gap_pct: number | null;
+  flags: string[];
+  missing: string | null;
+};
+export type PortfolioView = {
+  portfolio: PortfolioInfo;
+  as_of: string;
+  summary: {
+    market_value: number | null;
+    total_cost: number;
+    unrealised_pnl: number | null;
+    unrealised_pct: number | null;
+    realised_pnl: number;
+    dividends: number;
+    cash: number;
+    xirr: number | null;
+    xirr_reason: string | null;
+    holdings: number;
+    unpriced: string[];
+  };
+  positions: PortfolioPosition[];
+  allocation: { sector: string; value: number; weight_pct: number }[];
+  warnings: string[];
+};

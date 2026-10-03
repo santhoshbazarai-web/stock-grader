@@ -47,6 +47,16 @@ class AlertType(StrEnum):
     )
 
 
+class TxnType(StrEnum):
+    """Manual portfolio transactions (bonus / split: quantity = ratio_new, price = ratio_old)."""
+
+    BUY = "buy"
+    SELL = "sell"
+    DIVIDEND = "dividend"
+    BONUS = "bonus"
+    SPLIT = "split"
+
+
 class JobStatus(StrEnum):
     RUNNING = "running"
     SUCCESS = "success"

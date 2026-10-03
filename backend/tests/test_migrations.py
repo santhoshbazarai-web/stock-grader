@@ -85,6 +85,8 @@ def test_spec_tables_present() -> None:
         "saved_screens",  # named screens from the screener page
         "watchlists",
         "stock_notes",
+        "portfolios",
+        "portfolio_transactions",
         "ui_preferences",  # UI settings, e.g. the stock page "My metrics"
         "price_anomalies",  # SPEC §3.2: moves that look like a missing / doubled split
     } == MODEL_TABLES

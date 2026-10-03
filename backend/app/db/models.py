@@ -16,6 +16,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Float,
     ForeignKey,
     Identity,
     Index,
@@ -49,6 +50,7 @@ from app.db.enums import (
     SurveillanceList,
     SymbolStatus,
     Timeframe,
+    TxnType,
 )
 
 __all__ = [
@@ -72,6 +74,8 @@ __all__ = [
     "Notification",
     "PdfLineCandidate",
     "PipelineRun",
+    "Portfolio",
+    "PortfolioTxn",
     "PriceDaily",
     "ReconciliationIssue",
     "Report",
@@ -844,6 +848,34 @@ class WatchlistItem(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(Integer, Identity(), primary_key=True)
     watchlist_id: Mapped[int] = mapped_column(ForeignKey("watchlists.id", ondelete="CASCADE"))
     instrument_id: Mapped[int] = _instrument_fk()
+    notes: Mapped[str | None] = mapped_column(Text)
+
+
+class Portfolio(TimestampMixin, Base):
+    """A manual portfolio (nothing is ever fetched from a broker)."""
+
+    __tablename__ = "portfolios"
+    __upsert_key__ = ("name",)
+    __table_args__ = (UniqueConstraint("name"),)
+
+    id: Mapped[int] = mapped_column(Integer, Identity(), primary_key=True)
+    name: Mapped[str] = mapped_column(String(80))
+    opening_cash: Mapped[float] = mapped_column(Float, server_default="0")  # ₹, entered by hand
+
+
+class PortfolioTxn(TimestampMixin, Base):
+    __tablename__ = "portfolio_transactions"
+    __upsert_key__ = ("id",)
+    __table_args__ = (Index("ix_portfolio_txn_portfolio", "portfolio_id", "txn_date"),)
+
+    id: Mapped[int] = mapped_column(Integer, Identity(), primary_key=True)
+    portfolio_id: Mapped[int] = mapped_column(ForeignKey("portfolios.id", ondelete="CASCADE"))
+    instrument_id: Mapped[int] = _instrument_fk()
+    txn_type: Mapped[TxnType] = mapped_column(str_enum(TxnType))
+    txn_date: Mapped[date]
+    quantity: Mapped[float | None]  # dividend: shares held when blank
+    price: Mapped[float | None]  # buy / sell price, dividend per share (see TxnType)
+    fees: Mapped[float] = mapped_column(Float, server_default="0")
     notes: Mapped[str | None] = mapped_column(Text)
 
 

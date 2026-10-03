@@ -23,6 +23,7 @@ from app.api import (
     notes,
     notifications,
     pipeline,
+    portfolio,
     preferences,
     price_anomalies,
     screener,
@@ -89,7 +90,7 @@ def create_app() -> FastAPI:
     for module in (
         stocks, technical, screener, watchlist, notifications, admin, annual_reports, pipeline,
         events, thesis, data_sources, price_anomalies, preferences, valuation_map, screens,
-        notes, stock_tabs,
+        notes, stock_tabs, portfolio,
     ):  # fmt: skip
         app.include_router(
             module.router,

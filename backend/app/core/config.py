@@ -1267,6 +1267,7 @@ class AlertsJobConfig(_Strict):
     hysteresis_pct: Fraction
     cooldown_minutes: Annotated[int, Field(ge=0)]
     telegram_timeout_s: PositiveFloat
+    portfolio_flag_days: Annotated[int, Field(ge=0)]  # portfolio: flag a holding's recent alert
     results_days_before: Annotated[int, Field(ge=0)]  # results_date alerts: notify this early
 
     @model_validator(mode="after")
